@@ -183,12 +183,14 @@ export const DataService = {
         _impersonatedUserName = userName;
         UIManager.showImpersonationIndicator(userName);
         NotificationService.show(`Impersonation started for ${userName}.`, 'success');
+        this.clearCache();
     },
     clearImpersonation() {
         _impersonatedUserId = null;
         _impersonatedUserName = null;
         UIManager.showImpersonationIndicator(null);
         NotificationService.show('Impersonation cleared.', 'info');
+        this.clearCache();
     },
     getImpersonationInfo() {
         return {
@@ -262,11 +264,22 @@ export const DataService = {
     deleteRecord: (entity, id) => _webApiFetch('DELETE', `${entity}(${id})`),
     executeFetchXml: (entityName, fetchXml) => _webApiFetch('GET', entityName, `?fetchXml=${encodeURIComponent(fetchXml)}`).then(r => ({ entities: r.value })),
 
-    // --- OTHER METHODS ---
+    /**
+     * Clears all internal caches, forcing a full data and metadata refresh on the next request.
+     * This is critical for features like impersonation to work correctly.
+     * @param {string|null} [key=null] - An optional specific key to clear from the main cache.
+     */
     clearCache(key = null) {
-        if (key) { _cache.delete(key); } 
-        else { _cache.clear(); }
-        console.log(`PDT Cache cleared${key ? ` for: ${key}` : ' completely'}.`);
+        if (key) {
+            _cache.delete(key);
+            console.log(`PDT Cache cleared for: ${key}.`);
+        } else {
+            // This is the crucial change: clear all three internal caches.
+            _cache.clear();
+            _entitySetNameCache.clear();
+            _isMetadataLoaded = false;
+            console.log(`PDT Cache cleared completely.`);
+        }
     },
 
     getEnvironmentVariables: (bypassCache = false) => _fetch('envVars', async () => {

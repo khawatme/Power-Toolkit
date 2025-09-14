@@ -198,13 +198,18 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _showAttributeEditor(columnData) {
-        const { logicalName, type, attribute } = columnData;
+        const { logicalName, displayName, type, attribute } = columnData;
         const currentValue = attribute ? attribute.getValue() : null;
-
-        // We pass the full `attribute` object so the factory can build an optionset dropdown.
+        
         const formControlHtml = FormControlFactory.create(type, currentValue, attribute);
+        
+        // This is the new, more descriptive content, matching the Inspector's dialog.
+        const contentHtml = `
+            <p>Enter new value for <strong>${Helpers.escapeHtml(displayName)}</strong>.</p>
+            ${formControlHtml}
+        `;
 
-        DialogService.show(`Edit: ${logicalName}`, formControlHtml, (contentDiv) => {
+        DialogService.show(`Edit: ${logicalName}`, contentHtml, (contentDiv) => {
             try {
                 const input = contentDiv.querySelector("#pdt-prompt-input, select");
                 const newValue = Helpers.parseInputValue(input, type);
@@ -212,7 +217,6 @@ export class FormColumnsTab extends BaseComponent {
                 attribute.setValue(newValue);
                 NotificationService.show('Value updated on form.', 'success');
 
-                // Directly call the UI update function to guarantee an immediate visual refresh.
                 this._updateRowUI(logicalName);
             } catch (e) {
                 NotificationService.show(`Update failed: ${e.message}`, 'error');

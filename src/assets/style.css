@@ -1028,6 +1028,17 @@ input:checked + .pdt-toggle-slider:before {
     padding: 4px;
 }
 
+/* This is the corrected block of rules for the log colors */
+.log-entry-load {
+    color: var(--pro-info);
+}
+.log-entry-save {
+    color: var(--pro-success);
+}
+.log-entry-change {
+    color: var(--pro-warn);
+}
+
 /* --- Plugin Traces Tab --- */
 .trace-item {
     background: var(--pro-bg-light);
