@@ -15,9 +15,9 @@
 
 :root {
     --pro-about-yellow: #f5ab00;
-    --pro-accent-light: #64b5f6;
+    --pro-accent-light: #0d7bd0;
     --pro-accent-rgb: 0,145,255;
-    --pro-accent: #0091ff;
+    --pro-accent: #0078d4;
     --pro-bg-dark: #1e1e1e;
     --pro-bg-light: #2a2a2a;
     --pro-bg-surface: #333333;
@@ -41,7 +41,7 @@
 
 .powerapps-dev-toolkit.light-mode, 
 .pdt-dialog-overlay.light-mode {
-    --pro-accent-light: #2b88d8;
+    --pro-accent-light: #0d7bd0;
     --pro-accent-rgb: 0,120,212;
     --pro-accent: #0078d4;
     --pro-bg-dark: #f8f8f8;
@@ -140,7 +140,9 @@
 .pdt-content > div {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex-grow: 1;
+    min-height: 0;
+    min-width: 0;
 }
 
 .pdt-content-host {
@@ -532,22 +534,14 @@ input[type="datetime-local"].pdt-input {
     margin-left: auto;
 }
 
-.pdt-pagination {
-    align-items: center;
-    display: flex;
-    flex-shrink: 0;
-    gap: 10px;
-    justify-content: center;
-    margin-top: 15px;
+.pdt-table-wrapper {
+    overflow: auto;
 }
 
-/* --- Tables --- */
-.pdt-table-wrapper {
-    border-radius: 6px;
-    border: 1px solid var(--pro-border);
-    flex-grow: 1;
-    min-height: 0;
-    overflow: auto;
+.pdt-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .pdt-table {
@@ -616,6 +610,16 @@ input[type="datetime-local"].pdt-input {
 
 .pdt-table tr:hover {
     background-color: var(--pro-hover-bg);
+}
+
+.pdt-pagination {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 15px;
+    width: 100%; /* Add this line */
 }
 
 /* --- Cards --- */
@@ -725,7 +729,7 @@ input[type="datetime-local"].pdt-input {
     flex-wrap: wrap;
     gap: 8px;
     list-style: none;
-    margin: 0 15px 15px !important;
+    margin: 15px !important;
     padding: 0 !important;
 }
 
@@ -1147,13 +1151,15 @@ input:checked + .pdt-toggle-slider:before {
     overflow: hidden;
 }
 .codehub-category-header {
-    align-items: center;
-    background-color: var(--pro-bg-surface);
+    background: var(--pro-bg-surface);
+    border-radius: 8px;
+    border: 1px solid var(--pro-border);
     cursor: pointer;
+    padding: 20px;
+    transition: all 0.2s ease-in-out;
+    align-items: center;
     display: flex;
     justify-content: space-between;
-    padding-inline: 15px;
-    transition: background-color 0.2s;
 }
 .codehub-category-header::after {
     color: var(--pro-text-secondary);
@@ -1219,6 +1225,11 @@ input:checked + .pdt-toggle-slider:before {
     height: 10px;
     width: 10px;
 }
+.pdt-perf-total-time {
+    font-size: 40px;
+    font-weight: bold;
+    color: var(--pro-accent-light);
+}
 
 /* --- Metadata Browser Tab --- */
 .pdt-metadata-browser {
@@ -1249,7 +1260,7 @@ input:checked + .pdt-toggle-slider:before {
 }
 .pdt-metadata-panel-body {
     flex-grow: 1;
-    overflow-y: auto;
+    overflow: auto;
 }
 
 /**
@@ -1293,13 +1304,11 @@ input:checked + .pdt-toggle-slider:before {
 .pdt-highlight-border::before {
 	content: '';
 	position: absolute;
-	pointer-events: none; /* Allows clicks to pass through to the control underneath */
-	
-	/* Position the overlay to be ~3px larger than the content box on all sides */
-	top: 9px;    /* 12px (original padding) - 3px (desired space) */
-	bottom: -1px; /* 2px (original padding) - 3px (desired space) */
-	left: -1px;   /* 2px (original padding) - 3px (desired space) */
-	right: -1px;  /* 2px (original padding) - 3px (desired space) */
+	pointer-events: none;
+	top: 9px;
+	bottom: -1px;
+	left: -1px;
+	right: -1px;
 
 	/* The style of the highlight itself. */
 	border: 2px dashed var(--pro-warn);
@@ -1341,36 +1350,196 @@ input:checked + .pdt-toggle-slider:before {
     margin-bottom: 15px;
 }
 
-/**
- * ------------------------------------------------------------------------
- * 7. ACCESSIBILITY STYLES
- * ------------------------------------------------------------------------
- * These styles ensure a clear visual indication for keyboard navigation,
- * using the :focus-visible pseudo-class to avoid distracting outlines
- * for mouse users.
- * ------------------------------------------------------------------------
- */
-
-.modern-button:focus-visible,
-.pdt-icon-btn:focus-visible,
-.pdt-nav-tab:focus-visible,
-.pdt-select:focus-visible,
-.pdt-input:focus-visible,
-.pdt-textarea:focus-visible,
-.pdt-switcher-btn:focus-visible,
-.drag-handle:focus-visible,
-.pdt-input-btn:focus-visible,
-.help-card:focus-visible,
-.codehub-category-header:focus-visible {
-    /* Use a high-contrast outline that matches the theme */
-    outline: 2px solid var(--pro-accent-light);
-    /* Add a small offset so the outline doesn't overlap the element's border */
-    outline-offset: 2px;
-    /* Optional: Add a subtle glow for a more polished look */
-    box-shadow: 0 0 0 4px rgba(var(--pro-accent-rgb), 0.3);
+.pdt-sub-tabs {
+        display: flex;
+        gap: 5px;
+        border-bottom: 1px solid var(--pro-border);
+        margin-bottom: 15px;
+}
+.pdt-sub-tab {
+        padding: 8px 16px;
+        background: transparent;
+        border: none;
+        color: var(--pro-text-secondary);
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        border-bottom: 2px solid transparent;
+}
+.pdt-sub-tab.active {
+        color: var(--pro-accent);
+        border-bottom-color: var(--pro-accent);
 }
 
-/* For list-like items, an inset outline often looks better */
-.pdt-table tr:hover:focus-visible {
-    outline-offset: -2px;
+/* --- IMPROVEMENT: Status Badges for Business Rules --- */
+.pdt-status-badge {
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 12px; /* Add some space between the badge and the rule name */
+}
+
+.pdt-status-badge.active {
+    background-color: rgba(102, 187, 106, 0.2); /* Green with opacity */
+    color: var(--pro-success);
+}
+
+.pdt-status-badge.inactive {
+    background-color: rgba(244, 67, 54, 0.2); /* Red with opacity */
+    color: var(--pro-error);
+}
+
+/* --- IMPROVEMENT: Helper class for list item layouts --- */
+.pdt-list-item-spacer {
+    flex-grow: 1;
+}
+
+/* --- IMPROVEMENT: Action buttons for lists --- */
+.pdt-list-item-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+}
+
+/* --- IMPROVEMENT: Custom Action Buttons for Lists --- */
+.pdt-list-action-btn {
+    background-color: transparent;
+    border: 1px solid var(--pro-border);
+    color: var(--pro-text-secondary);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+
+.pdt-list-action-btn:hover {
+    transform: translateY(-1px); /* Add a subtle lift effect */
+}
+
+/* Activate Button Style */
+.pdt-list-action-btn.action-activate {
+    border-color: var(--pro-success);
+    color: var(--pro-success);
+}
+.pdt-list-action-btn.action-activate:hover {
+    background-color: var(--pro-success);
+    color: white;
+}
+
+/* Deactivate Button Style */
+.pdt-list-action-btn.action-deactivate {
+    border-color: var(--pro-warn);
+    color: var(--pro-warn);
+}
+.pdt-list-action-btn.action-deactivate:hover {
+    background-color: var(--pro-warn);
+    color: white;
+}
+
+/* Delete Button Style */
+.pdt-list-action-btn.action-delete {
+    border-color: var(--pro-error);
+    color: var(--pro-error);
+}
+.pdt-list-action-btn.action-delete:hover {
+    background-color: var(--pro-error);
+    color: white;
+}
+
+.pdt-list-item-id {
+    margin-left: 15px; /* Adds space after the name */
+    color: var(--pro-text-secondary); /* Makes the ID slightly less prominent than the name */
+}
+
+/* --- IMPROVEMENT: Multi-line layout for list items --- */
+.pdt-list-item-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pdt-list-item-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.pdt-list-item-description {
+    font-size: 12px;
+    color: var(--pro-text-secondary);
+    margin-top: 4px;
+}
+
+/* --- IMPROVEMENT: Accordion layout for Business Rules --- */
+.pdt-br-item {
+    background: var(--pro-bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--pro-border);
+    margin-bottom: 8px;
+    overflow: hidden; /* This is important for the slide-down effect */
+}
+
+.pdt-br-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.pdt-br-header:hover {
+    background-color: var(--pro-hover-bg);
+}
+
+.pdt-br-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pdt-br-header-main {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.pdt-br-description {
+    font-size: 12px;
+    color: var(--pro-text-secondary);
+    padding-left: 2px;
+}
+
+.pdt-br-details {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out;
+    border-top: 1px solid var(--pro-border);
+    padding: 0 15px;
+}
+
+.pdt-br-details .copyable-code-block {
+    margin-top: 15px;
+    margin-bottom: 15px;
+}
+
+.copyable {
+    cursor: pointer;
+}
+
+/* --- IMPROVEMENT: Code Hub Category Descriptions --- */
+.codehub-category-header h4 {
+    margin: 0 0 4px 0; /* Adjust spacing */
+}
+
+.codehub-category-description {
+    margin: 0;
+    font-size: 13px;
+    font-weight: normal; /* Lighter than the title */
+    color: var(--pro-text-secondary);
 }

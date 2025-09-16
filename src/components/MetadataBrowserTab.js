@@ -10,11 +10,18 @@ import { ICONS } from '../utils/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { Helpers } from '../utils/Helpers.js';
 import { DialogService } from '../services/DialogService.js';
+import { Store } from '../core/Store.js';
 
 /**
  * A component that provides a master-detail view for browsing Dataverse metadata.
+ * It is reactive to impersonation changes via the central store.
  * @class MetadataBrowserTab
  * @extends {BaseComponent}
+ * @property {object} ui - A cache for frequently accessed UI elements.
+ * @property {Array<object>} allEntities - The complete, filtered list of entity definitions for the current user.
+ * @property {object|null} selectedEntity - The metadata for the currently selected entity.
+ * @property {Array<object>} selectedEntityAttributes - The attribute definitions for the selected entity.
+ * @property {Function|null} unsubscribe - The function to call to unsubscribe from store updates.
  */
 export class MetadataBrowserTab extends BaseComponent {
     /**
@@ -26,6 +33,7 @@ export class MetadataBrowserTab extends BaseComponent {
         this.allEntities = [];
         this.selectedEntity = null;
         this.selectedEntityAttributes = [];
+        this.unsubscribe = null;
     }
 
     /**
@@ -40,9 +48,7 @@ export class MetadataBrowserTab extends BaseComponent {
                 <div class="pdt-metadata-panel-header">
                     <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="Search tables...">
                 </div>
-                <div id="pdt-entity-list-container" class="pdt-metadata-panel-body">
-                    <p class="pdt-note">Loading tables...</p>
-                </div>
+                <div id="pdt-entity-list-container" class="pdt-metadata-panel-body"></div>
             </div>
             <div class="pdt-metadata-panel attributes">
                 <div class="pdt-metadata-panel-header">
@@ -56,16 +62,26 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Caches UI elements, fetches initial data, and attaches event listeners.
+     * Caches UI elements, subscribes to the store, triggers the initial data load, and attaches event listeners.
      * @param {HTMLElement} element - The root element of the component.
      */
-    async postRender(element) {
+    postRender(element) {
         this.ui = {
             entitySearch: element.querySelector('#pdt-entity-search'),
             entityList: element.querySelector('#pdt-entity-list-container'),
             attributeSearch: element.querySelector('#pdt-attribute-search'),
             attributeList: element.querySelector('#pdt-attribute-list-container')
         };
+
+        // Subscribe to store changes to react to impersonation.
+        this.unsubscribe = Store.subscribe((newState, oldState) => {
+            if (newState.impersonationUserId !== oldState.impersonationUserId) {
+                this._loadData();
+            }
+        });
+        
+        // Initial data load.
+        this._loadData();
 
         this.ui.entitySearch.addEventListener('keyup', Helpers.debounce(() => this._filterEntityList(), 200));
         this.ui.attributeSearch.addEventListener('keyup', Helpers.debounce(() => this._filterAttributeList(), 200));
@@ -90,6 +106,57 @@ export class MetadataBrowserTab extends BaseComponent {
                 if (attribute) this._showAttributeDetails(attribute);
             }
         });
+    }
+    
+    /**
+     * Lifecycle hook for cleaning up resources, specifically the store subscription, to prevent memory leaks.
+     */
+    destroy() {
+        if (this.unsubscribe) {
+            this.unsubscribe();
+        }
+    }
+
+    /**
+     * Fetches entity definitions based on the current impersonation state and renders them to the UI.
+     * Also displays a one-time warning if impersonation is active.
+     * @private
+     */
+    async _loadData() {
+        this.ui.entityList.innerHTML = `<p class="pdt-note">Loading tables...</p>`;
+        this.ui.attributeList.innerHTML = `<p class="pdt-note">Select a table to view its columns.</p>`;
+        this.ui.attributeSearch.value = '';
+        this.ui.attributeSearch.disabled = true;
+
+        // This is the restored logic to show the impersonation warning.
+        const impersonationInfo = DataService.getImpersonationInfo();
+        const warningDismissed = sessionStorage.getItem('pdt-impersonation-warning-dismissed') === 'true';
+
+        if (impersonationInfo.isImpersonating && !warningDismissed) {
+            const notification = document.createElement('div');
+            notification.className = 'pdt-note';
+            notification.style.cssText = `
+                display: flex; 
+                align-items: center; 
+                gap: 15px; 
+                margin: 0 10px 10px 10px;
+            `;
+            notification.innerHTML = `
+                <span style="font-size: 1.5em;">ℹ️</span>
+                <div style="text-align: left; flex-grow: 1;">
+                    <strong>Impersonation Active:</strong> Permission checks may generate expected errors in the developer console. This is normal.
+                </div>
+                <button class="pdt-icon-btn pdt-close-btn" title="Dismiss" style="width: 28px; height: 28px; flex-shrink: 0;">&times;</button>
+            `;
+            
+            notification.querySelector('.pdt-close-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                sessionStorage.setItem('pdt-impersonation-warning-dismissed', 'true');
+                notification.remove();
+            });
+            
+            this.ui.entityList.prepend(notification);
+        }
 
         try {
             this.allEntities = await DataService.getEntityDefinitions();
@@ -121,11 +188,12 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Renders the list of entities into its container.
+     * Renders the list of entities into the entity panel.
      * @param {Array<object>} entities - The array of entity definitions to render.
      * @private
      */
     _renderEntityList(entities) {
+        const listContainer = this.ui.entityList;
         const validEntities = entities.filter(item => item && item.LogicalName);
         const getDisplayName = item => item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName;
         validEntities.sort((a,b) => (getDisplayName(a) || '').localeCompare(getDisplayName(b) || ''));
@@ -135,15 +203,30 @@ export class MetadataBrowserTab extends BaseComponent {
                 <td>${getDisplayName(item)}</td>
                 <td class="code-like">${item.LogicalName}</td>
             </tr>`).join('');
-        this.ui.entityList.innerHTML = `
+        
+        const tableHTML = `
             <table class="pdt-table">
                 <thead><tr><th>Display Name</th><th>Logical Name</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
-    }
 
+        const loadingMessage = listContainer.querySelector('p.pdt-note');
+        const existingTable = listContainer.querySelector('table');
+
+        if (existingTable) {
+            // If a table already exists (e.g., from a search filter), just update its content.
+            existingTable.querySelector('tbody').innerHTML = rows;
+        } else if (loadingMessage) {
+            // If the loading message is present, replace it with the new table.
+            loadingMessage.outerHTML = tableHTML;
+        } else {
+            // As a fallback, append the table if no other content is present.
+            listContainer.insertAdjacentHTML('beforeend', tableHTML);
+        }
+    }
+    
     /**
-     * Renders the list of attributes for the selected entity into its container.
+     * Renders the list of attributes for the selected entity into the attribute panel.
      * @param {Array<object>} attributes - The array of attribute definitions to render.
      * @private
      */
@@ -166,7 +249,7 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Filters the entity list based on the search input.
+     * Filters the displayed entity list based on the search input's value.
      * @private
      */
     _filterEntityList() {
@@ -179,7 +262,7 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Filters the attribute list based on the search input.
+     * Filters the displayed attribute list based on the search input's value.
      * @private
      */
     _filterAttributeList() {
@@ -192,94 +275,60 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Shows a dialog with a searchable list of all available simple properties for an entity.
+     * Shows a dialog with detailed properties for a selected entity.
      * @param {object} entity - The entity metadata object.
      * @private
      */
     _showEntityDetails(entity) {
         const title = entity.DisplayName?.UserLocalizedLabel?.Label || entity.SchemaName;
-        
         const content = document.createElement('div');
-        content.innerHTML = `
-            <input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;">
-            <div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>
-        `;
-
+        content.innerHTML = `<input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;"><div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>`;
         const grid = content.querySelector('.info-grid');
         const searchInput = content.querySelector('input');
-
-        const properties = Object.entries(entity)
-            .filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata'))
-            .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-
+        const properties = Object.entries(entity).filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata')).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
         properties.forEach(([key, value]) => {
-            const strong = document.createElement('strong');
-            strong.textContent = `${key}:`;
-            const span = document.createElement('span');
-            span.className = 'copyable';
-            span.title = 'Click to copy';
-            span.textContent = value;
+            const strong = document.createElement('strong'); strong.textContent = `${key}:`;
+            const span = document.createElement('span'); span.className = 'copyable'; span.title = 'Click to copy'; span.textContent = value;
             grid.append(strong, span);
         });
-
         searchInput.addEventListener('keyup', Helpers.debounce(() => {
             const term = searchInput.value.toLowerCase();
             for (let i = 0; i < grid.children.length; i += 2) {
-                const labelEl = grid.children[i];
-                const valueEl = grid.children[i + 1];
+                const labelEl = grid.children[i]; const valueEl = grid.children[i + 1];
                 const isMatch = labelEl.textContent.toLowerCase().includes(term) || valueEl.textContent.toLowerCase().includes(term);
                 const display = isMatch ? '' : 'none';
-                labelEl.style.display = display;
-                valueEl.style.display = display;
+                labelEl.style.display = display; valueEl.style.display = display;
             }
         }, 200));
-
         DialogService.show(`Table Details: ${title}`, content);
     }
 
     /**
-     * Shows a dialog with a searchable list of all available simple properties for an attribute.
+     * Shows a dialog with detailed properties for a selected attribute.
      * @param {object} attribute - The attribute metadata object.
      * @private
      */
     _showAttributeDetails(attribute) {
         const title = attribute.DisplayName?.UserLocalizedLabel?.Label || attribute.SchemaName;
-        
         const content = document.createElement('div');
-        content.innerHTML = `
-            <input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;">
-            <div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>
-        `;
-
+        content.innerHTML = `<input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;"><div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>`;
         const grid = content.querySelector('.info-grid');
         const searchInput = content.querySelector('input');
-        
-        const properties = Object.entries(attribute)
-            .filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata'))
-            .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-        
+        const properties = Object.entries(attribute).filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata')).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
         properties.forEach(([key, value]) => {
-            const strong = document.createElement('strong');
-            strong.textContent = `${key}:`;
-            const span = document.createElement('span');
-            span.className = 'copyable';
-            span.title = 'Click to copy';
-            span.textContent = value;
+            const strong = document.createElement('strong'); strong.textContent = `${key}:`;
+            const span = document.createElement('span'); span.className = 'copyable'; span.title = 'Click to copy'; span.textContent = value;
             grid.append(strong, span);
         });
-
         searchInput.addEventListener('keyup', Helpers.debounce(() => {
             const term = searchInput.value.toLowerCase();
             for (let i = 0; i < grid.children.length; i += 2) {
-                const labelEl = grid.children[i];
-                const valueEl = grid.children[i + 1];
+                const labelEl = grid.children[i]; const valueEl = grid.children[i + 1];
                 const isMatch = labelEl.textContent.toLowerCase().includes(term) || valueEl.textContent.toLowerCase().includes(term);
                 const display = isMatch ? '' : 'none';
-                labelEl.style.display = display;
-                valueEl.style.display = display;
+                labelEl.style.display = display; valueEl.style.display = display;
             }
         }, 200));
-
         DialogService.show(`Column Details: ${title}`, content);
     }
 }

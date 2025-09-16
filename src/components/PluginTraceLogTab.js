@@ -35,7 +35,9 @@ export class PluginTraceLogTab extends BaseComponent {
             <div class="section-title">Plugin Trace Logs</div>
             <div class="pdt-toolbar">
                 <input type="text" id="trace-filter-typename" class="pdt-input" placeholder="Type Name contains..." title="Filter by plugin class name">
-                <input type="text" id="trace-filter-messagename" class="pdt-input" placeholder="Message contains..." title="Filter by message (e.g., Create, Update)">
+                
+                <input type="text" id="trace-filter-content" class="pdt-input" placeholder="Trace content contains..." title="Filter by text inside the trace message block">
+                
                 <button id="apply-server-filters-btn" class="modern-button">Filter</button>
                 <div id="trace-toolbar-right-controls">
                     <label class="pdt-toggle-label" title="Automatically refresh traces">
@@ -117,10 +119,10 @@ export class PluginTraceLogTab extends BaseComponent {
 
     _applyServerFilters(element) {
         this.filters.typeName = element.querySelector('#trace-filter-typename').value.trim();
-        this.filters.messageName = element.querySelector('#trace-filter-messagename').value.trim();
+        this.filters.messageContent = element.querySelector('#trace-filter-content').value.trim();
         this.currentPage = 1;
         this.pageLinks = [];
-        this._loadTraces(element);
+        this._loadTraces(element)
     }
 
     _changePage(direction, element) {
@@ -153,8 +155,13 @@ export class PluginTraceLogTab extends BaseComponent {
     _buildODataOptions() {
         const select = "$select=typename,messagename,primaryentity,exceptiondetails,messageblock,performanceexecutionduration,createdon,correlationid";
         const filterClauses = [];
-        if (this.filters.typeName) filterClauses.push(`contains(typename, '${this.filters.typeName}')`);
-        if (this.filters.messageName) filterClauses.push(`contains(messagename, '${this.filters.messageName}')`);
+        if (this.filters.typeName) {
+            filterClauses.push(`contains(typename, '${this.filters.typeName}')`);
+        }
+        // This now correctly filters on the 'messageblock' (content) field
+        if (this.filters.messageContent) {
+            filterClauses.push(`contains(messageblock, '${this.filters.messageContent}')`);
+        }
         const filter = filterClauses.length > 0 ? `&$filter=${filterClauses.join(' and ')}` : "";
         const orderby = "&$orderby=createdon desc";
         return `?${select}${filter}${orderby}`;

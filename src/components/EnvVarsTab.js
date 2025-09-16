@@ -128,14 +128,17 @@ export class EnvironmentVariablesTab extends BaseComponent {
         const copyClass = isCopyable ? 'copyable' : '';
         const valStr = String(value ?? '').trim();
 
+        // Check if the value appears to be a JSON string.
         if ((valStr.startsWith('{') && valStr.endsWith('}')) || (valStr.startsWith('[') && valStr.endsWith(']'))) {
             try {
-                const formattedJson = JSON.stringify(JSON.parse(valStr), null, 2);
-                const highlightedHtml = Helpers.highlightJson(formattedJson);
-                const codeBlock = UIFactory.createCopyableCodeBlock(formattedJson, 'json');
-                codeBlock.querySelector('pre').innerHTML = highlightedHtml;
-                return codeBlock.outerHTML;
-            } catch (e) { /* fall through */ }
+                // Test if it's valid JSON. An error will throw to the catch block.
+                JSON.parse(valStr); 
+                
+                // If it's valid, let central UI Factory handle the formatting and highlighting.
+                return UIFactory.createCopyableCodeBlock(valStr, 'json').outerHTML;
+            } catch (e) {
+                // If it looks like JSON but isn't valid, through and display it as plain text.
+            }
         }
         return `<span class="${copyClass}" title="Click to copy">${Helpers.escapeHtml(value)}</span>`;
     }

@@ -10,6 +10,6 @@
  * @namespace
  */
 export const Config = {
-    TOOL_VERSION: '20.5.1',
+    TOOL_VERSION: '21.0.0',
     DEVELOPER_NAME: 'Mohammed Khawatme'
 };

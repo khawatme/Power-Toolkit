@@ -140,7 +140,7 @@ export class FetchXmlTesterTab extends BaseComponent {
                     <div class="pdt-toolbar" style="margin-top: 20px;">
                         <button id="fetch-add-condition-btn" class="modern-button secondary">Add Condition</button>
                         <button id="fetch-add-join-btn" class="modern-button secondary">Add Join</button>
-                        <button id="fetch-build-btn" class="modern-button secondary" style="margin-left: auto; background: var(--pro-accent);">Generate XML</button>
+                        <button id="fetch-build-btn" class="modern-button" style="margin-left: auto;">Generate XML</button>
                     </div>
                 </div>
 
@@ -279,6 +279,13 @@ export class FetchXmlTesterTab extends BaseComponent {
                     btn.disabled = isDisabled;
                 }
             });
+        });
+
+        this.ui.resultContainer.addEventListener('click', (e) => {
+            const cell = e.target.closest('.copyable-cell');
+            if (cell) {
+                Helpers.copyToClipboard(cell.textContent, `Copied: ${cell.textContent}`);
+            }
         });
 
         this.ui.templateSelect.onchange = (e) => this._handleTemplateChange(e.target.value);
@@ -570,9 +577,7 @@ export class FetchXmlTesterTab extends BaseComponent {
                 return `<th class="${sortClass}" data-column="${h}">${Helpers.escapeHtml(h)}</th>`;
             }).join('');
 
-            const bodyHtml = records.map(rec => 
-                `<tr>${headers.map(h => `<td class="copyable-cell" title="${Helpers.escapeHtml(rec[h])}">${Helpers.escapeHtml(rec[h])}</td>`).join('')}</tr>`
-            ).join('');
+            const bodyHtml = records.map(rec => `<tr>${headers.map(h => `<td class="copyable-cell" title="Click to copy">${Helpers.escapeHtml(rec[h])}</td>`).join('')}</tr>`).join('');
             
             contentEl.innerHTML = `
                 <table class="pdt-table">

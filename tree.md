@@ -1,61 +1,26 @@
-Power-Toolkit/
-├──  dist/                  # Build output for production (bookmarklet, extension)
-│   ├── Power-Toolkit.min.js   # Minified, single-file bundle for the bookmarklet
-│   └── extension/           # Unpacked files for the browser extension
-│
-|__ extension/
-|   |__ icons/
-|   |__ background.js
-|   |__ manifest.json
-|
-├── src/                     # All development source code lives here
-│   ├── App.js               # Main application controller (initializes and registers components)
-│   ├── Main.js              # Entry point wrapper (IIFE for bookmarklet/injection)
-│   │
-│   ├── core/                # 🏛️ Core architectural modules
-│   │   ├── UIManager.js       # Manages the main UI dialog, tabs, events, and lifecycle
-│   │   ├── store.js           # Centralized state management (theme, settings)
-│   │   ├── baseComponent.js   # The abstract base class all feature components inherit from
-│   │   └── componentRegistry.js # Manages the registration and retrieval of components
-│   │
-│   ├── services/            # 📡 Cross-cutting concerns and external interactions
-│   │   ├── powerappsApiService.js # Abstraction layer for all Xrm API calls
-│   │   ├── dataService.js       # Handles all data fetching and caching logic
-│   │   ├── notificationService.js # Manages toast/pop-up notifications
-│   │   └── dialogService.js     # Manages modal dialog windows
-│   │
-│   ├── components/          # 🧩 Individual feature components (the "tabs")
-│   │   ├── inspectorTab.js
-│   │   ├── formColumnsTab.js
-│   │   ├── automationTab.js
-│   │   ├── eventMonitorTab.js
-│   │   ├── pluginContextTab.js
-│   │   ├── webApiExplorerTab.js
-│   │   ├── fetchXmlTesterTab.js
-│   │   ├── envVarsTab.js
-│   │   ├── pluginTraceLogTab.js
-│   │   ├── userContextTab.js
-│   │   ├── codeHubTab.js
-│   │   ├── performanceTab.js
-│   │   ├── settingsTab.js
-│   │   ├── helpTab.js
-│   │   ├── aboutTab.js
-│   │   └── # Add any new feature tabs here...
-│   │
-│   ├── ui/                  # 🎨 UI-specific helpers and factories
-│   │   ├── styleManager.js    # Injects the application's CSS into the page
-│   │   ├── uiFactory.js       # Creates common reusable UI elements (e.g., code blocks)
-│   │   └── formControlFactory.js # Creates specific form inputs for dialogs
-│   │
-│   ├── utils/               # 🛠️ General utility functions and configuration
-│   │   ├── config.js          # Global configuration (version, author, etc.)
-│   │   ├── icons.js           # Central repository for all SVG icons
-│   │   └── helpers.js         # Common helper functions (debounce, copyToClipboard, etc.)
-│   │
-│   └── assets/              # 🖼️ Static assets
-│       └── styles.css         # All CSS styles, extracted from the original script
-│
-├── .gitignore               # Specifies files for Git to ignore
-├── package.json             # Project metadata, dependencies, and build scripts
-├── webpack.config.js        # Build configuration (e.g., for bundling files into one)
-└── README.md                # Project documentation and setup instructions
+# 🏛️ Power-Toolkit: Project Architecture
+
+This document provides a high-level overview of the Power-Toolkit's source code architecture. The project follows a modern, modular design pattern to ensure maintainability and extensibility.
+
+## Key Directories
+
+* **`dist/`**: Contains the final, production-ready build output. This is the only directory end-users need to interact with.
+    * `Power-Toolkit.min.js`: A minified, single-file bundle suitable for use as a bookmarklet.
+    * `extension/`: The unpacked files required for installing the tool as a browser extension in Chrome, Edge, etc.
+
+* **`extension/`**: Contains the static source files for the browser extension, such as the `manifest.json` and the `background.js` service worker. These files are copied into the `dist/extension` folder during the build process.
+
+* **`src/`**: Contains all the raw, modular development source code.
+    * `assets/`: Static assets, primarily the main `styles.css` file.
+    * `core/`: The foundational architecture of the application, including the `UIManager`, state `Store`, and the `BaseComponent` that all feature tabs inherit from.
+    * `services/`: Cross-cutting concerns and abstractions for external interactions. This includes the `PowerAppsApiService` (for all `Xrm` calls) and the `DataService` (for all Web API calls).
+    * `components/`: Each feature tab is a self-contained, independent component module. This is where most of the tool's functionality lives.
+    * `ui/`: UI-specific helper modules, such as the `UIFactory` for creating common elements like code blocks.
+    * `utils/`: General, stateless utility functions and configuration files, such as `Helpers.js` and `Config.js`.
+
+* **`App.js` & `Main.js`**: The primary entry points. `Main.js` provides a safe wrapper that waits for the Power Apps environment to be ready, and then `App.js` initializes the tool by registering all components and starting the UI.
+
+## Build & Configuration
+
+* **`webpack.config.js`**: The configuration file for Webpack, which bundles all the modules from `src/` into the final production files in `dist/`.
+* **`package.json`**: Defines the project's metadata, dependencies (like Webpack), and provides the `npm` scripts (`dev`, `build`) for development.

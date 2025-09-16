@@ -79,6 +79,7 @@ export const Store = {
             theme: localStorage.getItem('pdt-theme') || 'dark',
             tabSettings: finalSettings,
             dimensions: JSON.parse(localStorage.getItem('pdt-dimensions') || '{}'),
+            impersonationUserId: null,
         };
     },
 

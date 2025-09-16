@@ -286,13 +286,17 @@ export const UIManager = {
         this.dialog?.classList.toggle('light-mode', theme === 'light');
     },
 
-    _handleRefresh() {
-        DataService.clearCache();
-        NotificationService.show('Cache cleared. Reloading current tab.', 'success');
+    _handleRefresh(showNotification = true) {
+        if (showNotification) {
+            DataService.clearCache();
+            NotificationService.show('Cache cleared. Reloading current tab.', 'success');
+        }
 
         if (this.activeTabId) {
             const component = ComponentRegistry.get(this.activeTabId);
-            if (component) component.destroy();
+            if (component) {
+                component.destroy();
+            }
             
             this.renderedTabs.get(this.activeTabId)?.remove();
             this.renderedTabs.delete(this.activeTabId);
