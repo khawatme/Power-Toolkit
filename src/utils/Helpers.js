@@ -77,26 +77,44 @@ export const Helpers = {
     },
 
     /**
-     * Wraps JSON parts in spans with specific classes for CSS-based syntax highlighting.
-     * @param {string} jsonString - The JSON string to highlight.
+     * Wraps code parts in spans with specific classes for CSS-based syntax highlighting.
+     * Supports basic highlighting for JavaScript.
+     * @param {string} codeString - The code string to highlight.
      * @returns {string} An HTML string with syntax highlighting.
      */
-    highlightJson(jsonString) {
-        if (typeof jsonString !== 'string') {
-            jsonString = JSON.stringify(jsonString, undefined, 2);
+    highlightCode(codeString, language = 'javascript') {
+        if (typeof codeString !== 'string') {
+            codeString = JSON.stringify(codeString, undefined, 2);
         }
-        jsonString = jsonString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return jsonString.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
-            let cls = 'json-number';
-            if (/^"/.test(match)) {
-                cls = /:$/.test(match) ? 'json-key' : 'json-string';
-            } else if (/true|false/.test(match)) {
-                cls = 'json-boolean';
-            } else if (/null/.test(match)) {
-                cls = 'json-null';
-            }
-            return `<span class="${cls}">${match}</span>`;
-        });
+        
+        const escaped = codeString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        if (language === 'json') {
+            // This is the original, correct regex for JSON that distinguishes keys from strings.
+            return escaped.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+                let cls = 'json-number';
+                if (/^"/.test(match)) {
+                    cls = /:$/.test(match) ? 'json-key' : 'json-string';
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return `<span class="${cls}">${match}</span>`;
+            });
+        } else {
+            // This is the regex for JavaScript.
+            return escaped.replace(/(^\s*\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*)|("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")|(\b(function|var|let|const|if|else|return|try|catch|new|typeof|arguments|this)\b)|(\b(true|false|null|undefined)\b)|(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, 
+                (match, comment, string, keyword, constant, number) => {
+                    if (comment) return `<span class="json-comment">${comment}</span>`;
+                    if (string) return `<span class="json-string">${string}</span>`;
+                    if (keyword) return `<span class="json-key">${keyword}</span>`;
+                    if (constant) return `<span class="json-boolean">${constant}</span>`;
+                    if (number) return `<span class="json-number">${number}</span>`;
+                    return match;
+                }
+            );
+        }
     },
 
     /**

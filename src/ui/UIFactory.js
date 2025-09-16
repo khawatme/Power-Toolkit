@@ -29,27 +29,23 @@ export const UIFactory = {
         const codeElement = document.createElement('code');
         pre.appendChild(codeElement);
         
-        let codeToCopy = code;
+        let codeToCopy = typeof code === 'string' ? code : JSON.stringify(code, null, 2);
         let codeToDisplay = '';
 
-        // Format and highlight the code based on the specified language.
-        if (language === 'json') {
-            try {
-                const jsonObject = typeof code === 'string' ? JSON.parse(code || '""') : code;
-                codeToCopy = JSON.stringify(jsonObject, null, 2);
-                codeToDisplay = Helpers.highlightJson(codeToCopy);
-            } catch (e) {
-                // Fallback if JSON is invalid
-                codeToCopy = String(code);
+        switch (language) {
+            case 'json':
+                try { codeToCopy = JSON.stringify(JSON.parse(codeToCopy), null, 2); } catch (e) { /* Ignore parse error */ }
+                codeToDisplay = Helpers.highlightCode(codeToCopy, 'json');
+                break;
+            case 'xml':
+                codeToCopy = Helpers.formatXml(codeToCopy);
                 codeToDisplay = Helpers.escapeHtml(codeToCopy);
-            }
-        } else if (language === 'xml') {
-            codeToCopy = Helpers.formatXml(String(code));
-            codeToDisplay = Helpers.escapeHtml(codeToCopy);
-        } else {
-            // Fallback for javascript, csharp, text, etc.
-            codeToCopy = String(code);
-            codeToDisplay = Helpers.escapeHtml(codeToCopy);
+                break;
+            case 'javascript':
+            case 'csharp':
+            default:
+                codeToDisplay = Helpers.highlightCode(codeToCopy, 'javascript');
+                break;
         }
 
         codeElement.innerHTML = codeToDisplay;

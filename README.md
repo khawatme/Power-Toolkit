@@ -1,120 +1,89 @@
-# Power-Toolkit for Power Apps
+# Power-Toolkit for Power Apps & Dataverse
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Version](https://img.shields.io/badge/version-20.5-blue.svg)
+![Version](https://img.shields.io/badge/version-21.0.0-blue.svg)
 
-A comprehensive, client-side toolkit for Power Apps Model-Driven App developers. This tool provides a suite of powerful features to inspect, debug, and manipulate form data and metadata in real-time, directly within the browser. It can be run as a simple bookmarklet or installed as a browser extension for easier access.
-
-
+**Power-Toolkit** is a comprehensive, client-side developer tool designed to accelerate the development and debugging of Power Apps Model-Driven Apps. It provides a suite of powerful features to inspect, debug, and manipulate form data, metadata, and server-side processes in real-time, directly within your browser.
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-The Power-Toolkit is organized into several powerful tabs, each designed to address a common development challenge:
+The toolkit is organized into a clear, tab-based interface, with each tab providing a distinct and powerful capability:
 
-* **Inspector:** View the entire form's component hierarchy (tabs, sections, controls) and edit field values on the fly.
-* **Form Columns:** Get a simple, sortable list of all attributes on the form, including their logical names, values, and dirty state.
-* **Form Automation:** See all active Business Rules and client-side Form Event Handlers (OnLoad, OnSave) in one place.
-* **Event Monitor:** A live console that logs form events like OnLoad, OnSave, and OnChange as they happen.
-* **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` that would be sent to a server-side plugin on Create, Update, or Delete.
-* **WebAPI Explorer:** A full client to execute GET, POST, PATCH, and DELETE requests against the Dataverse Web API.
-* **FetchXML Tester:** Write, format, and execute FetchXML queries directly in the browser and see the results instantly.
-* **Plugin Traces:** A real-time debugger for server-side code with live polling and filtering for Plugin Trace Logs.
-* **Environment Variables:** View all Environment Variables and their current values in the environment.
-* **User Context:** Quickly see your User ID, security roles, client version, and organization details.
-* **Code Hub:** A handy library of common JavaScript snippets for client-side development.
-* **Performance:** Analyze form load times and see a breakdown of UI component complexity.
-* **Settings:** Customize the toolkit by reordering, hiding tabs, and importing/exporting your configuration.
+* **Live Form Inspection & Editing:**
+    * **Inspector:** A real-time tree view of the form's UI hierarchy.
+    * **Form Columns:** An interactive grid of all form attributes with live editing.
+    * **Event Monitor:** A live console that logs `OnLoad`, `OnSave`, and `OnChange` events as they happen.
+
+* **Automation & Logic Debugging:**
+    * **Form Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic of any rule. Also lists static `OnLoad`/`OnSave` event handlers.
+    * **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` sent to server-side plugins. Includes a C# unit test generator for FakeXrmEasy.
+    * **Plugin Traces:** A real-time viewer for server-side Plugin Trace Logs with live polling and powerful filtering.
+
+* **Data & API Interaction:**
+    * **WebAPI Explorer:** A full client to execute GET, POST, PATCH, and DELETE requests against the Dataverse Web API.
+    * **FetchXML Tester:** A powerful builder and editor to write, format, and execute FetchXML queries.
+    * **Metadata Browser:** A complete, searchable dictionary of all tables and columns in the environment.
+
+* **Security & Configuration:**
+    * **Impersonate:** Test security roles by executing all tool operations as another user.
+    * **User Context:** View a detailed breakdown of the current (or impersonated) user's security roles, including those inherited from teams.
+    * **Environment Variables:** View and edit all Environment Variables and their current values.
+
+* **And More...** including a Performance analyzer, a library of modern JavaScript code snippets, and fully customizable settings.
 
 ---
 
 ## 🚀 Installation & Usage
 
-You can use the Power-Toolkit in two ways: as a quick-use bookmarklet or as a more permanent browser extension.
+You can use the Power-Toolkit as a simple bookmarklet for quick use or as a browser extension for a more integrated experience.
 
-### Method 1: As a Bookmarklet (Quick Use)
+### Method 1: Bookmarklet (Quick Use)
 
-This is the fastest way to get started.
+1.  **Copy the Code:** Open the `dist/Power-Toolkit.min.js` file and copy its entire content.
+2.  **Create a Bookmark:** In your browser, create a new bookmark.
+3.  **Edit the URL:** In the URL field, type `javascript:` and then paste the code you copied.
+4.  **Save and Run:** Navigate to a Power Apps Model-Driven App and click the bookmark to launch the tool.
 
-1.  **Copy the Code:** Open the `dist/Power-Toolkit.bundle.js` file in this repository. Copy the entire content of the file.
-2.  **Create a New Bookmark:** In your browser, create a new bookmark.
-3.  **Edit the Bookmark:**
-    * For the **Name**, type `Power-Toolkit`.
-    * For the **URL** or **Address**, paste the code you copied, and **make sure to add `javascript:` at the very beginning**.
-    * Example: `javascript:(function(){...})();`
-4.  **Save and Run:** Save the bookmark. Navigate to any Power Apps Model-Driven App form or view and click the bookmark to launch the tool.
-
-### Method 2: As a Browser Extension (Recommended)
+### Method 2: Browser Extension (Recommended)
 
 Installing as an unpacked extension is more convenient for regular use.
 
 **For Chrome or Edge:**
+1.  **Download:** Download this repository as a ZIP and unzip it.
+2.  **Navigate to Extensions:** Go to `chrome://extensions` (Chrome) or `edge://extensions` (Edge).
+3.  **Enable Developer Mode:** Turn on the "Developer mode" toggle.
+4.  **Load Unpacked:** Click the "Load unpacked" button and select the **`dist/extension`** folder from the project files.
 
-1.  **Download the Code:** Download this repository as a ZIP file and unzip it, or clone it using Git.
-2.  **Navigate to Extensions:** Open your browser and go to `chrome://extensions` (for Chrome) or `edge://extensions` (for Edge).
-3.  **Enable Developer Mode:** In the top-right corner, turn on the "Developer mode" toggle.
-4.  **Load the Extension:**
-    * Click the "**Load unpacked**" button that appears.
-    * In the file dialog, navigate to and select the `dist/extension` folder from the project files you downloaded.
-5.  **Launch:** The Power-Toolkit icon will appear in your browser's toolbar. Navigate to a Model-Driven App and click the icon to launch the tool.
+The Power-Toolkit icon will appear in your toolbar. Click it to launch the tool on any Power Apps page.
 
 ---
 
-## 💻 Development & Building from Source
+## 💻 Development & Contribution
 
-If you want to contribute or customize the toolkit, you can build it from the source files.
+Contributions are welcome! If you want to fix a bug or add a new feature, you can build the tool from its source files.
 
 ### Prerequisites
-
 * [Node.js](https://nodejs.org/) (which includes npm)
 
 ### Setup
-
-1.  **Clone the repository:**
+1.  **Clone & Install:**
     ```bash
-    git clone [https://github.com/your-username/Power-Toolkit.git](https://github.com/your-username/Power-Toolkit.git)
-    cd Power-Toolkit
-    ```
-2.  **Install dependencies:**
-    ```bash
+    git clone [https://github.com/your-username/power-toolkit.git](https://github.com/your-username/power-toolkit.git)
+    cd power-toolkit
     npm install
     ```
+2.  **Run in Development Mode:** This command will watch for changes in the `src/` directory and automatically rebuild the files in `dist/`.
+    ```bash
+    npm run dev
+    ```
+3.  **Build for Production:** This command will bundle and minify all source files for release.
+    ```bash
+    npm run build
+    ```
+---
 
-### Running in Development Mode
+## 📜 License
 
-This command will start webpack in "watch mode." It will automatically re-bundle the files in the `dist` folder every time you save a change in the `src` directory.
-
-```bash
-npm run dev
-
-Building for Production
-This command will bundle and minify all source files, creating the final production-ready assets in the dist folder.
-npm run build
-
-🏗️ Project Structure
-The project is organized with a clear separation of concerns to make it maintainable and extensible.
-
-src/: Contains all the raw, modular source code.
-
-assets/: Static files like the main CSS stylesheet.
-
-components/: Each feature tab is a self-contained component.
-
-core/: The core application architecture (UI Manager, State Store, etc.).
-
-services/: Modules for handling external interactions (Dataverse API, notifications).
-
-ui/: UI helper factories for creating common elements like code blocks.
-
-utils/: Generic helper functions and configuration files.
-
-app.js: The main application controller that assembles all the modules.
-
-main.js: The final entry point that safely initializes the app.
-
-dist/: Contains the final, bundled output from the build process. This is what you use.
-
-
-📜 License
-This project is licensed under the MIT License.
+This project is licensed under the **MIT License**.

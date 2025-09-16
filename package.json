@@ -23,6 +23,7 @@
         "eslint": "^9.34.0",
         "eslint-config-airbnb-extended": "^2.2.0",
         "eslint-plugin-import": "^2.32.0",
+        "js-beautify": "^1.15.4",
         "style-loader": "^4.0.0",
         "terser-webpack-plugin": "^5.3.10",
         "webpack": "^5.101.3",

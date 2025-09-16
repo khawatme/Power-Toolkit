@@ -22,7 +22,7 @@ export class ImpersonateTab extends BaseComponent {
         container.innerHTML = `
             <div class="section-title">User Impersonation</div>
             <p class="pdt-note">
-                Select a user to execute all subsequent Web API requests from within this tool (e.g., in the WebAPI Explorer, FetchXML Tester, Env Variables or Plugin Traces) on their behalf. This is useful for testing security roles.
+                Select a user to execute all subsequent Web API requests from within this tool (e.g., in the Metadata Browser, WebAPI Explorer,FetchXML Tester and User Context) on their behalf. This is useful for testing security roles.
             </p>
             <div id="impersonation-status-container" style="margin-top: 15px;"></div>
             <div class="pdt-toolbar">

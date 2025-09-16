@@ -9,6 +9,7 @@
 import { Store } from './core/Store.js';
 import { UIManager } from './core/UIManager.js';
 import { ComponentRegistry } from './core/ComponentRegistry.js';
+import { PowerAppsApiService } from './services/PowerAppsApiService.js'; // <-- This import is critical
 
 // All Feature Tab Components
 import { InspectorTab } from './components/InspectorTab.js';
@@ -28,7 +29,6 @@ import { HelpTab } from './components/HelpTab.js';
 import { AboutTab } from './components/AboutTab.js';
 import { ImpersonateTab } from './components/ImpersonateTab.js';
 import { MetadataBrowserTab } from './components/MetadataBrowserTab.js';
-import { CoffeeTab } from './components/CoffeeTab.js';
 
 /**
  * The main application object.
@@ -39,11 +39,10 @@ export const App = {
      * Initializes and starts the Power-Toolkit application.
      */
     init() {
-        // Prevent multiple instances of the tool from running simultaneously.
         if (window.PDT_INITIALIZED) {
             const existingTool = document.querySelector('.powerapps-dev-toolkit');
             if (existingTool) {
-                existingTool.style.display = 'flex'; // Simply un-hide if already present
+                existingTool.style.display = 'flex';
             }
             return;
         }
@@ -64,15 +63,22 @@ export const App = {
                 UIManager.updateNavTabs();
             }
         };
+        
+        const globalOnLoadHandler = () => {
+            console.log("PDT: Form OnLoad detected, silently refreshing active tab.");
+            UIManager.updateNavTabs();
+            if (UIManager.dialog && UIManager.activeTabId) {
+                UIManager._handleRefresh(false);
+            }
+        };
+        PowerAppsApiService.addOnLoad(globalOnLoadHandler);
 
-        // Set a global flag to indicate the tool is running.
         window.PDT_INITIALIZED = true;
         console.log("Power-Toolkit Initialized.");
     },
 
     /**
      * Instantiates and registers all feature components with the ComponentRegistry.
-     * To add a new tab, import its class and register it here.
      * @private
      */
     _registerComponents() {
@@ -84,7 +90,7 @@ export const App = {
         ComponentRegistry.register(new PluginContextTab());
         ComponentRegistry.register(new PerformanceTab());
 
-        // Global Components (available on forms and views)
+        // Global Components
         ComponentRegistry.register(new ImpersonateTab());
         ComponentRegistry.register(new MetadataBrowserTab());
         ComponentRegistry.register(new WebApiExplorerTab());
@@ -98,6 +104,5 @@ export const App = {
         ComponentRegistry.register(new SettingsTab());
         ComponentRegistry.register(new HelpTab());
         ComponentRegistry.register(new AboutTab());
-        // ComponentRegistry.register(new CoffeeTab());
     }
 };

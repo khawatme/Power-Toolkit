@@ -67,22 +67,22 @@ export class WebApiExplorerTab extends BaseComponent {
                         <input type="text" id="api-get-entity" class="pdt-input" placeholder="e.g., accounts">
                         <button id="browse-api-get-entity-btn" class="pdt-input-btn" title="Browse tables">${ICONS.inspector}</button>
                     </div>
-                    <label for="api-get-select">Columns ($select)</label>
+                    <label for="api-get-select">Columns</label>
                     <div class="pdt-input-with-button">
                         <textarea id="api-get-select" class="pdt-textarea" rows="3" placeholder="name\ncreatedon"></textarea>
                         <button id="browse-api-get-select-btn" class="pdt-input-btn" title="Browse columns" disabled>${ICONS.inspector}</button>
                     </div>
-                    <label for="api-get-top">Top Count ($top)</label>
+                    <label for="api-get-top">Top Count</label>
                     <input type="number" id="api-get-top" class="pdt-input" placeholder="Limit results, e.g., 10" value="10">
                 </div>
 
-                <div class="pdt-section-header" style="margin-top:15px;">Filter ($filter)</div>
+                <div class="pdt-section-header" style="margin-top:15px;">Filter</div>
                  <div class="pdt-form-grid">
                     <label>Conditions</label>
                     <div id="api-get-conditions-container" class="pdt-builder-group"></div>
                 </div>
                 
-                <div class="pdt-section-header" style="margin-top:15px;">Order By ($orderby)</div>
+                <div class="pdt-section-header" style="margin-top:15px;">Order By</div>
                 <div class="pdt-form-grid">
                     <label for="api-get-orderby-attribute">Attribute</label>
                     <div class="pdt-input-with-button">
@@ -259,11 +259,17 @@ export class WebApiExplorerTab extends BaseComponent {
 
         this.ui.methodSelect.addEventListener('change', () => this._updateUiState());
         this.ui.resultContainer.addEventListener('click', (e) => {
+            const cell = e.target.closest('.copyable-cell');
+            if (cell) {
+                Helpers.copyToClipboard(cell.textContent, `Copied: ${cell.textContent}`);
+            }
+
             const target = e.target.closest('button');
             if (!target) return;
             if (target.id === 'api-view-table') this._switchResultView('table');
             if (target.id === 'api-view-json') this._switchResultView('json');
         });
+        
         this.ui.resultContainer.addEventListener('change', (e) => {
             if (e.target.matches('#odata-filter-toggle')) {
                 this.hideOdata = e.target.checked;
@@ -486,7 +492,7 @@ export class WebApiExplorerTab extends BaseComponent {
                 const sortClass = isSorted ? `sort-${this.resultSortState.direction}` : '';
                 return `<th class="${sortClass}" data-column="${h}">${Helpers.escapeHtml(h)}</th>`;
             }).join('');
-            const bodyHtml = displayRecords.map(rec => `<tr>${headers.map(h => `<td class="copyable-cell" title="${Helpers.escapeHtml(rec[h])}">${Helpers.escapeHtml(rec[h])}</td>`).join('')}</tr>`).join('');
+            const bodyHtml = displayRecords.map(rec => `<tr>${headers.map(h => `<td class="copyable-cell" title="Click to copy">${Helpers.escapeHtml(rec[h])}</td>`).join('')}</tr>`).join('');
             contentEl.innerHTML = `<table class="pdt-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
         } else {
             const resultToDisplay = this.hideOdata ? this._getFilteredResult(this.lastResult) : this.lastResult;

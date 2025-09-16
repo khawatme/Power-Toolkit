@@ -109,73 +109,93 @@ export class HelpTab extends BaseComponent {
         return {
             globalActions: {
                 title: 'Global Actions (Header Buttons)',
-                summary: 'Quickly access powerful tools like God Mode, form reset, and theme toggling.',
-                content: 'The header provides quick access to powerful actions. <strong>God Mode</strong> unlocks all fields, removes required validations, and makes all hidden UI elements visible on a form. <strong>Reset Form</strong> discards all unsaved changes on the current form. <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab. <strong>Toggle Theme</strong> switches between light and dark mode.'
+                summary: 'Access powerful tools like God Mode, form reset, and theme toggling.',
+                content: 'The header provides quick access to powerful actions. <strong>God Mode</strong> unlocks all fields, removes required validations, and makes hidden UI elements visible on the form. <strong>Reset Form</strong> discards all unsaved changes by reloading the form data. <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab. <strong>Toggle Theme</strong> switches between light and dark mode.'
             },
             inspector: {
                 title: 'Inspector',
-                summary: "View and edit the form's UI component hierarchy in real-time.",
-                content: 'The Inspector provides a live, hierarchical tree view of every UI component on the current form (Tabs > Sections > Controls). Expand each level to see properties like the logical name and the current value. For editable fields, the value is underlined—click it to open a dialog and change the value in real-time. This is extremely useful for testing how the form reacts to different data inputs.'
+                summary: 'View and edit the form\'s UI component hierarchy in real-time.',
+                content: 'The Inspector provides a live, hierarchical tree view of every UI component on the current form (Tabs > Sections > Controls). Expand each level to see properties and current values. For editable fields, the value is underlined—click it to open a dialog and perform **live editing**. This is extremely useful for testing how the form reacts to different data inputs without having to write code.'
             },
             formColumns: {
                 title: 'Form Columns',
                 summary: 'A searchable table of all data columns on the form or in the record.',
-                content: "This tab provides a flat table of every data column (attribute). The 'Form Columns' view shows only attributes present on the form layout, allowing for live editing. The 'Record Columns' view shows all attributes for the saved record, fetched via the Web API. You can sort, search, and click any cell to copy its value."
+                content: "This tab provides a flat table of every data column (attribute). The <strong>'Form Columns'</strong> view shows live data from the `Xrm.Page` context, allowing for real-time editing. The <strong>'Record Columns'</strong> view shows all attributes for the saved record, fetched via the Web API. You can sort, search, and hover over a row to **highlight the control** on the main form."
             },
             automation: {
                 title: 'Form Automation',
-                summary: 'See all active Business Rules and OnLoad/OnSave JavaScript events.',
-                content: "This tab reveals the automated logic running on the form. It lists all active Business Rules for the current table and all JavaScript functions registered on the form's OnLoad and OnSave events. This helps you quickly identify which scripts and rules are firing, which is essential for debugging unexpected form behavior."
+                summary: 'View, manage, and inspect Business Rules and JavaScript event handlers.',
+                content: "This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer."
             },
             eventMonitor: {
                 title: 'Event Monitor',
                 summary: 'A live console that logs form events like OnLoad, OnSave, and OnChange.',
-                content: "The Event Monitor is a live console that logs form events as they happen. It captures the initial Form OnLoad, every field's OnChange event (showing which field was changed), and the Form OnSave event. This is invaluable for debugging client-side scripts and understanding the sequence of events."
+                content: "The Event Monitor is a live console that logs form events as they happen. It captures the initial Form `OnLoad`, every field's `OnChange` event (showing which field was changed), and the Form `OnSave` event. This is invaluable for debugging client-side scripts and understanding the sequence of events."
             },
             pluginContext: {
                 title: 'Plugin Context',
                 summary: 'Simulate the data context (Target, Pre/Post Images) sent to server-side plugins.',
-                content: 'This tool simulates the data context that would be sent to a server-side plugin for Create, Update, or Delete operations. Based on the current form data, it generates the JSON for `InputParameters["Target"]`, `PreEntityImages["preimage"]`, and `PostEntityImages["postimage"]`. This is extremely useful for generating test data for C# unit tests.'
+                content: 'This tool simulates the data context that would be sent to a server-side plugin for `Create`, `Update`, or `Delete` operations. Based on the current form data, it generates the JSON for `InputParameters["Target"]`, `PreEntityImages["preimage"]`, and `PostEntityImages["postimage"]`. It also includes a button to generate a complete C# unit test snippet for the **FakeXrmEasy** framework.'
             },
-            performance: {
-                title: 'Performance',
-                summary: 'Analyze the form load time and see a breakdown of the form\'s complexity.',
-                content: 'This tab displays key performance metrics for the current form load, including the total load time and a breakdown of server, network, and client processing time. It also shows a summary of the form\'s composition, such as the number of tabs, controls, and OnChange events, which can help identify overly complex forms.'
+            impersonate: {
+                title: 'Impersonate',
+                summary: 'Test security roles by executing all API requests as another user.',
+                content: "This powerful feature allows you to test what your application looks and behaves like for a user with different security roles. Search for and select a user to begin impersonation. While active, **all server-side requests** made by this tool (WebAPI Explorer, FetchXML, Plugin Traces, etc.) will be executed as that user. A yellow indicator will appear in the header. The **User Context** tab will also update to show the impersonated user's details. To stop, simply click 'Clear'."
+            },
+            metadataBrowser: {
+                title: 'Metadata Browser',
+                summary: 'A complete, searchable dictionary of all tables and columns in the environment.',
+                content: 'A standalone browser for exploring the Dataverse schema. The left panel shows a searchable list of all tables (entities) the current user can see. Clicking a table loads its columns (attributes) into the right panel. You can click any table or column to see a dialog with all of its detailed metadata properties (e.g., `SchemaName`, `IsManaged`, `ObjectTypeCode`). The panels are also resizable.'
             },
             apiExplorer: {
                 title: 'WebAPI Explorer',
                 summary: 'A client to execute GET, POST, PATCH, and DELETE requests against the Web API.',
-                content: 'A powerful tool to directly query the Dataverse Web API. The simplified `GET` method helps you build OData queries easily, while `POST`, `PATCH`, and `DELETE` allow you to create, update, or delete records. Results can be viewed in a clean table format or as raw JSON.'
+                content: 'A powerful tool to directly query the Dataverse Web API. The simplified `GET` method helps you build OData queries easily, while `POST`, `PATCH`, and `DELETE` allow you to create, update, or delete records. Use the **Browse** buttons to search for table and column names instead of typing them manually. Results can be viewed in a table or as raw JSON.'
             },
             fetchXmlTester: {
                 title: 'FetchXML Tester',
                 summary: 'Build, edit, and execute FetchXML queries and view the results.',
-                content: 'A dedicated tester for FetchXML. Use the simple Builder for basic queries and joins, or write/paste complex queries into the XML Editor. Execute against the database and see the results immediately in a table or as JSON. Use the built-in templates to get started quickly.'
+                content: 'A dedicated tester for FetchXML. Use the simple **Builder** for basic queries and joins, or write/paste complex queries into the **XML Editor**. Execute against the database and see the results immediately in a table or as JSON. Use the built-in templates to get started quickly.'
             },
             traces: {
                 title: 'Plugin Traces',
                 summary: 'View and filter server-side Plugin Trace Logs in real-time.',
-                content: 'A real-time viewer for server-side code. It fetches the latest Plugin Trace Logs and supports live polling to show new traces as they are created. You can filter by class name or message on the server, and perform a local text search to quickly find the trace you need. The output is syntax-highlighted for readability.'
+                content: 'A real-time viewer for server-side code. It fetches the latest Plugin Trace Logs and supports **live polling** to show new traces as they are created. You can filter by class name or message content on the server, and perform a local text search to quickly find the trace you need.'
             },
             envVars: {
                 title: 'Env Variables',
-                summary: 'View all Environment Variables and their current values for this solution.',
-                content: 'This tab displays a list of all Environment Variable Definitions in your environment. For each variable, it shows the schema name, type, default value, and, most importantly, the current value if one has been set.'
+                summary: 'View and edit all Environment Variables and their current values.',
+                content: 'This tab displays a list of all Environment Variable Definitions in your environment. For each variable, it shows the schema name, type, default value, and, most importantly, the **current value**. You can click the **Edit** button to update the current value directly from the tool.'
             },
             userContext: {
                 title: 'User Context',
-                summary: 'Displays detailed information about the current user, session, and organization.',
-                content: 'Provides a quick overview of the current session context. This includes the current user\'s name, ID, and security roles, as well as details about the client (web, mobile, etc.) and the organization, such as its version and unique name.'
+                summary: 'Displays detailed information about the current (or impersonated) user and session.',
+                content: 'Provides a quick overview of the current session context. This includes the user\'s name, ID, and **complete security roles** (including those from teams), as well as details about the client and the organization. When impersonation is active, this tab automatically updates to show the context of the **impersonated user**.'
             },
             codeHub: {
                 title: 'Code Hub',
                 summary: 'A searchable library of useful JavaScript code snippets for Power Apps.',
-                content: 'A static library of commonly used JavaScript snippets for form scripting and Web API calls. You can quickly search for snippets related to field manipulation, form operations, or API requests, and copy them directly to your clipboard.'
+                content: 'A static library of commonly used JavaScript snippets for form scripting and Web API calls. You can quickly search for snippets and copy them directly to your clipboard.'
+            },
+            performance: {
+                title: 'Performance',
+                summary: 'Analyze the form load time and see a breakdown of the form\'s complexity.',
+                content: 'This tab displays key performance metrics for the current form load, including the total load time and a breakdown of server, network, and client processing time. It also shows a summary of the form\'s composition, such as the number of controls and events.'
             },
             settings: {
                 title: 'Settings',
                 summary: 'Configure the Power-Toolkit by reordering tabs, hiding features, and managing settings.',
-                content: 'This tab allows you to customize the Power-Toolkit. You can drag and drop tabs to reorder the navigation and use the toggles to hide any tabs you don\'t use. You can also export your settings to a file or import them on another machine.'
+                content: 'This tab allows you to customize the Power-Toolkit. You can **drag and drop** tabs to reorder the navigation and use the toggles to hide any tabs you don\'t use. You can also **export** your settings to a file or **import** them on another machine.'
+            },
+            about: {
+                title: 'About',
+                summary: 'Displays version information and details about the author.',
+                content: 'This section shows the current version of the Power-Toolkit, the author\'s name, and links to connect with them.'
+            },
+            support: {
+                title: 'Support',
+                summary: 'Enjoying the tool? Consider supporting its development.',
+                content: 'If this tool has saved you time or helped you solve a problem, please consider showing your support. A coffee helps fuel future development and new features!'
             }
         };
     }

@@ -25,8 +25,8 @@ export class AboutTab extends BaseComponent {
         const container = document.createElement('div');
         container.innerHTML = `
             <div style="text-align: center; padding-top: 20px;">
-                <h2 class="section-title" style="border:none; font-size: 1.8em;">Power-Toolkit</h2>
-                <p style="margin-top:-10px; color: var(--pro-text-secondary);">Version ${Config.TOOL_VERSION}</p>
+                <h2 style="color: var(--pro-text-primary); border:none; font-size: 1.8em; font-weight: 600; margin-bottom: 0;">Power-<span style="color: var(--pro-accent);">Toolkit</span></h2>
+                <p style="color: var(--pro-text-secondary);">Version ${Config.TOOL_VERSION}</p>
             </div>
             <div class="info-grid info-grid-about" style="max-width: 400px; margin: 20px auto;">
                 <strong>Author:</strong><span>${Config.DEVELOPER_NAME}</span>
@@ -65,7 +65,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.`;
-            DialogService.show('MIT License', `<pre style="white-space:pre-wrap; font-size: 12px;">${licenseText}</pre>`);
+            DialogService.show('MIT License', `<pre style="white-space:pre-wrap; font-size: 12px; padding-inline: 20px;">${licenseText}</pre>`);
         };
     }
 }

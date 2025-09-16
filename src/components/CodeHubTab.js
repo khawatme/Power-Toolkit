@@ -1,7 +1,7 @@
 /**
  * @file Code Hub component.
  * @module components/CodeHubTab
- * @description A searchable, static library of common and useful JavaScript code snippets for Power Apps.
+ * @description A searchable, best-practice library of modern JavaScript code snippets for Power Apps.
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
@@ -28,108 +28,102 @@ export class CodeHubTab extends BaseComponent {
     }
 
     /**
-     * Renders the component's HTML structure with all the code snippets.
+     * Renders the component's HTML structure using the accordion layout.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
     async render() {
         const container = document.createElement('div');
-        
-        const categoriesHtml = Object.keys(this.snippets).map(category => {
-            const snippetsHtml = this.snippets[category].map(s => `
-                <li class="codehub-snippet" data-search-text="${Helpers.escapeHtml((s.t + s.d + s.c).toLowerCase())}">
-                    <strong>${s.t}</strong>
-                    <p class="pdt-note">${s.d}</p>
-                    ${this._createSnippetBlock(s.c)}
-                </li>`
-            ).join('');
 
-            return `
-                <div class="codehub-category">
-                    <div class="codehub-category-header">
-                        <h4 class="pdt-section-header">${category}</h4>
-                    </div>
-                    <ul class="pdt-list codehub-list">${snippetsHtml}</ul>
-                </div>`;
-        }).join('');
+        const toolbar = document.createElement('div');
+        toolbar.className = 'pdt-toolbar';
+        toolbar.innerHTML = `<input type="text" id="codehub-search" class="pdt-input" placeholder="Search snippets (e.g., 'subgrid', 'async')..." style="flex-grow: 1;">`;
 
-        container.innerHTML = `
-            <div class="section-title">Code Snippet Hub</div>
-            <div class="pdt-toolbar">
-                <input type="text" id="codehub-search" class="pdt-input" placeholder="Search snippets..." style="flex-grow: 1;">
-            </div>
-            <div class="pdt-content-host">${categoriesHtml}</div>`;
+        const contentHost = document.createElement('div');
+        contentHost.className = 'pdt-content-host';
+
+        const fragment = document.createDocumentFragment();
+
+        Object.keys(this.snippets).forEach(categoryName => {
+            const categoryData = this.snippets[categoryName]; // Get the category object
             
+            const categoryDiv = document.createElement('div');
+            categoryDiv.className = 'codehub-category';
+
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'codehub-category-header';
+            // Add the description paragraph to the header
+            headerDiv.innerHTML = `<div>
+                                    <h4>${categoryName}</h4>
+                                    <p class="codehub-category-description">${categoryData.description}</p>
+                                </div>`;
+            
+            const list = document.createElement('ul');
+            list.className = 'pdt-list codehub-list';
+
+            // Loop through the snippets array inside the category object
+            categoryData.snippets.forEach(s => {
+                const searchText = `${s.t} ${s.d} ${s.c}`.toLowerCase();
+                const listItem = document.createElement('li');
+                listItem.className = 'codehub-snippet';
+                listItem.dataset.searchText = Helpers.escapeHtml(searchText);
+                
+                const title = document.createElement('strong');
+                title.textContent = s.t;
+                
+                const description = document.createElement('p');
+                description.className = 'pdt-note';
+                description.textContent = s.d;
+
+                const codeBlockElement = UIFactory.createCopyableCodeBlock(s.c, 'javascript');
+
+                listItem.append(title, description, codeBlockElement);
+                list.appendChild(listItem);
+            });
+
+            categoryDiv.append(headerDiv, list);
+            fragment.appendChild(categoryDiv);
+        });
+
+        contentHost.appendChild(fragment);
+        container.append(toolbar, contentHost);
+
         return container;
     }
     
     /**
-     * Attaches event listeners after the component is added to the DOM.
+     * Attaches event listeners for search and accordion functionality.
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
         this.ui.searchInput = element.querySelector('#codehub-search');
         this.ui.container = element;
+        this.ui.searchInput.addEventListener('keyup', () => this.filterSnippets());
 
+        // Add back the accordion click handler
         element.addEventListener('click', (e) => {
-            // Handle accordion toggling
             const header = e.target.closest('.codehub-category-header');
             if (header) {
                 header.parentElement.classList.toggle('expanded');
-                return;
-            }
-
-            // Handle copy button clicks (delegated)
-            const button = e.target.closest('.copyable-code-block button');
-            if (button) {
-                const pre = button.parentElement.querySelector('pre');
-                if (pre) {
-                    Helpers.copyToClipboard(pre.textContent, 'Code snippet copied!');
-                }
             }
         });
-
-        this.ui.searchInput.addEventListener('keyup', () => this.filterSnippets());
     }
 
     /**
-     * Creates a copyable code block with syntax highlighting.
-     * @param {string} code - The raw JavaScript code.
-     * @returns {string} The outerHTML of the created code block element.
-     * @private
-     */
-    _createSnippetBlock(code) {
-        // Use the new helper for JS syntax highlighting
-        const highlightedHtml = Helpers.highlightJson(code);
-        const codeBlock = UIFactory.createCopyableCodeBlock(code, 'javascript');
-        
-        // Replace the plain text in the <pre> tag with our highlighted HTML
-        const preElement = codeBlock.querySelector('pre');
-        if (preElement) preElement.innerHTML = highlightedHtml;
-        
-        return codeBlock.outerHTML;
-    }
-
-    /**
-     * Filters snippets and categories based on the search term.
+     * Filters snippets and categories based on the search term, expanding categories with matches.
      * @private
      */
     _filterSnippets() {
         const term = this.ui.searchInput.value.toLowerCase();
-        
         this.ui.container.querySelectorAll('.codehub-category').forEach(category => {
             let hasVisibleSnippets = false;
             category.querySelectorAll('.codehub-snippet').forEach(snippet => {
-                const searchText = snippet.dataset.searchText || '';
-                const isMatch = searchText.includes(term);
+                const isMatch = (snippet.dataset.searchText || '').includes(term);
                 snippet.style.display = isMatch ? '' : 'none';
-                if (isMatch) {
-                    hasVisibleSnippets = true;
-                }
+                if (isMatch) hasVisibleSnippets = true;
             });
-
-            // Hide the entire category if no snippets match the search
             category.style.display = hasVisibleSnippets ? '' : 'none';
-            // If searching, expand the category to show matches
+
+            // If searching, expand the categories to show the matches.
             if (term && hasVisibleSnippets) {
                 category.classList.add('expanded');
             } else if (!term) {
@@ -140,159 +134,90 @@ export class CodeHubTab extends BaseComponent {
 
     /**
      * Contains the raw data for all code snippets, organized by category.
-     * @returns {object.<string, Array<CodeSnippet>>} An object containing all snippet data.
+     * @returns {object.<string, Array<{t: string, d: string, c: string}>>} An object containing all snippet data.
      * @private
      */
     _getCodeSnippets() {
-        // 't' = title, 'd' = description, 'c' = code
+        // t = title, d = description, c = code
         return {
-            "Field Manipulation": [
-                {
-                    t: "Get/Set Value",
-                    d: "Get or set the value of a string, number, or optionset field.",
-                    c: `// Get value
-const value = formContext.getAttribute("logicalname").getValue();
-
-// Set value
-formContext.getAttribute("logicalname").setValue("new value");`
+            "Form Context (Basics)": {
+                description: "Core functions for interacting with form data and attributes.",
+                snippets: [
+                    {
+                        t: "Get/Set Field Value",
+                        d: "Get or set the value of a string, number, or optionset field using the form context.",
+                        c: `function onFieldChange(executionContext) {\n    const formContext = executionContext.getFormContext();\n    \n    // Get value\n    const telephone = formContext.getAttribute("telephone1").getValue();\n    console.log(telephone);\n\n    // Set value\n    formContext.getAttribute("description").setValue("This is the new value.");\n}`
+                    }, {
+                        t: "Get/Set Lookup Value",
+                        d: "Read or set a lookup (foreign key) field's value.",
+                        c: `function onLookupChange(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const lookupAttr = formContext.getAttribute("primarycontactid");\n\n    // Get lookup value (returns an array)\n    const contact = lookupAttr.getValue();\n    if (contact && contact[0]) {\n        const id = contact[0].id;\n        const name = contact[0].name;\n        const entityType = contact[0].entityType;\n        console.log(\`Contact: \${name} (\${id})\`);\n    }\n\n    // Set lookup value\n    const newLookup = [{\n        id: "{GUID-HERE}",\n        name: "New Contact Name",\n        entityType: "contact"\n    }];\n    lookupAttr.setValue(newLookup);\n}`
+                    }, {
+                        t: "Set Required Level",
+                        d: "Make a field required, recommended, or optional.",
+                        c: `function onLoad(executionContext) {\n    const formContext = executionContext.getFormContext();\n\n    // Set as required\n    formContext.getAttribute("fax").setRequiredLevel("required");\n\n    // Set as recommended\n    formContext.getAttribute("emailaddress1").setRequiredLevel("recommended");\n\n    // Remove required level\n    formContext.getAttribute("telephone1").setRequiredLevel("none");\n}`
+                    }
+                ]
+            },
+            "UI (Tabs, Sections, Notifications)": {
+                description: "Functions for controlling the user interface elements on a form.",
+                snippets: [
+                    {
+                        t: "Show/Hide a Control",
+                        d: "Control the visibility of a field on the form.",
+                        c: `function onSomeCondition(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const control = formContext.getControl("fax");\n\n    // Hide the control\n    control.setVisible(false);\n\n    // Show the control\n    control.setVisible(true);\n}`
+                    }, {
+                        t: "Show/Hide a Tab or Section",
+                        d: "Control the visibility of entire tabs or sections on the form.",
+                        c: `function onLoad(executionContext) {\n    const formContext = executionContext.getFormContext();\n    \n    // Get a tab by its name (check form properties)\n    const detailsTab = formContext.ui.tabs.get("DETAILS_TAB");\n    if (detailsTab) {\n        detailsTab.setVisible(false);\n    }\n\n    // Get a section by its name\n    const addressSection = detailsTab.sections.get("ADDRESS");\n    if (addressSection) {\n        addressSection.setVisible(true);\n    }\n}`
+                    }, {
+                        t: "Show a Form Notification",
+                        d: "Display an information, warning, or error message at the top of the form.",
+                        c: `function showNotification(executionContext) {\n    const formContext = executionContext.getFormContext();\n\n    // Show an ERROR notification for 5 seconds\n    formContext.ui.setFormNotification("This is an error message.", "ERROR", "myUniqueId");\n    setTimeout(() => formContext.ui.clearFormNotification("myUniqueId"), 5000);\n\n    // Show a WARNING or INFO notification\n    // formContext.ui.setFormNotification("This is a warning.", "WARNING", "myWarningId");\n    // formContext.ui.setFormNotification("This is an info message.", "INFO", "myInfoId");\n}`
+                    },
+                ]
+            },
+            "Web API (async/await)": {
+                description: "Modern, asynchronous methods for creating, reading, updating, and deleting records.",
+                snippets: [
+                    {
+                        t: "Retrieve a Record",
+                        d: "Get data from a single record using its ID.",
+                        c: `async function getAccountName(accountId) {\n    try {\n        const account = await Xrm.WebApi.retrieveRecord("account", accountId, "?$select=name,telephone1");\n        console.log(account.name);\n        return account.name;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
+                    }, {
+                        t: "Retrieve Multiple Records",
+                        d: "Query for a set of records using OData filters.",
+                        c: `async function getActiveContacts(accountId) {\n    const options = \`?$select=fullname,emailaddress1&$filter=statecode eq 0 and _parentcustomerid_value eq \${accountId}\`;\n    try {\n        const result = await Xrm.WebApi.retrieveMultipleRecords("contact", options);\n        for (const contact of result.entities) {\n            console.log(contact.fullname);\n        }\n        return result.entities;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
+                    }, {
+                        t: "Create a Record",
+                        d: "Create a new record in a Dataverse table.",
+                        c: `async function createAccount(data) {\n    // data = { name: "Sample Account", telephone1: "555-1234" }\n    try {\n        const result = await Xrm.WebApi.createRecord("account", data);\n        console.log("Account created with ID: " + result.id);\n        return result.id;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
+                    }, {
+                        t: "Update a Record",
+                        d: "Update columns on an existing record.",
+                        c: `async function updateAccount(accountId, data) {\n    // data = { telephone1: "555-9999", "primarycontactid@odata.bind": "/contacts(GUID)" }\n    try {\n        const result = await Xrm.WebApi.updateRecord("account", accountId, data);\n        console.log("Account updated. ID: " + result.id);\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
+                    }
+                ]
+            },
+            "Subgrids": {
+                description: "Code snippets for interacting with subgrids on a form.",
+                snippets: [{
+                    t: "Refresh a Subgrid",
+                    d: "Force a subgrid on the form to refresh its data.",
+                    c: `function refreshContactsGrid(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const gridContext = formContext.getControl("Contacts"); // Get control by subgrid name\n    if (gridContext) {\n        gridContext.refresh();\n    }\n}`
                 }, {
-                    t: "Get/Set Lookup Value",
-                    d: "Read or set a lookup field's value.",
-                    c: `// Get lookup value (returns an array)
-const lookupValue = formContext.getAttribute("lookupfield").getValue();
-if (lookupValue && lookupValue[0]) {
-    const id = lookupValue[0].id;
-    const name = lookupValue[0].name;
-    const entityType = lookupValue[0].entityType;
-}
-
-// Set lookup value
-const newLookup = [{
-    id: "{GUID-HERE}",
-    name: "Record Name",
-    entityType: "account"
-}];
-formContext.getAttribute("lookupfield").setValue(newLookup);`
-                }, {
-                    t: "Show/Hide/Disable Control",
-                    d: "Control the visibility and enabled state of a form control.",
-                    c: `const control = formContext.getControl("logicalname");
-
-// Hide
-control.setVisible(false);
-
-// Show
-control.setVisible(true);
-
-// Disable
-control.setDisabled(true);`
-                }, {
-                    t: "Set Required Level",
-                    d: "Make a field required, recommended, or not required.",
-                    c: `// Set as required
-formContext.getAttribute("logicalname").setRequiredLevel("required");
-
-// Set as recommended
-formContext.getAttribute("logicalname").setRequiredLevel("recommended");
-
-// Remove required level
-formContext.getAttribute("logicalname").setRequiredLevel("none");`
-                }
-            ],
-            "Form Operations": [
-                {
-                    t: "Add OnChange Handler",
-                    d: "Execute a function when a field's value changes.",
-                    c: `// Should be added in the form's OnLoad event
-function onLoad(execContext) {
-    const formContext = execContext.getFormContext();
-    formContext.getAttribute("logicalname").addOnChange(myOnChangeFunction);
-}
-
-function myOnChangeFunction(execContext) {
-    const formContext = execContext.getFormContext();
-    const attribute = execContext.getEventSource();
-    console.log(\`Field '\${attribute.getName()}' value changed!\`);
-}`
-                }, {
-                    t: "Show Form Notification",
-                    d: "Display a message at the top of the form.",
-                    c: `// Show an ERROR notification for 5 seconds
-formContext.ui.setFormNotification("This is an error message.", "ERROR", "myUniqueId");
-window.setTimeout(() => formContext.ui.clearFormNotification("myUniqueId"), 5000);
-
-// Show a WARNING notification
-formContext.ui.setFormNotification("This is a warning.", "WARNING", "myWarningId");
-
-// Show an INFO notification
-formContext.ui.setFormNotification("This is an informational message.", "INFO", "myInfoId");`
-                }, {
-                    t: "Get Form Type",
-                    d: "Check if the form is for Create, Update, Read Only, etc.",
-                    c: `const formType = formContext.ui.getFormType();
-// 1: Create, 2: Update, 3: Read Only, 4: Disabled, 6: Bulk Edit
-if (formType === 1) {
-    // Logic for a new record
-}`
-                }, {
-                    t: "Save Form",
-                    d: "Programmatically save the record with options.",
-                    c: `// Save the form and stay on the page
-formContext.data.save().then(
-    () => console.log("Save successful"),
-    (error) => console.log("Save failed: " + error.message)
-);
-
-// Save and close the form
-formContext.data.save({ saveMode: 2 }); // 2 = saveandclose`
-                }
-            ],
-            "Web API": [
-                {
-                    t: "Retrieve a Record (Async/Await)",
-                    d: "Get data from a single record using its ID with modern async/await syntax.",
-                    c: `async function getAccountName(accountId) {
-    try {
-        const account = await Xrm.WebApi.retrieveRecord("account", accountId, "?$select=name");
-        console.log(account.name);
-        return account.name;
-    } catch (error) {
-        console.error(error.message);
-    }
-}`
-                }, {
-                    t: "Retrieve Multiple Records (Async/Await)",
-                    d: "Query for a set of records using OData filters with modern async/await syntax.",
-                    c: `async function getContactsForAccount(accountId) {
-    const options = \`?$select=fullname,emailaddress1&$filter=_parentcustomerid_value eq \${accountId}\`;
-    try {
-        const result = await Xrm.WebApi.retrieveMultipleRecords("contact", options);
-        for (const contact of result.entities) {
-            console.log(contact.fullname);
-        }
-        return result.entities;
-    } catch (error) {
-        console.error(error.message);
-    }
-}`
-                }, {
-                    t: "Create a Record",
-                    d: "Create a new record in a Dataverse table.",
-                    c: `const data = {
-    "name": "Sample Account",
-    "telephone1": "555-1234"
-};
-
-Xrm.WebApi.createRecord("account", data).then(
-    function success(result) {
-        console.log("Account created with ID: " + result.id);
-    },
-    function (error) {
-        console.log(error.message);
-    }
-);`
-                }
-            ]
+                    t: "Get Selected Subgrid Rows",
+                    d: "Get the data for all currently selected rows in a subgrid.",
+                    c: `function getSelectedContacts(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const gridContext = formContext.getControl("Contacts");\n    if (gridContext) {\n        const selectedRows = gridContext.getGrid().getSelectedRows();\n        selectedRows.forEach(row => {\n            console.log(\`Selected Row ID: \${row.getId()}\`);\n            const contactName = row.data.entity.attributes.get("fullname").getValue();\n            console.log(\`Contact Name: \${contactName}\`);\n        });\n    }\n}`
+                }]
+            },
+            "Navigation": {
+                description: "Functions to navigate within the application or open new windows.",
+                snippets: [{
+                    t: "Open a New Record Form",
+                    d: "Open the 'create' form for a new record, with pre-filled default values.",
+                    c: `function openNewContact() {\n    const entityName = "contact";\n    const defaultValues = {\n        firstname: "John",\n        lastname: "Doe"\n    };\n    Xrm.Navigation.openForm({ entityName: entityName, useQuickCreateForm: true }, defaultValues).then(\n        (result) => console.log("Contact created with ID:", result.savedEntityReference[0].id),\n        (error) => console.error(error)\n    );\n}`
+                }]
+            }
         };
     }
 }
