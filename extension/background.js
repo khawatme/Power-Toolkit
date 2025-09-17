@@ -46,15 +46,16 @@ async function showInactiveError(tabId) {
 }
 
 /**
- * This function, when injected, first destroys any existing instance of the tool across all frames,
- * then checks if the current page is a valid host environment.
- * It will never return 'ALREADY_LOADED', forcing a fresh launch every time.
+ * This function is injected into the target page to perform two actions:
+ * 1. Clean up any pre-existing instances of the toolkit from the DOM.
+ * 2. Probe the window and its frames to determine if it's a valid host environment
+ * (a Model-Driven App or Maker Portal) where the toolkit can be loaded.
+ * @returns {'CAN_LOAD' | 'CANNOT_LOAD'} A status indicating if the environment is valid.
  */
 function probeAndShow() {
     const SCRIPT_ID = 'power-toolkit-script-module';
     const DIALOG_SELECTOR = '.powerapps-dev-toolkit';
 
-    // A function to clean a given window context (either the main window or an iframe).
     const cleanup = (win) => {
         try {
             win.document.querySelector(DIALOG_SELECTOR)?.remove();
@@ -65,13 +66,11 @@ function probeAndShow() {
         }
     };
     
-    // Clean the top window and all accessible iframes.
     cleanup(window);
     for (let i = 0; i < window.frames.length; i++) {
         cleanup(window.frames[i]);
     }
 
-    // Now, probe for a valid context.
     const isModelDrivenApp = (win) => typeof win.Xrm?.Utility !== 'undefined';
     
     if (isModelDrivenApp(window)) return 'CAN_LOAD';
@@ -83,14 +82,16 @@ function probeAndShow() {
     
     const isMakerPortal = () => !!window.MsCrmMscrmControls;
     if(isMakerPortal()){
-         return 'CAN_LOAD';
+          return 'CAN_LOAD';
     }
 
     return 'CANNOT_LOAD';
 }
 
 /**
- * Main listener for the extension icon click.
+ * The main listener for when the user clicks the extension's toolbar icon.
+ * It injects the `probeAndShow` function to check the page's validity and then
+ * either launches the toolkit or shows a temporary error badge.
  */
 chrome.action.onClicked.addListener(async (tab) => {
     if (!tab.url || tab.url.startsWith('chrome://')) {
@@ -100,17 +101,15 @@ chrome.action.onClicked.addListener(async (tab) => {
 
     try {
         const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true }, // Check all frames for maker portal context
+            target: { tabId: tab.id, allFrames: true },
             world: 'MAIN',
             func: probeAndShow
         });
 
         // Find the first successful result from any frame.
-        const status = results.find(r => r.result === 'ALREADY_LOADED' || r.result === 'CAN_LOAD')?.result || 'CANNOT_LOAD';
+        const status = results.find(r => r.result === 'CAN_LOAD')?.result || 'CANNOT_LOAD';
 
-        if (status === 'ALREADY_LOADED') {
-            return;
-        } else if (status === 'CAN_LOAD') {
+        if (status === 'CAN_LOAD') {
             await launchToolkit(tab.id);
         } else {
             await showInactiveError(tab.id);

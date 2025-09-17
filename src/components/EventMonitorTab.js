@@ -8,6 +8,22 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../utils/Icons.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 
+/**
+ * @callback LogFunction
+ * @param {string} className - The CSS class for the log entry type.
+ * @param {string} message - The primary log message.
+ * @param {object} [context] - The execution context from the event, if available.
+ */
+
+/**
+ * A component that attaches to the current form's events (OnLoad, OnSave, OnChange)
+ * and provides a live, auto-scrolling log of when they are triggered. It ensures
+ * all attached listeners are cleaned up when the component is destroyed.
+ * @extends {BaseComponent}
+ * @property {boolean} isMonitoring - Tracks if the component is actively listening for events.
+ * @property {Array<object>} attachedHandlers - An array that stores references to all attached
+ * event handlers for later removal.
+ */
 export class EventMonitorTab extends BaseComponent {
     /**
      * Initializes the EventMonitorTab component.
@@ -81,7 +97,7 @@ export class EventMonitorTab extends BaseComponent {
 
     /**
      * Attaches listeners to all relevant form and attribute events.
-     * @param {Function} logFunction - The function to call when an event fires.
+     * @param {LogFunction} logFunction - The function to call when an event fires.
      * @private
      */
     _startMonitoring(logFunction) {
@@ -109,7 +125,9 @@ export class EventMonitorTab extends BaseComponent {
     }
 
     /**
-     * Detaches all previously attached event listeners to prevent memory leaks.
+     * Detaches all previously attached event listeners from the form context.
+     * This is a critical cleanup step to prevent memory leaks and performance
+     * degradation when the tool is closed or the user navigates away.
      * @private
      */
     _stopMonitoring() {

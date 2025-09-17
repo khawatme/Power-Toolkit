@@ -33,11 +33,18 @@ export class WebApiExplorerTab extends BaseComponent {
      */
     constructor() {
         super('apiExplorer', 'WebAPI Explorer', ICONS.api);
+
+        /** @type {ApiResult|null} Caches the last successful API result. */
         this.lastResult = null;
+        /** @type {'table'|'json'} The active view for displaying results. */
         this.currentView = 'table';
+        /** @type {boolean} The state of the odata property filter toggle. */
         this.hideOdata = true;
+        /** @type {object} A cache for frequently accessed UI elements. */
         this.ui = {};
+        /** @type {string|null} The validated logical name of the selected table. */
         this.selectedEntityLogicalName = null;
+        /** @type {{column: string|null, direction: 'asc'|'desc'}} The sort state of the results table. */
         this.resultSortState = { column: null, direction: 'asc' };
     }
 
@@ -62,7 +69,7 @@ export class WebApiExplorerTab extends BaseComponent {
             <div id="api-view-get">
                 <div class="pdt-section-header">Request Builder</div>
                 <div class="pdt-form-grid">
-                    <label for="api-get-entity">Table</label>
+                    <label for="api-get-entity">Table Name</label>
                     <div class="pdt-input-with-button">
                         <input type="text" id="api-get-entity" class="pdt-input" placeholder="e.g., accounts">
                         <button id="browse-api-get-entity-btn" class="pdt-input-btn" title="Browse tables">${ICONS.inspector}</button>
@@ -269,7 +276,7 @@ export class WebApiExplorerTab extends BaseComponent {
             if (target.id === 'api-view-table') this._switchResultView('table');
             if (target.id === 'api-view-json') this._switchResultView('json');
         });
-        
+
         this.ui.resultContainer.addEventListener('change', (e) => {
             if (e.target.matches('#odata-filter-toggle')) {
                 this.hideOdata = e.target.checked;
@@ -335,7 +342,8 @@ export class WebApiExplorerTab extends BaseComponent {
     }
 
     /**
-     * Builds and executes the Web API request based on the current UI state.
+     * Builds the appropriate API request based on the selected method and UI inputs,
+     * executes it, and then triggers the rendering of the results.
      * @private
      */
     async _executeQuery() {
@@ -420,7 +428,8 @@ export class WebApiExplorerTab extends BaseComponent {
     }
     
     /**
-     * Renders the results container, including view-switching tabs and a sortable table.
+     * Renders the results container, including the view-switcher tabs (Table/JSON),
+     * record count, and the initial render of the result content itself.
      * @private
      */
     _renderResults() {
@@ -521,7 +530,9 @@ export class WebApiExplorerTab extends BaseComponent {
     }
 
     /**
-     * Shows a confirmation dialog.
+     * Shows a confirmation dialog and returns a promise that resolves based on the
+     * user's action. This implementation correctly handles the user clicking "OK",
+     * "Cancel", or closing the dialog via the overlay or escape key.
      * @param {string} title - The dialog title.
      * @param {string} content - The HTML content for the dialog body.
      * @returns {Promise<boolean>} A promise that resolves to true if confirmed, false otherwise.

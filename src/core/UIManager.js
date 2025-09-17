@@ -19,12 +19,20 @@ import { Helpers } from '../utils/Helpers.js';
 /**
  * Manages all aspects of the main user interface.
  * @namespace
+ * @property {HTMLElement|null} dialog - A reference to the main dialog element.
+ * @property {string|null} activeTabId - The ID of the currently visible tab.
+ * @property {Map<string, HTMLElement>} renderedTabs - A cache for rendered tab content to avoid re-rendering.
  */
 export const UIManager = {
     dialog: null,
     activeTabId: null,
     renderedTabs: new Map(), // Cache for rendered tab content to avoid re-rendering
 
+    /**
+     * Shows or hides the impersonation status indicator in the main dialog header.
+     * @param {string|null} userName - The name of the user being impersonated, or null to hide the indicator.
+     * @returns {void}
+     */
     showImpersonationIndicator(userName) {
         if (!this.dialog) return;
         const indicator = this.dialog.querySelector('#pdt-impersonation-indicator');
@@ -96,6 +104,11 @@ export const UIManager = {
         this.updateNavTabs();
     },
 
+    /**
+     * Re-renders the navigation tabs based on the current settings in the store.
+     * It intelligently determines which tab to activate after the update.
+     * @returns {void}
+     */
     updateNavTabs() {
         const tabsContainer = this.dialog.querySelector('.pdt-nav-tabs');
         const contentArea = this.dialog.querySelector('.pdt-content');
@@ -146,6 +159,37 @@ export const UIManager = {
         }
     },
 
+    /**
+     * Clears the tool's internal data cache and forces a re-render of the active tab.
+     * @param {boolean} [showNotification=true] - If true, a success notification is shown.
+     * @private
+     */
+    refreshActiveTab(showNotification = true) {
+        if (showNotification) {
+            DataService.clearCache();
+            NotificationService.show('Cache cleared. Reloading current tab.', 'success');
+        }
+
+        if (this.activeTabId) {
+            const component = ComponentRegistry.get(this.activeTabId);
+            if (component) {
+                component.destroy();
+            }
+            
+            this.renderedTabs.get(this.activeTabId)?.remove();
+            this.renderedTabs.delete(this.activeTabId);
+
+            this._showTab(this.activeTabId);
+        }
+    },
+
+    /**
+     * Manages the visibility of tab content. It hides the previously active tab,
+     * shows the selected one (retrieving from cache if possible), and handles the
+     * initial render and postRender lifecycle for new tabs.
+     * @param {string} componentId - The ID of the component to show.
+     * @private
+     */
     async _showTab(componentId) {
         if (!componentId || !this.dialog) return;
         const component = ComponentRegistry.get(componentId);
@@ -198,7 +242,7 @@ export const UIManager = {
         controls.close.onclick = () => this._handleClose();
         
         controls.theme.onclick = () => this._handleThemeToggle();
-        controls.refresh.onclick = () => this._handleRefresh();
+        controls.refresh.onclick = () => this.refreshActiveTab();
 
         if (!PowerAppsApiService.isFormContextAvailable) {
             controls.godMode.disabled = true;
@@ -214,11 +258,16 @@ export const UIManager = {
             }
             const copyable = e.target.closest('.copyable');
             if (copyable) {
-                Helpers.copyToClipboard(copyable.textContent, 'Copied to clipboard!');
+                Helpers.copyToClipboard(copyable.textContent, `Copied: ${copyable.textContent}`);
             }
         });
     },
 
+    /**
+     * Applies the saved dimensions and position from the store to the dialog,
+     * with boundary checks to ensure it remains visible within the viewport.
+     * @private
+     */
     _applySavedDimensions() {
         const savedDims = Store.getState().dimensions;
         const vw = window.innerWidth;
@@ -235,6 +284,12 @@ export const UIManager = {
         this.dialog.style.left = Math.max(0, Math.min(left, vw - 150)) + 'px';
     },
 
+    /**
+     * Implements the logic for making the main dialog draggable via its header and
+     * resizable via a `ResizeObserver`. It includes boundary checks to keep the
+     * dialog on-screen and debounces saving the dimensions to the store.
+     * @private
+     */
     _makeDraggableAndResizable() {
         const header = this.dialog.querySelector('.pdt-header');
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -245,8 +300,22 @@ export const UIManager = {
             pos2 = pos4 - e.clientY;
             pos3 = e.clientX;
             pos4 = e.clientY;
-            this.dialog.style.top = `${this.dialog.offsetTop - pos2}px`;
-            this.dialog.style.left = `${this.dialog.offsetLeft - pos1}px`;
+
+            let newTop = this.dialog.offsetTop - pos2;
+            let newLeft = this.dialog.offsetLeft - pos1;
+
+            // --- NEW: Boundary Checks to keep the dialog on screen ---
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const headerHeight = header.offsetHeight || 50; // Height of the draggable header
+            const minVisibleWidth = 150; // Ensure at least this much is visible horizontally
+
+            // Constrain the new position to keep the dialog accessible
+            newTop = Math.max(0, Math.min(newTop, vh - headerHeight));
+            newLeft = Math.max(-this.dialog.offsetWidth + minVisibleWidth, Math.min(newLeft, vw - minVisibleWidth));
+            
+            this.dialog.style.top = `${newTop}px`;
+            this.dialog.style.left = `${newLeft}px`;
         };
 
         const saveDimensions = Helpers.debounce(() => {
@@ -261,6 +330,7 @@ export const UIManager = {
         const closeDragElement = () => {
             document.onmouseup = null;
             document.onmousemove = null;
+            document.body.style.cursor = '';
             saveDimensions();
         };
 
@@ -269,6 +339,7 @@ export const UIManager = {
             e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
+            document.body.style.cursor = 'move';
             document.onmouseup = closeDragElement;
             document.onmousemove = elementDrag;
         };
@@ -277,34 +348,28 @@ export const UIManager = {
         resizeObserver.observe(this.dialog);
     },
 
+    /**
+     * Toggles the application's theme between 'light' and 'dark' and updates the central store.
+     * @private
+     */
     _handleThemeToggle() {
         const newTheme = Store.getState().theme === 'light' ? 'dark' : 'light';
         Store.setState({ theme: newTheme });
     },
 
+    /**
+     * Toggles the `light-mode` class on the main dialog based on the current theme state.
+     * @param {'light'|'dark'} theme - The theme to apply.
+     * @private
+     */
     _handleThemeChange(theme) {
         this.dialog?.classList.toggle('light-mode', theme === 'light');
     },
 
-    _handleRefresh(showNotification = true) {
-        if (showNotification) {
-            DataService.clearCache();
-            NotificationService.show('Cache cleared. Reloading current tab.', 'success');
-        }
-
-        if (this.activeTabId) {
-            const component = ComponentRegistry.get(this.activeTabId);
-            if (component) {
-                component.destroy();
-            }
-            
-            this.renderedTabs.get(this.activeTabId)?.remove();
-            this.renderedTabs.delete(this.activeTabId);
-
-            this._showTab(this.activeTabId);
-        }
-    },
-
+    /**
+     * Activates "God Mode" by removing disabled and required attributes from all form controls.
+     * @private
+     */
     _handleGodMode() {
         let unlocked = 0, required = 0;
         PowerAppsApiService.getAllControls().forEach(c => {
@@ -317,6 +382,10 @@ export const UIManager = {
         NotificationService.show(`God Mode: ${unlocked} fields unlocked, ${required} required fields updated.`, 'success');
     },
 
+    /**
+     * Resets all unsaved changes on the current form by calling the `refresh` API.
+     * @private
+     */
     async _handleResetForm() {
         if (!PowerAppsApiService.getEntityId()) {
             NotificationService.show("Cannot reset a new, unsaved record.", 'warn');
@@ -330,6 +399,10 @@ export const UIManager = {
         }
     },
 
+    /**
+     * Hides the main dialog from view without destroying it.
+     * @private
+     */
     _hideDialog() {
         if (this.dialog) {
             this.dialog.style.display = 'none';
@@ -337,10 +410,9 @@ export const UIManager = {
     },
 
     /**
-     * Performs a full cleanup and removal of the toolkit from the page.
-     * This method saves the final UI dimensions, iterates through all registered
-     * components to call their destroy() methods, and removes the main dialog
-     * and its script tag from the DOM to allow for a clean re-initialization.
+     * Fully cleans up and removes the toolkit from the page.
+     * It calls the `destroy()` lifecycle hook on all active components, removes the
+     * main dialog from the DOM, and resets state to allow for a clean re-initialization.
      * @private
      */
     _handleClose() {

@@ -11,7 +11,6 @@ import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 /**
  * Represents the abstract base for a feature tab component.
  * @abstract
- * @class
  */
 export class BaseComponent {
     /**
@@ -33,15 +32,17 @@ export class BaseComponent {
     }
 
     /**
-     * Renders the component's main content.
-     * Subclasses MUST override this method.
-     * This base implementation automatically handles the check for form-only components.
+     * Renders the component's main content. **Subclasses must override this method.**
+     *
+     * The base implementation serves two purposes: it provides a fallback error message
+     * if not overridden, and it handles the disabling of form-only tabs when not in a
+     * form context.
      *
      * @async
      * @returns {Promise<HTMLElement>} A promise that resolves to the root HTML element of the component.
      */
     async render() {
-        // Fail Fast: If a form-only component is loaded outside a form context, show a standard message and stop.
+        // If a form-only component is loaded outside a form context, show a standard message and stop.
         if (this.isFormOnly && !PowerAppsApiService.isFormContextAvailable) {
             return UIFactory.createFormDisabledMessage();
         }

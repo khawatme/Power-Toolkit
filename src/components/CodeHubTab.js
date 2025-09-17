@@ -12,13 +12,25 @@ import { Helpers } from '../utils/Helpers.js';
 /**
  * @typedef {object} CodeSnippet
  * @property {string} t - The title of the snippet.
- * @property {string} d - The description of the snippet.
- * @property {string} c - The code content of the snippet.
+ * @property {string} d - A brief description of the snippet's purpose.
+ * @property {string} c - The raw code content of the snippet.
  */
 
+/**
+ * @typedef {object} SnippetCategory
+ * @property {string} description - A summary of the snippet category.
+ * @property {CodeSnippet[]} snippets - An array of code snippets in this category.
+ */
+
+/**
+ * A UI component that provides a searchable library of best-practice
+ * JavaScript code snippets for Power Apps development.
+ * @extends {BaseComponent}
+ * @property {Object.<string, SnippetCategory>} snippets - The collection of all code snippets, organized by category.
+ */
 export class CodeHubTab extends BaseComponent {
     /**
-     * Initializes the CodeHubTab component.
+     * Initializes the CodeHubTab, loads snippets, and debounces the filter function.
      */
     constructor() {
         super('codeHub', 'Code Hub', ICONS.codeHub);
@@ -33,6 +45,10 @@ export class CodeHubTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
+
+        const title = document.createElement('div');
+        title.className = 'section-title';
+        title.textContent = 'Code Hub';
 
         const toolbar = document.createElement('div');
         toolbar.className = 'pdt-toolbar';
@@ -85,7 +101,7 @@ export class CodeHubTab extends BaseComponent {
         });
 
         contentHost.appendChild(fragment);
-        container.append(toolbar, contentHost);
+        container.append(title, toolbar, contentHost);
 
         return container;
     }
@@ -134,7 +150,8 @@ export class CodeHubTab extends BaseComponent {
 
     /**
      * Contains the raw data for all code snippets, organized by category.
-     * @returns {object.<string, Array<{t: string, d: string, c: string}>>} An object containing all snippet data.
+     * @returns {Object.<string, SnippetCategory>} An object where each key is a
+     * category name and the value is a SnippetCategory object.
      * @private
      */
     _getCodeSnippets() {

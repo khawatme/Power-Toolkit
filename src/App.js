@@ -9,7 +9,7 @@
 import { Store } from './core/Store.js';
 import { UIManager } from './core/UIManager.js';
 import { ComponentRegistry } from './core/ComponentRegistry.js';
-import { PowerAppsApiService } from './services/PowerAppsApiService.js'; // <-- This import is critical
+import { PowerAppsApiService } from './services/PowerAppsApiService.js';
 
 // All Feature Tab Components
 import { InspectorTab } from './components/InspectorTab.js';
@@ -36,7 +36,10 @@ import { MetadataBrowserTab } from './components/MetadataBrowserTab.js';
  */
 export const App = {
     /**
-     * Initializes and starts the Power-Toolkit application.
+     * Initializes the application. This function registers all components, loads state
+     * from storage, starts the UI manager, and attaches global handlers for browser
+     * navigation events. It also creates `window.ProToolkit_UpdateNav` for external scripts.
+     * @returns {void}
      */
     init() {
         if (window.PDT_INITIALIZED) {
@@ -47,19 +50,15 @@ export const App = {
             return;
         }
 
-        // Register all available feature components.
         this._registerComponents();
 
-        // Initialize core services in the correct order.
-        Store.init();       // 1. Load settings and state from localStorage.
-        UIManager.init();   // 2. Subscribe the UI Manager to state changes.
+        Store.init();
+        UIManager.init();
 
-        // Display the main application window.
         UIManager.showDialog();
         
-        // Expose a global function for the background script to call for context updates.
         window.ProToolkit_UpdateNav = () => {
-            if (UIManager.dialog) { // Only run if the UI is actually initialized
+            if (UIManager.dialog) {
                 UIManager.updateNavTabs();
             }
         };
@@ -68,7 +67,7 @@ export const App = {
             console.log("PDT: Form OnLoad detected, silently refreshing active tab.");
             UIManager.updateNavTabs();
             if (UIManager.dialog && UIManager.activeTabId) {
-                UIManager._handleRefresh(false);
+                UIManager.refreshActiveTab(false);
             }
         };
         PowerAppsApiService.addOnLoad(globalOnLoadHandler);

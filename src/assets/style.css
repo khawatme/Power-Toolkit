@@ -296,7 +296,7 @@
     color: white;
     cursor: pointer;
     font-weight: bold;
-    padding: 8px 16px;
+    padding: 10px 20px;
     transition: background-color 0.2s,filter 0.2s;
 }
 
@@ -389,17 +389,20 @@ input[type="datetime-local"].pdt-input {
 }
 
 .info-grid {
+    align-content: start;
     align-items: start;
     display: grid;
     gap: 8px 15px;
     grid-template-columns: max-content 1fr;
+    max-height: 50vh;
+    overflow-y: auto;
 }
 
 .info-grid strong {
     color: var(--pro-text-secondary);
     font-weight: 600;
     padding-top: 2px;
-    text-align: right;
+    text-align: left;
 }
 
 .info-grid span, .info-grid a {
@@ -491,7 +494,7 @@ input[type="datetime-local"].pdt-input {
 .pdt-dialog-content .info-grid {
     background-color: var(--pro-bg-dark);
     border-radius: 6px;
-    padding: 15px;
+    padding: 20px;
 }
 
 .pdt-dialog-footer {
@@ -510,6 +513,12 @@ input[type="datetime-local"].pdt-input {
     gap: 10px;
     margin-block: 15px;
     margin-bottom: 15px;
+}
+
+.pdt-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .pdt-toolbar:last-child {
@@ -899,10 +908,15 @@ input:checked + .pdt-toggle-slider:before {
 }
 
 .pdt-switcher-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
     border-left: 1px solid var(--pro-border);
     font-size: 13px;
     margin-left: 6px;
-    padding: 0 10px 0 8px;
+    padding-block: 1px;
+    padding-inline: 10px;
 }
 
 /**
@@ -1117,10 +1131,10 @@ input:checked + .pdt-toggle-slider:before {
     border: 1px solid var(--pro-border);
     cursor: pointer;
     margin-bottom: 15px;
-    padding: 20px;
+    padding: 10px;
     transition: all 0.2s ease-in-out;
 }
-.help-card:hover {
+.help-card:hover, .codehub-category-header:hover {
     border-color: var(--pro-accent);
     transform: translateY(-2px);
 }
@@ -1155,7 +1169,7 @@ input:checked + .pdt-toggle-slider:before {
     border-radius: 8px;
     border: 1px solid var(--pro-border);
     cursor: pointer;
-    padding: 20px;
+    padding: 10px;
     transition: all 0.2s ease-in-out;
     align-items: center;
     display: flex;
@@ -1235,7 +1249,8 @@ input:checked + .pdt-toggle-slider:before {
 .pdt-metadata-browser {
     display: flex;
     gap: 20px;
-    height: 100%;
+    flex-grow: 1; /* Allow the panel container to fill vertical space */
+    min-height: 0; /* Important for nested flex layouts */
 }
 .pdt-metadata-panel {
     background-color: var(--pro-bg-light);
@@ -1254,7 +1269,7 @@ input:checked + .pdt-toggle-slider:before {
 }
 .pdt-metadata-panel-header {
     background-color: var(--pro-bg-surface);
-    border-bottom: 1px solid var(--pro-border);
+    border-bottom: 1px solid var(--pro-bg-dark);
     flex-shrink: 0;
     padding: 10px;
 }
@@ -1262,6 +1277,26 @@ input:checked + .pdt-toggle-slider:before {
     flex-grow: 1;
     overflow: auto;
 }
+/* The resizer element itself */
+.pdt-resizer {
+    flex: 0 0 5px; /* A fixed width for the draggable area */
+    cursor: col-resize;
+    background-color: var(--pro-border);
+    transition: background-color 0.2s ease-in-out;
+}
+
+/* A highlight effect to show the user it's interactive */
+.pdt-resizer:hover {
+    background-color: var(--pro-bg-light);
+}
+
+/* Adjust the flex properties of the panels to allow resizing */
+.pdt-metadata-panel.entities {
+    flex-grow: 0; /* Prevent this panel from growing on its own */
+    flex-shrink: 0; /* Prevent this panel from shrinking on its own */
+    flex-basis: 35%; /* Set its starting width */
+}
+
 
 /**
  * ------------------------------------------------------------------------
@@ -1278,7 +1313,6 @@ input:checked + .pdt-toggle-slider:before {
     font-size: 1.2em;
     font-weight: 600;
     margin-bottom: 15px;
-    margin-top: 20px;
     padding-bottom: 8px;
 }
 

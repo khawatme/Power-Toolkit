@@ -12,7 +12,6 @@ import { DialogService } from '../services/DialogService.js';
 import { Helpers } from '../utils/Helpers.js';
 
 /**
- * Type definitions for the objects used in this component.
  * @typedef {object} EntityState
  * @property {object} fullEntity - An object representing all current field values.
  * @property {object} dirtyAttributes - An object representing only the changed field values.
@@ -29,6 +28,12 @@ import { Helpers } from '../utils/Helpers.js';
  * @property {object} PostEntityImages - The collection of post-entity images.
  */
 
+/**
+ * A component that simulates the server-side plugin execution context based on the
+ * current state of the form. It allows developers to generate and inspect the Target,
+ * Pre-Image, and Post-Image for different messages and pipeline stages.
+ * @extends {BaseComponent}
+ */
 export class PluginContextTab extends BaseComponent {
     /**
      * Initializes the PluginContextTab component.
@@ -159,10 +164,12 @@ export class PluginContextTab extends BaseComponent {
     }
     
     /**
-     * Builds the simulated context object based on the current form state.
+     * Builds the simulated plugin context by assembling the entity state based on the
+     * selected message and stage. It correctly handles the different shapes of the Target,
+     * Pre-Image, and Post-Image for Create, Update, and Delete operations.
      * @param {string} message - The plugin message (e.g., 'Create', 'Update').
      * @param {number} stage - The plugin stage (e.g., 20 for Pre-operation).
-     * @returns {PluginContext} The simulated context object.
+     * @returns {PluginContext} The fully simulated plugin context object.
      * @private
      */
     _buildContext(message, stage) {
@@ -199,8 +206,10 @@ export class PluginContextTab extends BaseComponent {
     }
 
     /**
-     * Collects the current state of all attributes on the form in a single pass.
-     * @returns {EntityState} An object containing the full entity, dirty attributes, and pre-image.
+     * Iterates through all attributes on the form once to efficiently collect three
+     * distinct entity states: the full entity with all current values, a sparse
+     * entity with only the changed ('dirty') attributes, and a pre-image entity.
+     * @returns {EntityState} An object containing the three simulated entity states.
      * @private
      */
     _getFormEntityState() {
@@ -229,7 +238,9 @@ export class PluginContextTab extends BaseComponent {
     }
     
     /**
-     * Generates a C# unit test snippet for FakeXrmEasy based on the context.
+     * Generates a C# unit test snippet for the FakeXrmEasy framework.
+     * It serializes the Target and Pre-Image to JSON and embeds them in a
+     * boilerplate test method for easy copy-pasting.
      * @param {PluginContext} context - The generated context object.
      * @private
      */

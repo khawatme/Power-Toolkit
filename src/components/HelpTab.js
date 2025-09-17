@@ -8,9 +8,13 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../utils/Icons.js';
 import { Helpers } from '../utils/Helpers.js';
 
+/**
+ * A UI component that displays a searchable, accordion-style user guide for the toolkit.
+ * @extends {BaseComponent}
+ */
 export class HelpTab extends BaseComponent {
     /**
-     * Initializes the HelpTab component.
+     * Initializes the HelpTab component, setting its ID, title, and icon.
      */
     constructor() {
         super('help', 'Help / Guide', ICONS.help);
@@ -101,9 +105,16 @@ export class HelpTab extends BaseComponent {
     }
 
     /**
-     * Contains the raw text content for all help topics.
-     * @returns {object} An object where keys are topic IDs and values are content objects.
-     * @private
+     * Represents a single help topic.
+     * @typedef {object} HelpTopic
+     * @property {string} title - The main title of the help topic.
+     * @property {string} summary - A short, one-sentence summary for the collapsed view.
+     * @property {string} content - The full HTML content for the expanded view.
+     */
+
+    /**
+     * Represents the entire collection of help content.
+     * @typedef {Object.<string, HelpTopic>} HelpContent
      */
     _getHelpContent() {
         return {
@@ -191,11 +202,6 @@ export class HelpTab extends BaseComponent {
                 title: 'About',
                 summary: 'Displays version information and details about the author.',
                 content: 'This section shows the current version of the Power-Toolkit, the author\'s name, and links to connect with them.'
-            },
-            support: {
-                title: 'Support',
-                summary: 'Enjoying the tool? Consider supporting its development.',
-                content: 'If this tool has saved you time or helped you solve a problem, please consider showing your support. A coffee helps fuel future development and new features!'
             }
         };
     }

@@ -23,6 +23,12 @@ import { DataService } from '../services/DataService.js';
  * @property {number} uiCounts.onChange - Number of OnChange event handlers.
  */
 
+/**
+ * A component that displays key performance metrics for the current form load,
+ * including total load time and a breakdown of the form's complexity
+ * (number of tabs, sections, controls, and events).
+ * @extends {BaseComponent}
+ */
 export class PerformanceTab extends BaseComponent {
     /**
      * Initializes the PerformanceTab component.
@@ -56,7 +62,8 @@ export class PerformanceTab extends BaseComponent {
     }
 
     /**
-     * Renders the HTML for the Form Load Time section.
+     * Renders the HTML for the "Form Load Time" section, including a visual
+     * breakdown bar (server, network, client) if the detailed metrics are available.
      * @param {PerformanceMetrics} metrics - The performance data object.
      * @returns {string} The HTML string for the section.
      * @private
@@ -93,7 +100,8 @@ export class PerformanceTab extends BaseComponent {
     }
 
     /**
-     * Renders the HTML for the Form Composition section.
+     * Renders the HTML for the "Form Composition" section, displaying key UI element
+     * counts (tabs, sections, controls, events) in a series of stat cards.
      * @param {PerformanceMetrics} metrics - The performance data object.
      * @returns {string} The HTML string for the section.
      * @private

@@ -6,12 +6,22 @@ import { DataService } from '../services/DataService.js';
 import { DialogService } from '../services/DialogService.js';
 import { Helpers } from '../utils/Helpers.js';
 
+/**
+ * Callback function executed when a user selects a metadata item.
+ * @callback MetadataSelectCallback
+ * @param {object} selectedItem - The full metadata object for the selected entity or attribute.
+ * @returns {void}
+ */
+
 export const MetadataBrowserDialog = {
     /**
-     * Shows a searchable dialog to select a table (entity) or column (attribute).
+     * Shows a searchable, filterable dialog to select a table (entity) or column (attribute).
+     *
      * @param {'entity' | 'attribute'} type - The type of metadata to browse.
-     * @param {Function} onSelect - The callback function executed with the selected metadata object.
-     * @param {string} [entityLogicalName=null] - The logical name of the parent entity (required for 'attribute' type).
+     * @param {MetadataSelectCallback} onSelect - The callback function executed with the selected metadata object.
+     * @param {string} [entityLogicalName] - The logical name of the parent entity. This is required
+     * when the `type` is 'attribute'.
+     * @returns {Promise<void>}
      */
     async show(type, onSelect, entityLogicalName = null) {
         if (type === 'attribute' && !entityLogicalName) {
@@ -33,7 +43,6 @@ export const MetadataBrowserDialog = {
             </div>
         `;
 
-        // Capture the returned dialog controller, which contains the close() method.
         const dialog = DialogService.show(title, dialogContent);
         
         const searchInput = dialogContent.querySelector('#pdt-metadata-search');
@@ -50,12 +59,17 @@ export const MetadataBrowserDialog = {
         }
 
         const renderList = (items) => {
+            const getDisplayName = item => item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName;
+            // Sort items alphabetically by display name
+            items.sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
+
             const rows = items.map(item => `
                 <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to select">
-                    <td>${item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName}</td>
+                    <td>${getDisplayName(item)}</td>
                     <td class="code-like">${item.LogicalName}</td>
                 </tr>
             `).join('');
+
             listContainer.innerHTML = `
                 <table class="pdt-table">
                     <thead><tr><th>Display Name</th><th>Logical Name</th></tr></thead>
@@ -65,8 +79,9 @@ export const MetadataBrowserDialog = {
         
         searchInput.addEventListener('keyup', Helpers.debounce(() => {
             const term = searchInput.value.toLowerCase();
+            const getDisplayName = item => (item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName).toLowerCase();
             const filteredItems = allItems.filter(item => 
-                (item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName).toLowerCase().includes(term) ||
+                getDisplayName(item).includes(term) ||
                 item.LogicalName.toLowerCase().includes(term)
             );
             renderList(filteredItems);
@@ -78,7 +93,6 @@ export const MetadataBrowserDialog = {
                 const selectedItem = allItems.find(item => item.LogicalName === row.dataset.logicalName);
                 if (selectedItem) {
                     onSelect(selectedItem);
-                    // Use the returned close function instead of a brittle selector.
                     dialog.close();
                 }
             }

@@ -18,7 +18,7 @@ import { Store } from '../core/Store.js';
  * @class MetadataBrowserTab
  * @extends {BaseComponent}
  * @property {object} ui - A cache for frequently accessed UI elements.
- * @property {Array<object>} allEntities - The complete, filtered list of entity definitions for the current user.
+ * @property {Array<object>} allEntities - The complete, filtered list of entity definitions.
  * @property {object|null} selectedEntity - The metadata for the currently selected entity.
  * @property {Array<object>} selectedEntityAttributes - The attribute definitions for the selected entity.
  * @property {Function|null} unsubscribe - The function to call to unsubscribe from store updates.
@@ -42,35 +42,52 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
-        container.className = 'pdt-metadata-browser';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.height = '100%';
+
         container.innerHTML = `
-            <div class="pdt-metadata-panel entities">
-                <div class="pdt-metadata-panel-header">
-                    <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="Search tables...">
+            <div class="section-title" style="flex-shrink: 0;">Metadata Browser</div>
+            
+            <div class="pdt-metadata-browser">
+                <div class="pdt-metadata-panel entities">
+                    <div class="pdt-metadata-panel-header">
+                        <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="Search tables...">
+                    </div>
+                    <div id="pdt-entity-list-container" class="pdt-metadata-panel-body">
+                        <p class="pdt-note">Loading tables...</p>
+                    </div>
                 </div>
-                <div id="pdt-entity-list-container" class="pdt-metadata-panel-body"></div>
+
+                <div class="pdt-resizer" id="pdt-metadata-resizer"></div>
+
+                <div class="pdt-metadata-panel attributes">
+                    <div class="pdt-metadata-panel-header">
+                        <input type="text" id="pdt-attribute-search" class="pdt-input" placeholder="Search columns..." disabled>
+                    </div>
+                    <div id="pdt-attribute-list-container" class="pdt-metadata-panel-body">
+                        <p class="pdt-note">Select a table to view its columns.</p>
+                    </div>
+                </div>
+                
             </div>
-            <div class="pdt-metadata-panel attributes">
-                <div class="pdt-metadata-panel-header">
-                    <input type="text" id="pdt-attribute-search" class="pdt-input" placeholder="Search columns..." disabled>
-                </div>
-                <div id="pdt-attribute-list-container" class="pdt-metadata-panel-body">
-                    <p class="pdt-note">Select a table to view its columns.</p>
-                </div>
-            </div>`;
+        `;
         return container;
     }
 
     /**
-     * Caches UI elements, subscribes to the store, triggers the initial data load, and attaches event listeners.
+     * Caches UI elements, subscribes to the central store for impersonation changes,
+     * triggers the initial data load, and attaches event listeners for search and selection.
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
         this.ui = {
+            container: element,
             entitySearch: element.querySelector('#pdt-entity-search'),
             entityList: element.querySelector('#pdt-entity-list-container'),
             attributeSearch: element.querySelector('#pdt-attribute-search'),
-            attributeList: element.querySelector('#pdt-attribute-list-container')
+            attributeList: element.querySelector('#pdt-attribute-list-container'),
+            resizer: element.querySelector('#pdt-metadata-resizer') // <-- ADD THIS LINE
         };
 
         // Subscribe to store changes to react to impersonation.
@@ -91,8 +108,11 @@ export class MetadataBrowserTab extends BaseComponent {
             if (row) {
                 const logicalName = row.dataset.logicalName;
                 this._handleEntitySelect(logicalName);
-                const entity = this.allEntities.find(e => e.LogicalName === logicalName);
-                if (entity) this._showEntityDetails(entity);
+                const entity = this.allEntities.find(e => e.LogicalName === row.dataset.logicalName);
+                if (entity) {
+                    const title = entity.DisplayName?.UserLocalizedLabel?.Label || entity.SchemaName;
+                    this._showMetadataDetailsDialog(`Table Details: ${title}`, entity);
+                }
                 this.ui.entityList.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
                 row.classList.add('active');
             }
@@ -101,9 +121,11 @@ export class MetadataBrowserTab extends BaseComponent {
         this.ui.attributeList.addEventListener('click', (e) => {
             const row = e.target.closest('tr[data-logical-name]');
             if (row) {
-                const logicalName = row.dataset.logicalName;
-                const attribute = this.selectedEntityAttributes.find(a => a.LogicalName === logicalName);
-                if (attribute) this._showAttributeDetails(attribute);
+                const attribute = this.selectedEntityAttributes.find(a => a.LogicalName === row.dataset.logicalName);
+                if (attribute) {
+                    const title = attribute.DisplayName?.UserLocalizedLabel?.Label || attribute.SchemaName;
+                    this._showMetadataDetailsDialog(`Column Details: ${title}`, attribute);
+                }
             }
         });
     }
@@ -164,6 +186,42 @@ export class MetadataBrowserTab extends BaseComponent {
         } catch (e) {
             this.ui.entityList.innerHTML = `<div class="pdt-error">Could not load tables: ${e.message}</div>`;
         }
+
+        this._makePanelsResizable(this.ui.resizer);
+    }
+
+    /**
+     * Attaches event listeners to the resizer element to handle dragging.
+     * @param {HTMLElement} resizer - The resizer element to make draggable.
+     * @private
+     */
+    _makePanelsResizable(resizer) {
+        const leftPanel = resizer.previousElementSibling;
+        
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            
+            const startX = e.clientX;
+            const startWidth = leftPanel.offsetWidth;
+
+            const handleDrag = (moveEvent) => {
+                const newWidth = startWidth + (moveEvent.clientX - startX);
+                // Add constraints to prevent the panels from becoming too small
+                if (newWidth > 200 && newWidth < (this.ui.container.offsetWidth - 200)) {
+                    leftPanel.style.flexBasis = `${newWidth}px`;
+                }
+            };
+
+            const stopDrag = () => {
+                document.removeEventListener('mousemove', handleDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.body.style.cursor = ''; // Reset the global cursor
+            };
+
+            document.addEventListener('mousemove', handleDrag);
+            document.addEventListener('mouseup', stopDrag);
+            document.body.style.cursor = 'col-resize'; // Show resize cursor everywhere while dragging
+        });
     }
 
     /**
@@ -275,60 +333,49 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Shows a dialog with detailed properties for a selected entity.
-     * @param {object} entity - The entity metadata object.
+     * Creates and shows a dialog with a filterable grid of a metadata object's properties.
+     * @param {string} title - The title for the dialog window.
+     * @param {object} metadataObject - The entity or attribute metadata object to display.
      * @private
      */
-    _showEntityDetails(entity) {
-        const title = entity.DisplayName?.UserLocalizedLabel?.Label || entity.SchemaName;
+    _showMetadataDetailsDialog(title, metadataObject) {
         const content = document.createElement('div');
-        content.innerHTML = `<input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;"><div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>`;
+        content.innerHTML = `
+            <input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;">
+            <div class="info-grid" style="height: 50vh;"></div>
+        `;
         const grid = content.querySelector('.info-grid');
         const searchInput = content.querySelector('input');
-        const properties = Object.entries(entity).filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata')).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-        properties.forEach(([key, value]) => {
-            const strong = document.createElement('strong'); strong.textContent = `${key}:`;
-            const span = document.createElement('span'); span.className = 'copyable'; span.title = 'Click to copy'; span.textContent = value;
-            grid.append(strong, span);
-        });
-        searchInput.addEventListener('keyup', Helpers.debounce(() => {
-            const term = searchInput.value.toLowerCase();
-            for (let i = 0; i < grid.children.length; i += 2) {
-                const labelEl = grid.children[i]; const valueEl = grid.children[i + 1];
-                const isMatch = labelEl.textContent.toLowerCase().includes(term) || valueEl.textContent.toLowerCase().includes(term);
-                const display = isMatch ? '' : 'none';
-                labelEl.style.display = display; valueEl.style.display = display;
-            }
-        }, 200));
-        DialogService.show(`Table Details: ${title}`, content);
-    }
 
-    /**
-     * Shows a dialog with detailed properties for a selected attribute.
-     * @param {object} attribute - The attribute metadata object.
-     * @private
-     */
-    _showAttributeDetails(attribute) {
-        const title = attribute.DisplayName?.UserLocalizedLabel?.Label || attribute.SchemaName;
-        const content = document.createElement('div');
-        content.innerHTML = `<input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;"><div class="info-grid" style="grid-template-columns: max-content 1fr; max-height: 50vh; overflow-y: auto;"></div>`;
-        const grid = content.querySelector('.info-grid');
-        const searchInput = content.querySelector('input');
-        const properties = Object.entries(attribute).filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata')).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+        // Filter and sort the properties for display
+        const properties = Object.entries(metadataObject)
+            .filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata'))
+            .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+
+        // Create and append the grid rows
         properties.forEach(([key, value]) => {
-            const strong = document.createElement('strong'); strong.textContent = `${key}:`;
-            const span = document.createElement('span'); span.className = 'copyable'; span.title = 'Click to copy'; span.textContent = value;
+            const strong = document.createElement('strong');
+            strong.textContent = `${key}:`;
+            const span = document.createElement('span');
+            span.className = 'copyable';
+            span.title = 'Click to copy';
+            span.textContent = value;
             grid.append(strong, span);
         });
+
+        // Attach the live filter listener
         searchInput.addEventListener('keyup', Helpers.debounce(() => {
             const term = searchInput.value.toLowerCase();
             for (let i = 0; i < grid.children.length; i += 2) {
-                const labelEl = grid.children[i]; const valueEl = grid.children[i + 1];
+                const labelEl = grid.children[i];
+                const valueEl = grid.children[i + 1];
                 const isMatch = labelEl.textContent.toLowerCase().includes(term) || valueEl.textContent.toLowerCase().includes(term);
                 const display = isMatch ? '' : 'none';
-                labelEl.style.display = display; valueEl.style.display = display;
+                labelEl.style.display = display;
+                valueEl.style.display = display;
             }
         }, 200));
-        DialogService.show(`Column Details: ${title}`, content);
+
+        DialogService.show(title, content);
     }
 }

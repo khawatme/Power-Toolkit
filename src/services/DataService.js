@@ -11,6 +11,30 @@ import { Helpers } from '../utils/Helpers.js';
 import { UIManager } from '../core/UIManager.js';
 import { Store } from '../core/Store.js';
 
+/**
+ * @typedef {object} EnvironmentVariable
+ * @property {string} definitionId - The GUID of the variable definition.
+ * @property {string|null} valueId - The GUID of the variable's current value record.
+ * @property {string} schemaName - The schema name (e.g., "new_MyVariable").
+ * @property {string} displayName - The user-friendly display name.
+ * @property {string} type - The data type of the variable.
+ * @property {string} defaultValue - The default value.
+ * @property {string} currentValue - The current overridden value.
+ */
+
+/**
+ * @typedef {object} FormColumn
+ * @property {string} displayName - The user-friendly label of the column.
+ * @property {string} logicalName - The schema name of the column.
+ * @property {any} value - The current value of the column on the form.
+ * @property {string} type - The attribute type (e.g., "string", "lookup").
+ * @property {boolean} isDirty - True if the column's value has been changed.
+ * @property {string} requiredLevel - The required level ('none', 'required', 'recommended').
+ * @property {Xrm.Attributes.Attribute} attribute - The underlying Xrm.Attribute object.
+ * @property {boolean} [onForm] - True if the column is present on the form (used in 'all record columns' view).
+ * @property {boolean} [isSystem] - True if the column is a system-managed property (used in 'all record columns' view).
+ */
+
 /** @private @type {Map<string, any>} Caches the results of data-fetching operations. */
 const _cache = new Map();
 /** @private @type {string|null} The GUID of the user currently being impersonated. */
@@ -73,15 +97,23 @@ async function _loadEntityMetadata() {
 }
 
 /**
- * A private, central function for executing all Web API requests. It handles entity set name
- * resolution, adds impersonation headers, and throws a detailed error on any failed request.
- * @param {string} method - The HTTP method (e.g., 'GET', 'POST').
- * @param {string} collection - The entity set name, logical name, or function name.
- * @param {string} [options=''] - OData query options (e.g., '$select=name').
- * @param {object|null} [data=null] - The JSON payload for POST or PATCH requests.
- * @returns {Promise<object>} A promise that resolves with the JSON response from the server.
- * @throws {Error} Throws an error for any non-successful HTTP status code.
+ * A centralized gateway for Dataverse Web API requests, handling entity name resolution,
+ * impersonation, and standardized error parsing.
+ *
+ * @async
  * @private
+ * @param {'GET'|'POST'|'PATCH'|'DELETE'} method - The HTTP verb for the request.
+ * @param {string} collection - An entity logical name (e.g., 'account') or resource path (e.g., 'accounts(guid)').
+ * @param {string} [options] - OData query options (e.g., '?$select=name').
+ * @param {object} [data] - The JSON payload for POST or PATCH requests.
+ * @param {HeadersInit} [customHeaders] - Optional custom request headers.
+ * @returns {Promise<object>} A promise resolving with the API response. Returns `{id}` on create (201)
+ * or `{status: 204}` on success with no content.
+ * @throws {Error} Throws a detailed error on a non-successful HTTP status.
+ *
+ * @example
+ * Retrieves the name and revenue of the top 3 accounts
+ * const { value } = await _webApiFetch('GET', 'account', '?$select=name,revenue&$top=3');
  */
 async function _webApiFetch(method, collection, options = '', data = null, customHeaders = {}) {
     const globalContext = PowerAppsApiService.getGlobalContext();
@@ -169,20 +201,48 @@ async function _fetch(key, fetcher, bypassCache = false) {
 }
 
 /**
+ * Reliably gets the current form's ID, with null checks for context.
+ * @returns {string|null} The form GUID or null if not found.
+ * @private
+ */
+function _getFormIdReliably() {
+    try {
+        if (typeof Xrm !== 'undefined' && Xrm.Page && Xrm.Page.ui && Xrm.Page.ui.formSelector) {
+            const currentItem = Xrm.Page.ui.formSelector.getCurrentItem();
+            if (currentItem) {
+                const formId = currentItem.getId();
+                // Return the ID without the curly braces {}
+                return formId ? formId.replace(/[{}]/g, "") : null;
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error("PDT: Error in _getFormIdReliably:", e);
+        return null;
+    }
+}
+
+/**
  * A shared function to parse form XML and extract both events and business rules.
  * @param {boolean} bypassCache - Whether to bypass the cache for this operation.
  * @returns {Promise<object|null>} An object containing automation details, or null if not on a form.
  * @private
  */
 const _getAutomationsFromFormXml = async (bypassCache) => {
-    // This function is now only responsible for event handlers. The cache key is more specific.
     return _fetch('formEventHandlers', async () => {
-        const formId = PowerAppsApiService.getFormId();
-        if (!formId) return null;
-        const formXmlResult = await _webApiFetch("GET", `systemform(${formId})`, "?$select=formxml");
-        if (!formXmlResult?.formxml) return null;
+        const formId = _getFormIdReliably();
+        if (!formId) {
+            throw new Error("Could not identify the current Form ID. Please ensure this tool is opened on a record form.");
+        }
+        
+        const formXmlResult = await _webApiFetch("GET", `systemforms(${formId})`, "?$select=formxml");
+
+        if (!formXmlResult?.formxml) {
+            throw new Error("Retrieved form data but it did not contain a 'formxml' definition.");
+        }
+        
         const xmlDoc = new DOMParser().parseFromString(formXmlResult.formxml, "text/xml");
-        const automations = { OnLoad: [], OnSave: [] }; // Only returns handlers now
+        const automations = { OnLoad: [], OnSave: [] };
         xmlDoc.querySelectorAll("form > events > event").forEach(node => {
             const eventName = node.getAttribute("name");
             const handlers = Array.from(node.querySelectorAll("Handler")).map(h => ({
@@ -358,7 +418,7 @@ export const DataService = {
     /**
      * Fetches all Environment Variable definitions and their current values.
      * @param {boolean} [bypassCache=false] - If true, re-fetches from the server.
-     * @returns {Promise<Array<object>>}
+     * @returns {Promise<EnvironmentVariable[]>} A promise that resolves to an array of environment variables.
      */
     getEnvironmentVariables: (bypassCache = false) => _fetch('envVars', async () => {
         const options = "?$select=schemaname,displayname,type,defaultvalue,environmentvariabledefinitionid&$expand=environmentvariabledefinition_environmentvariablevalue($select=value,environmentvariablevalueid)";
@@ -397,7 +457,7 @@ export const DataService = {
     /**
      * Gets a detailed list of all columns (attributes) present on the current form.
      * @param {boolean} [bypassCache=false] - If true, re-evaluates the form attributes.
-     * @returns {Array<object>}
+     * @returns {Promise<FormColumn[]>} A promise that resolves to an array of form column objects.
      */
     getFormColumns: (bypassCache = false) => _fetch('formColumns', () => {
         return PowerAppsApiService.getAllAttributes().map(attribute => {
@@ -426,7 +486,7 @@ export const DataService = {
      * @returns {Promise<Array<object>>}
      */
     getBusinessRulesForEntity: (entityName) => {
-        // We create a unique cache key for each entity's business rules.
+        // Create a unique cache key for each entity's business rules.
         const cacheKey = `businessRules_${entityName}`;
         return _fetch(cacheKey, async () => {
             if (!entityName) return [];
@@ -467,10 +527,54 @@ export const DataService = {
         });
     },
 
+/**
+     * Gets the event handlers from the primary main form of a specified entity.
+     * @param {string} entityName - The logical name of the entity.
+     * @param {boolean} [bypassCache=false] - If true, re-fetches from the server.
+     * @returns {Promise<object|null>} An object with OnLoad/OnSave handlers, or null if not found.
+     */
+    getFormEventHandlersForEntity: async (entityName, bypassCache = false) => {
+        const cacheKey = `formEventHandlers_${entityName}`;
+        return _fetch(cacheKey, async () => {
+            if (!entityName) return null;
+
+            // NOTE: The entity name must be in single quotes for the OData query.
+            const formQueryOptions = `?$filter=objecttypecode eq '${entityName}' and type eq 2&$select=formid&$top=1`;
+            const formResult = await DataService.retrieveMultipleRecords("systemform", formQueryOptions);
+
+            if (!formResult?.entities?.length) {
+                return null;
+            }
+            const formId = formResult.entities[0].formid;
+
+            // Retrieve the FormXML for that form
+            const formRecord = await DataService.retrieveRecord("systemform", formId, "?$select=formxml");
+            if (!formRecord?.formxml) {
+                return null; // Form record found, but no XML content
+            }
+
+            // Parse the FormXML to extract event handlers
+            const xmlDoc = new DOMParser().parseFromString(formRecord.formxml, "text/xml");
+            const automations = { OnLoad: [], OnSave: [] };
+            xmlDoc.querySelectorAll("form > events > event").forEach(node => {
+                const eventName = node.getAttribute("name");
+                const handlers = Array.from(node.querySelectorAll("Handler")).map(h => ({
+                    library: h.getAttribute("libraryName"),
+                    function: h.getAttribute("functionName"),
+                    enabled: h.getAttribute("enabled") === 'true'
+                }));
+                if (eventName === 'onload') automations.OnLoad.push(...handlers);
+                if (eventName === 'onsave') automations.OnSave.push(...handlers);
+            });
+            return automations;
+
+        }, bypassCache);
+    },
+
     /**
      * Retrieves all columns for the current record by merging form attributes with a full Web API retrieve.
      * @param {boolean} [bypassCache=false] - If true, re-fetches the data from the server.
-     * @returns {Promise<Array<object>>} A promise that resolves to the merged list of all columns.
+     * @returns {Promise<FormColumn[]>} A promise that resolves to the merged list of all columns.
      */
     getAllRecordColumns: (bypassCache = false) => _fetch('allRecordColumns', async () => {
         const entityName = PowerAppsApiService.getEntityName();
@@ -540,14 +644,14 @@ export const DataService = {
             const roles = gc.userSettings.roles.getAll().map(r => r.name);
             userInfo = { name: gc.userSettings.userName, id: gc.userSettings.userId.replace(/[{}]/g, ''), language: gc.userSettings.languageId, roles };
         } else {
-            // Impersonation is active, so we fetch all details from the server.
+            // Impersonation is active, fetch all details from the server.
             const userData = await DataService.retrieveRecord('systemusers', _impersonatedUserId, "?$select=fullname,systemuserid");
 
-            // 1. Get roles assigned directly to the user.
+            // Get roles assigned directly to the user.
             const directRolesResponse = await _webApiFetch('GET', `systemusers(${_impersonatedUserId})/systemuserroles_association?$select=name`);
             const directRoles = directRolesResponse.value?.map(r => r.name) || [];
 
-            // 2. Get roles inherited from the user's teams.
+            // Get roles inherited from the user's teams.
             const teamsResponse = await _webApiFetch('GET', `systemusers(${_impersonatedUserId})/teammembership_association?$select=teamid`);
             const teamIds = teamsResponse.value?.map(t => t.teamid) || [];
             let teamRoles = [];
@@ -560,7 +664,7 @@ export const DataService = {
                 teamRoles = teamRoleResults.flatMap(result => result.value?.map(r => r.name) || []);
             }
 
-            // 3. Combine, de-duplicate, and sort the roles.
+            // Combine, de-duplicate, and sort the roles.
             const allRolesSet = new Set([...directRoles, ...teamRoles]);
             
             userInfo = {
@@ -580,7 +684,6 @@ export const DataService = {
      * @returns {Promise<object>}
      */
     getPluginTraceLogs: async (options, pageSize) => {
-        // This function now contains its own direct fetch call to guarantee pagination works.
         const globalContext = PowerAppsApiService.getGlobalContext();
         
         let queryString = options || '';

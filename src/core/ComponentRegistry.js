@@ -21,6 +21,7 @@ export const ComponentRegistry = {
     /**
      * Adds a component instance to the registry.
      * @param {import('./BaseComponent.js').BaseComponent} component - The component instance to register.
+     * @returns {void}
      */
     register(component) {
         if (!component || !component.id) {
@@ -45,7 +46,7 @@ export const ComponentRegistry = {
 
     /**
      * Retrieves all registered components as an array.
-     * @returns {import('./BaseComponent.js').BaseComponent[]} An array of all component instances.
+     * @returns {import('./BaseComponent.js').BaseComponent[]} An array of all registered component instances.
      */
     getAll() {
         return Array.from(components.values());

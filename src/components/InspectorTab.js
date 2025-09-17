@@ -12,6 +12,25 @@ import { FormControlFactory } from '../ui/FormControlFactory.js';
 import { Helpers } from '../utils/Helpers.js';
 import { NotificationService } from '../services/NotificationService.js';
 
+/**
+ * Represents a single node in the form's UI hierarchy tree.
+ * @typedef {object} TreeNode
+ * @property {string} label - The display label for the node (e.g., "Tab: SUMMARY").
+ * @property {string} logicalName - The logical name of the underlying component (e.g., "tab_2_section_1").
+ * @property {any} [value] - The current value of the component, if applicable.
+ * @property {Xrm.Attributes.Attribute} [editableAttr] - The Xrm.Attribute object, if the node represents an editable field.
+ * @property {string} [controlType] - The type of the control (e.g., "standard", "lookup", "subgrid").
+ * @property {TreeNode[]} [children] - An array of child nodes for parent components like tabs and sections.
+ */
+
+/**
+ * A component that provides a real-time, interactive, and lazy-loaded tree view
+ * of the current form's UI hierarchy (Tabs > Sections > Controls).
+ * @extends {BaseComponent}
+ * @property {TreeNode[]} hierarchy - Caches the complete form UI hierarchy data.
+ * @property {HTMLElement|null} highlightedElement - The DOM element on the main form that is currently highlighted.
+ * @property {object} ui - A cache for frequently accessed UI elements.
+ */
 export class InspectorTab extends BaseComponent {
     /**
      * Initializes a new instance of the InspectorTab class.
@@ -67,7 +86,9 @@ export class InspectorTab extends BaseComponent {
     }
 
     /**
-     * Handles click events on the tree view for expanding/collapsing nodes and editing values.
+     * Handles click events on the tree view. It triggers the value editor for
+     * editable fields or toggles the expand/collapse state for parent nodes.
+     * It also initiates lazy-loading of child nodes on first expansion.
      * @param {MouseEvent} e - The click event object.
      * @private
      */
@@ -199,7 +220,7 @@ export class InspectorTab extends BaseComponent {
             <div class="tree-node-content" data-logical-name="${Helpers.escapeHtml(node.logicalName || "")}">
                 <div class="item-details">
                     <span class="item-label">${Helpers.escapeHtml(node.label)}</span>
-                    <span class="item-logical-name">${Helpers.escapeHtml(node.logicalName || "")}</span>
+                    <span class="item-logical-name copyable" title="Click to copy">${Helpers.escapeHtml(node.logicalName || "")}</span>
                 </div>
                 ${valueHtml}
             </div>`;
@@ -254,9 +275,9 @@ export class InspectorTab extends BaseComponent {
 
     /**
      * Recursively searches the cached hierarchy for a node by its logical name.
-     * @param {Array<object>} nodes - The array of nodes to search within.
+     * @param {TreeNode[]} nodes - The array of nodes to search within.
      * @param {string} logicalName - The logical name to find.
-     * @returns {object|null} The found node object, or null if not found.
+     * @returns {TreeNode|null} The found node object, or null if not found.
      * @private
      */
     _findNodeByLogicalName(nodes, logicalName) {
