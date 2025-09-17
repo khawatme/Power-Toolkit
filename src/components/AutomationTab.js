@@ -17,12 +17,9 @@ import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { MetadataBrowserDialog } from '../ui/MetadataBrowserDialog.js';
 
 /**
- * A component for viewing and managing form automation assets.
- * @class AutomationTab
+ * A component for viewing and managing form automation assets like Business Rules
+ * and Form Event Handlers for any table in the environment.
  * @extends {BaseComponent}
- * @property {object} ui - A cache for frequently accessed UI elements.
- * @property {Array<object>} rules - The currently displayed list of business rules.
- * @property {string|null} selectedEntity - The logical name of the currently selected entity for viewing business rules.
  */
 export class AutomationTab extends BaseComponent {
     /**
@@ -82,20 +79,18 @@ export class AutomationTab extends BaseComponent {
 
         this.ui.browseBtn.addEventListener('click', () => {
             MetadataBrowserDialog.show('entity', (selectedEntity) => {
-                // FIX: The variable name was incorrect. It should be 'selectedEntity'.
                 this.ui.entityInput.value = selectedEntity.LogicalName;
                 this.selectedEntity = selectedEntity.LogicalName;
-                this._loadBusinessRulesForEntity(this.selectedEntity);
+                this._loadAllAutomationsForEntity(this.selectedEntity);
             });
         });
 
-        // ADD THIS NEW EVENT LISTENER
         this.ui.entityInput.addEventListener('keyup', (e) => {
             if (e.key === 'Enter') {
                 const entityName = e.target.value.trim();
                 if (entityName) {
                     this.selectedEntity = entityName;
-                    this._loadBusinessRulesForEntity(this.selectedEntity);
+                    this._loadAllAutomationsForEntity(this.selectedEntity);
                 }
             }
         });
@@ -118,36 +113,17 @@ export class AutomationTab extends BaseComponent {
      * @private
      */
     async _initialize() {
+        // Set the default message, ensuring the section is visible
+        this.ui.eventsContainer.querySelector('.section-title').insertAdjacentHTML(
+            'afterend',
+            '<p class="pdt-note">Select a table to view its main form event handlers.</p>'
+        );
+
         const currentEntity = PowerAppsApiService.getEntityName();
         if (currentEntity) {
             this.ui.entityInput.value = currentEntity;
             this.selectedEntity = currentEntity;
-            this._loadBusinessRulesForEntity(currentEntity);
-        }
-
-        if (PowerAppsApiService.isFormContextAvailable) {
-            this._loadFormEventHandlers();
-        } else {
-            this.ui.eventsContainer.style.display = 'none';
-        }
-    }
-
-    /**
-     * Fetches and renders the list of business rules for a given entity.
-     * @param {string} entityName - The logical name of the entity.
-     * @private
-     */
-    async _loadBusinessRulesForEntity(entityName) {
-        if (!entityName) {
-            this.ui.brListContainer.innerHTML = `<p class="pdt-note">Please select a table to view its business rules.</p>`;
-            return;
-        }
-        this.ui.brListContainer.innerHTML = `<p class="pdt-note">Loading rules for ${entityName}...</p>`;
-        try {
-            this.rules = await DataService.getBusinessRulesForEntity(entityName);
-            this._renderBusinessRules();
-        } catch (e) {
-            this.ui.brListContainer.innerHTML = `<div class="pdt-error">Error loading business rules: ${e.message}</div>`;
+            this._loadAllAutomationsForEntity(currentEntity);
         }
     }
 
@@ -196,7 +172,8 @@ export class AutomationTab extends BaseComponent {
     }
 
     /**
-     * Toggles the visibility of a business rule's logic panel and lazy-loads the content on first expand.
+     * Toggles the visibility of a business rule's logic panel.
+     * The rule's underlying JavaScript code is fetched and formatted on the first expansion.
      * @param {HTMLElement} header - The header element of the rule that was clicked.
      * @private
      */
@@ -298,15 +275,31 @@ export class AutomationTab extends BaseComponent {
     }
     
     /**
-     * Fetches and renders the list of statically-defined form event handlers.
+     * Loads all automation assets (rules and handlers) for the selected entity in parallel.
+     * @param {string} entityName - The logical name of the entity.
      * @private
      */
-    async _loadFormEventHandlers() {
+    async _loadAllAutomationsForEntity(entityName) {
+        // Set loading state for both sections
+        this.ui.brListContainer.innerHTML = `<p class="pdt-note">Loading rules for ${entityName}...</p>`;
+        this.ui.eventsContainer.innerHTML = `<div class="section-title">Form Event Handlers</div><p class="pdt-note">Loading form handlers for ${entityName}...</p>`;
+
         try {
-            const events = await DataService.getFormEventHandlers();
+            // Fetch both sets of data concurrently for better performance
+            const [rules, events] = await Promise.all([
+                DataService.getBusinessRulesForEntity(entityName),
+                DataService.getFormEventHandlersForEntity(entityName)
+            ]);
+
+            // Render the results
+            this.rules = rules;
+            this._renderBusinessRules();
             this._renderFormEvents(this.ui.eventsContainer, events);
-        } catch(e) {
-            this.ui.eventsContainer.innerHTML = `<div class="pdt-error">Error loading event handlers: ${e.message}</div>`;
+
+        } catch (error) {
+            const errorHtml = `<div class="pdt-error">Error loading automations: ${error.message}</div>`;
+            this.ui.brListContainer.innerHTML = errorHtml;
+            this.ui.eventsContainer.innerHTML = `<div class="section-title">Form Event Handlers</div>${errorHtml}`;
         }
     }
 
@@ -317,20 +310,23 @@ export class AutomationTab extends BaseComponent {
      * @private
      */
     _renderFormEvents(container, events) {
-        if (!PowerAppsApiService.isFormContextAvailable) {
-            container.style.display = 'none';
-            return;
-        }
-        
         if (events === null) {
-            container.innerHTML = `<div class="section-title">Form Event Handlers</div><p class="pdt-note">Could not retrieve form definition.</p>`;
+            container.innerHTML = `<div class="section-title">Form Event Handlers</div><p class="pdt-note">Could not retrieve form definition or no main form found.</p>`;
             return;
         }
+
         const renderHandlers = (handlerList) => {
             if (!handlerList || handlerList.length === 0) return '<p class="pdt-note">No handlers configured.</p>';
             return `<ul class="pdt-list">${handlerList.map(h => `<li class="pdt-list-item-condensed"><span><strong>${Helpers.escapeHtml(h.function)}</strong> from <span class="code-like">${Helpers.escapeHtml(h.library)}</span></span></li>`).join('')}</ul>`;
         };
-        const content = `<h4 class="pdt-section-header">OnLoad</h4>${renderHandlers(events.OnLoad)}<h4 class="pdt-section-header" style="margin-top: 15px;">OnSave</h4>${renderHandlers(events.OnSave)}<p class="pdt-note" style="margin-top: 15px;">Note: This list only shows handlers from the form definition.</p>`;
+
+        const content = `
+            <h4 class="pdt-section-header">OnLoad</h4>
+            ${renderHandlers(events.OnLoad)}
+            <h4 class="pdt-section-header" style="margin-top: 15px;">OnSave</h4>
+            ${renderHandlers(events.OnSave)}
+            <p class="pdt-note" style="margin-top: 15px;">Note: This list shows handlers from the table's main form definition.</p>`;
+        
         container.innerHTML = `<div class="section-title">Form Event Handlers</div>${content}`;
     }
 }

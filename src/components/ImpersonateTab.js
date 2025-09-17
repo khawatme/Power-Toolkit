@@ -9,6 +9,15 @@ import { ICONS } from '../utils/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { Helpers } from '../utils/Helpers.js';
 
+/**
+ * A component that allows developers to search for and impersonate another
+ * user, causing all subsequent API requests made by the tool to be executed
+ * on behalf of that user.
+ * @extends {BaseComponent}
+ * @property {object} ui - A cache for frequently accessed UI elements.
+ * @property {Array<object>} lastSearchResults - Caches the most recent user search results.
+ * @property {{column: string, direction: 'asc'|'desc'}} sortState - The current sort state of the results table.
+ */
 export class ImpersonateTab extends BaseComponent {
     constructor() {
         super('impersonate', 'Impersonate', ICONS.impersonate);
@@ -17,6 +26,11 @@ export class ImpersonateTab extends BaseComponent {
         this.sortState = { column: 'fullname', direction: 'asc' }; // Initial sort state
     }
 
+    /**
+     * Renders the component's static HTML structure, including the search bar
+     * and containers for the status message and results table.
+     * @returns {Promise<HTMLElement>} A promise that resolves with the component's root element.
+     */
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
@@ -33,6 +47,11 @@ export class ImpersonateTab extends BaseComponent {
         return container;
     }
 
+    /**
+     * Caches UI elements, attaches event listeners for search and impersonation actions,
+     * and performs the initial status update after the component is added to the DOM.
+     * @param {HTMLElement} element - The root element of the component.
+     */
     postRender(element) {
             this.ui = {
                 statusContainer: element.querySelector('#impersonation-status-container'),
@@ -79,6 +98,12 @@ export class ImpersonateTab extends BaseComponent {
             this._updateStatus();
         }
 
+    /**
+     * Updates the status container to reflect the current impersonation state.
+     * Displays a banner with the impersonated user's name and a "Clear" button,
+     * or clears the container if no impersonation is active.
+     * @private
+     */
     _updateStatus() {
         const info = DataService.getImpersonationInfo();
         if (info.isImpersonating) {
@@ -92,6 +117,13 @@ export class ImpersonateTab extends BaseComponent {
         }
     }
 
+    /**
+     * Executes a search for users based on the input field's value.
+     * Fetches enabled users, caches the results, resets the sort state,
+     * and triggers a re-render of the results table.
+     * @async
+     * @private
+     */
     async _performSearch() {
         const searchTerm = this.ui.searchInput.value.trim();
 
@@ -112,6 +144,12 @@ export class ImpersonateTab extends BaseComponent {
         }
     }
 
+    /**
+     * Renders the user search results into a sortable HTML table.
+     * It sorts the `lastSearchResults` array based on the current `sortState`
+     * before generating the table rows.
+     * @private
+     */
     _renderResults() {
         if (!this.lastSearchResults || this.lastSearchResults.length === 0) {
             this.ui.resultsContainer.innerHTML = `<p class="pdt-note">No active users found matching your search.</p>`;

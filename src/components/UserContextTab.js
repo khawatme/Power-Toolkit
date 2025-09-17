@@ -10,13 +10,21 @@ import { DataService } from '../services/DataService.js';
 import { Helpers } from '../utils/Helpers.js';
 import { Store } from '../core/Store.js';
 
+/**
+ * A component that displays comprehensive details about the current session, including
+ * the user's settings and security roles, client information, and organization details.
+ * It reactively updates when the impersonated user changes.
+ * @extends {BaseComponent}
+ */
 export class UserContextTab extends BaseComponent {
     /**
      * Initializes the UserContextTab component.
      */
     constructor() {
         super('userContext', 'User Context', ICONS.user);
+        /** @type {Function|null} The function to call to unsubscribe from store updates. */
         this.unsubscribe = null;
+        /** @type {object} A cache for frequently accessed UI elements. */
         this.ui = {};
     }
 
@@ -46,7 +54,7 @@ export class UserContextTab extends BaseComponent {
         element.addEventListener('click', (e) => {
             const target = e.target.closest('.copyable');
             if (target) {
-                Helpers.copyToClipboard(target.textContent, 'Copied to clipboard!');
+                Helpers.copyToClipboard(target.textContent, `Copied: ${target.textContent}`);
             }
         });
 
@@ -63,7 +71,9 @@ export class UserContextTab extends BaseComponent {
     }
 
     /**
-     * Fetches the user context data and renders it into the component's container.
+     * Fetches the complete user, client, and organization context from the DataService,
+     * always bypassing the cache to ensure it reflects the current impersonation state.
+     * It then renders the data into a series of information cards.
      * @private
      */
     async _loadData() {
@@ -108,7 +118,7 @@ export class UserContextTab extends BaseComponent {
      * Creates the HTML for a styled information card.
      * @param {string} title - The title for the card header.
      * @param {string} icon - The emoji icon for the card header.
-     * @param {object} data - An object of key-value pairs to display in an info grid.
+     * @param {Object.<string, string>} data - An object of key-value pairs, where the value is a pre-formatted HTML string.
      * @param {string} [footerHtml=''] - Optional HTML to append after the main body.
      * @returns {string} The complete HTML string for the card.
      * @private

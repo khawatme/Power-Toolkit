@@ -9,9 +9,14 @@ import { ICONS } from '../utils/Icons.js';
 import { Config } from '../utils/Config.js';
 import { DialogService } from '../services/DialogService.js';
 
+/**
+ * A component that displays information about the application, including
+ * version, author, and license details.
+ * @extends {BaseComponent}
+ */
 export class AboutTab extends BaseComponent {
     /**
-     * Initializes the AboutTab component.
+     * Initializes the AboutTab component, setting its ID, title, and icon.
      */
     constructor() {
         super('about', 'About', ICONS.about);
@@ -39,8 +44,8 @@ export class AboutTab extends BaseComponent {
     }
 
     /**
-     * Attaches event listeners after the component is added to the DOM.
-     * @param {HTMLElement} element - The root element of the component.
+     * Attaches the 'click' event handler to the license button.
+     * @param {HTMLElement} element - The root element of the component, which contains the button.
      */
     postRender(element) {
         element.querySelector('#view-license-btn').onclick = () => {

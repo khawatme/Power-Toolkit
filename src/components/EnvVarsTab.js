@@ -43,11 +43,16 @@ export class EnvironmentVariablesTab extends BaseComponent {
 
         try {
             this.allVars = await DataService.getEnvironmentVariables();
-            
+            this.ui.listContainer.innerHTML = '';
+
             if (this.allVars.length === 0) {
                 this.ui.listContainer.innerHTML = '<p class="pdt-note">No environment variables found in this environment.</p>';
             } else {
-                this.ui.listContainer.innerHTML = this.allVars.map(v => this._createCardHtml(v)).join('');
+                const fragment = document.createDocumentFragment();
+                this.allVars.forEach(v => {
+                    fragment.appendChild(this._createCardElement(v));
+                });
+                this.ui.listContainer.appendChild(fragment);
             }
         } catch (e) {
             this.ui.listContainer.innerHTML = `<div class="pdt-error">Could not retrieve environment variables: ${e.message}</div>`;
@@ -67,7 +72,24 @@ export class EnvironmentVariablesTab extends BaseComponent {
         
         this.ui.listContainer.addEventListener('click', async (e) => {
             const button = e.target.closest('button');
+            const copyable = e.target.closest('.copyable');
+
+            if (copyable) {
+                Helpers.copyToClipboard(copyable.textContent, 'Value copied!');
+                return;
+            }
+
             if (button) {
+                if (button.matches('.copy-btn')) {
+                    const codeBlock = button.closest('.copyable-code-block');
+                    if (codeBlock) {
+                        const codeElement = codeBlock.querySelector('pre, code');
+                        if (codeElement) {
+                            Helpers.copyToClipboard(codeElement.textContent, 'Code copied!');
+                        }
+                    }
+                    return;
+                }
                 const card = button.closest('.env-var-card');
                 if (button.matches('.edit-btn')) this._switchToEditMode(card);
                 if (button.matches('.cancel-btn')) this._switchToViewMode(card);
@@ -75,76 +97,85 @@ export class EnvironmentVariablesTab extends BaseComponent {
             }
         });
     }
-    
+
     /**
-     * Generates the HTML string for a single environment variable card.
-     * @param {object} variable - The environment variable data object.
-     * @returns {string} The HTML string for the card.
+     * Creates and returns a DOM element for a single environment variable card.
+     * @param {EnvironmentVariable} variable - The environment variable data object.
+     * @returns {HTMLElement} The fully constructed card element.
      * @private
      */
-    _createCardHtml(variable) {
+    _createCardElement(variable) {
+        const card = document.createElement('div');
+        card.className = 'env-var-card';
+
+        // Consolidate searchable text generation
         const searchableText = [
-            variable.displayName,
-            variable.schemaName,
-            variable.type,
-            variable.currentValue,
-            variable.defaultValue
+            variable.displayName, variable.schemaName, variable.type,
+            variable.currentValue, variable.defaultValue
         ].join(' ').toLowerCase();
 
-        // Escape HTML entities AND quotes to ensure the data attribute is valid.
-        const escapedValue = Helpers.escapeHtml(variable.currentValue).replace(/"/g, '&quot;');
+        // Assign all data attributes for state management
+        card.dataset.searchTerm = searchableText;
+        card.dataset.definitionId = variable.definitionId;
+        card.dataset.valueId = variable.valueId || '';
+        card.dataset.originalValue = variable.currentValue ?? '';
 
-        return `
-            <div class="env-var-card" 
-                 data-search-term="${Helpers.escapeHtml(searchableText)}"
-                 data-definition-id="${variable.definitionId}"
-                 data-value-id="${variable.valueId || ''}"
-                 data-original-value="${escapedValue}">
-                <div class="pdt-card-header">${Helpers.escapeHtml(variable.displayName)}</div>
-                <div class="pdt-card-body">
-                    <div class="info-grid">
-                        <strong>Schema Name:</strong><span class="copyable code-like" title="Click to copy">${Helpers.escapeHtml(variable.schemaName)}</span>
-                        <strong>Type:</strong><span>${Helpers.escapeHtml(variable.type)}</span>
-                        <strong>Current Value:</strong>
-                        <div class="pdt-value-wrapper">${this._formatValue(variable.currentValue, true)}</div>
-                        <strong>Default Value:</strong>
-                        <div class="pdt-value-wrapper">${this._formatValue(variable.defaultValue, false)}</div>
-                    </div>
+        card.innerHTML = `
+            <div class="pdt-card-header">${Helpers.escapeHtml(variable.displayName)}</div>
+            <div class="pdt-card-body">
+                <div class="info-grid">
+                    <strong>Schema Name:</strong><span class="copyable code-like" title="Click to copy">${Helpers.escapeHtml(variable.schemaName)}</span>
+                    <strong>Type:</strong><span>${Helpers.escapeHtml(variable.type)}</span>
+                    <strong>Current Value:</strong><div class="pdt-value-wrapper"></div>
+                    <strong>Default Value:</strong><div class="pdt-value-wrapper-default"></div>
                 </div>
-                <div class="pdt-card-footer">
-                    <button class="modern-button secondary edit-btn">Edit</button>
-                </div>
-            </div>`;
+            </div>
+            <div class="pdt-card-footer">
+                <button class="modern-button secondary edit-btn">Edit</button>
+            </div>
+        `;
+
+        // Append complex, interactive elements after the main structure is created
+        const currentValueWrapper = card.querySelector('.pdt-value-wrapper');
+        currentValueWrapper.appendChild(this._formatValue(variable.currentValue, true));
+
+        const defaultValueWrapper = card.querySelector('.pdt-value-wrapper-default');
+        defaultValueWrapper.appendChild(this._formatValue(variable.defaultValue, false));
+
+        return card;
     }
 
     /**
      * Formats a value for display.
      * @param {string} value - The value to format.
      * @param {boolean} isCopyable - Whether the value should be copyable.
-     * @returns {string} The HTML string for the formatted value.
+     * @returns {HTMLElement} The HTML element for the formatted value.
      * @private
      */
     _formatValue(value, isCopyable) {
-        const copyClass = isCopyable ? 'copyable' : '';
         const valStr = String(value ?? '').trim();
 
-        // Check if the value appears to be a JSON string.
         if ((valStr.startsWith('{') && valStr.endsWith('}')) || (valStr.startsWith('[') && valStr.endsWith(']'))) {
             try {
-                // Test if it's valid JSON. An error will throw to the catch block.
-                JSON.parse(valStr); 
-                
-                // If it's valid, let central UI Factory handle the formatting and highlighting.
-                return UIFactory.createCopyableCodeBlock(valStr, 'json').outerHTML;
-            } catch (e) {
-                // If it looks like JSON but isn't valid, through and display it as plain text.
-            }
+                JSON.parse(valStr);
+                return UIFactory.createCopyableCodeBlock(valStr, 'json');
+            } catch (e) { /* Fall through to display as plain text */ }
         }
-        return `<span class="${copyClass}" title="Click to copy">${Helpers.escapeHtml(value)}</span>`;
+        
+        // For plain text, create and return a SPAN element
+        const span = document.createElement('span');
+        if (isCopyable) {
+            span.className = 'copyable';
+            span.title = 'Click to copy';
+        }
+        span.textContent = value;
+        return span;
     }
 
     /**
-     * Switches a card's UI to edit mode, preserving JSON formatting and adding change detection.
+     * Switches a card's UI to an editable state. Replaces the value display
+     * with a textarea, pretty-prints JSON for editing, and sets up real-time
+     * change detection to enable/disable the save button.
      * @param {HTMLElement} card - The card element to modify.
      * @private
      */
@@ -162,9 +193,10 @@ export class EnvironmentVariablesTab extends BaseComponent {
         }
         
         // Create the textarea programmatically and set its value directly to preserve newlines.
+        const lineCount = (valueToEdit.match(/\n/g) || []).length + 1;
         const textarea = document.createElement('textarea');
         textarea.className = 'pdt-textarea env-var-edit-area';
-        textarea.rows = 4;
+        textarea.rows = Math.max(4, Math.min(lineCount, 15));
         textarea.value = valueToEdit;
 
         valueWrapper.innerHTML = '';
@@ -198,16 +230,19 @@ export class EnvironmentVariablesTab extends BaseComponent {
     }
 
     /**
-     * Switches a card's UI back to view mode, optionally updating its value.
-     * @param {HTMLElement} card - The card element to modify.
-     * @param {string} [newValue] - The new value to display. If not provided, uses the original value.
+     * Switches a card's UI back to view-only mode.
+     * @param {HTMLElement} card - The card element to revert.
+     * @param {string} [newValue] - If provided, the card's display and underlying
+     * `data-original-value` will be updated to this new value. Otherwise, it
+     * reverts to its original state.
      * @private
      */
     _switchToViewMode(card, newValue) {
         const valueToDisplay = newValue !== undefined ? newValue : card.dataset.originalValue;
         
         const valueWrapper = card.querySelector('.info-grid .pdt-value-wrapper');
-        valueWrapper.innerHTML = this._formatValue(valueToDisplay, true);
+        valueWrapper.innerHTML = '';
+        valueWrapper.appendChild(this._formatValue(valueToDisplay, true));
 
         const footer = card.querySelector('.pdt-card-footer');
         footer.innerHTML = `<button class="modern-button secondary edit-btn">Edit</button>`;

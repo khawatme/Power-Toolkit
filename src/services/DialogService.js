@@ -8,16 +8,26 @@
 import { Store } from '../core/Store.js';
 
 /**
+ * A callback function that is executed when the 'OK' button is clicked.
+ * @callback DialogOkCallback
+ * @param {HTMLElement} contentContainer - The dialog's content container element, useful for retrieving input values.
+ * @returns {boolean|void} Return `false` to prevent the dialog from closing automatically, for example, on a validation error.
+ */
+
+/**
  * Provides methods for displaying modal dialog windows.
  * @namespace
  */
 export const DialogService = {
     /**
-     * Shows a modal dialog and returns a controller object to manage it.
+     * Shows a modal dialog, handles its lifecycle, and returns a controller object.
+     * The dialog is theme-aware and supports both string and element content.
+     *
      * @param {string} title - The title to display in the dialog header.
-     * @param {string | HTMLElement} contentHTML - The HTML string or element to display in the dialog's body.
-     * @param {Function | null} [callback=null] - A function to call when the 'OK' button is clicked.
-     * @returns {{close: Function}} An object with a `close` method to programmatically close the dialog.
+     * @param {string | HTMLElement} content - The HTML string or DOM element to display in the dialog's body.
+     * @param {DialogOkCallback} [callback] - An optional function to call when the 'OK' button is clicked.
+     * If this function is provided, an 'OK' button will be rendered.
+     * @returns {{close: () => void}} An object with a `close` method to programmatically close the dialog.
      */
     show(title, contentHTML, callback = null) {
         document.getElementById('pdt-dialog-overlay')?.remove();

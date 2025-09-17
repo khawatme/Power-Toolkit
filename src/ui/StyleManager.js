@@ -11,8 +11,9 @@
 import '../assets/style.css';
 
 /**
- * Manages the application's CSS. The act of importing this module handles the injection.
- * @namespace
+ * This function can be called to explicitly ensure this module has been loaded
+ * by the JavaScript engine, thus guaranteeing the styles have been injected.
+ * @returns {void}
  */
 export const StyleManager = {
     /**

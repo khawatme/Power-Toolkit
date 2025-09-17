@@ -13,7 +13,8 @@ import { Helpers } from '../utils/Helpers.js';
  */
 export const UIFactory = {
     /**
-     * Creates a pre-formatted code block with syntax highlighting and a "Copy" button.
+     * Creates a pre-formatted, "prettified" code block with syntax highlighting
+     * and a "Copy" button. It automatically formats JSON and XML for readability.
      * @param {string | object} code - The code string or object to display.
      * @param {'json' | 'javascript' | 'csharp' | 'xml' | 'text'} [language='json'] - The language for syntax highlighting.
      * @returns {HTMLDivElement} The container element for the code block.
@@ -42,8 +43,15 @@ export const UIFactory = {
                 codeToDisplay = Helpers.escapeHtml(codeToCopy);
                 break;
             case 'javascript':
+                codeToDisplay = Helpers.highlightCode(codeToCopy, 'javascript');
+                break;
             case 'csharp':
+            case 'text':
+                // Fallback to plain text for unsupported or un-highlighted languages
+                codeToDisplay = Helpers.escapeHtml(codeToCopy);
+                break;
             default:
+                // Default to JS highlighting for any other case
                 codeToDisplay = Helpers.highlightCode(codeToCopy, 'javascript');
                 break;
         }

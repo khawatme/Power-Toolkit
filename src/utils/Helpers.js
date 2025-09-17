@@ -8,14 +8,25 @@
 import { NotificationService } from '../services/NotificationService.js';
 
 /**
+ * @typedef {import('../../../node_modules/@types/xrm/index.d.ts').Xrm.Attributes.Attribute} XrmAttribute
+ */
+
+/**
+ * Defines the structure for a filter operator used in query builders.
+ * @typedef {object} FilterOperator
+ * @property {string} text - The user-friendly display text (e.g., "Equals").
+ * @property {string|null} fetch - The corresponding operator for FetchXML (e.g., "eq").
+ * @property {string|null} odata - The corresponding operator for OData Web API (e.g., "eq").
+ */
+
+/**
  * A collection of helper functions.
  * @namespace
  */
 export const Helpers = {
     /**
      * A master list of filter operators and their corresponding values for FetchXML and OData.
-     * This ensures consistency between the FetchXML Tester and WebAPI Explorer.
-     * @type {Array<{text: string, fetch: string|null, odata: string|null}>}
+     * @type {FilterOperator[]}
      */
     FILTER_OPERATORS: [
         { text: 'Equals', fetch: 'eq', odata: 'eq' },
@@ -48,17 +59,18 @@ export const Helpers = {
     },
 
     /**
-     * Copies a string to the user's clipboard. Shows a success or error notification.
+     * Copies a string to the user's clipboard using the modern Clipboard API with a
+     * fallback to the legacy `execCommand` for older browsers or insecure contexts.
+     * Shows a success or error notification.
      * @param {string} text - The text to copy.
      * @param {string} successMessage - The message to show on successful copy.
+     * @returns {Promise<void>}
      */
     async copyToClipboard(text, successMessage) {
         try {
-            // Use the modern, secure Clipboard API if available
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
             } else {
-                // Fallback for older browsers or insecure contexts
                 const textArea = document.createElement('textarea');
                 textArea.value = text;
                 textArea.style.position = 'fixed';
@@ -77,20 +89,20 @@ export const Helpers = {
     },
 
     /**
-     * Wraps code parts in spans with specific classes for CSS-based syntax highlighting.
-     * Supports basic highlighting for JavaScript.
-     * @param {string} codeString - The code string to highlight.
-     * @returns {string} An HTML string with syntax highlighting.
+     * Applies basic, regex-based syntax highlighting to a code string.
+     * This implementation is lightweight and dependency-free.
+     * @param {string|object} codeString - The code string or JSON object to highlight.
+     * @param {'javascript'|'json'|'csharp'} [language='javascript'] - The language to highlight.
+     * @returns {string} An HTML string with syntax highlighting spans.
      */
     highlightCode(codeString, language = 'javascript') {
         if (typeof codeString !== 'string') {
             codeString = JSON.stringify(codeString, undefined, 2);
         }
         
-        const escaped = codeString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const escaped = this.escapeHtml(codeString);
 
         if (language === 'json') {
-            // This is the original, correct regex for JSON that distinguishes keys from strings.
             return escaped.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
                 let cls = 'json-number';
                 if (/^"/.test(match)) {
@@ -102,8 +114,20 @@ export const Helpers = {
                 }
                 return `<span class="${cls}">${match}</span>`;
             });
-        } else {
-            // This is the regex for JavaScript.
+        } else if (language === 'csharp') {
+            const csharpKeywords = 'public|private|protected|class|void|string|int|bool|var|new|void|get|set|if|else|return|try|catch|using|namespace|in|var|new|get|set';
+            const csharpRegex = new RegExp(`(\\[[^\\]]+\\])|(\\/\\*[\\s\\S]*?\\*\\\/|\\\/\\\/[^\\r\\n]*)|(@"[^"]*"|"(?:\\\\.|[^"\\\\])*")|\\b(${csharpKeywords})\\b|\\b(true|false|null)\\b|(\\b-?\\d+\\.?\\d*\\b)`, 'g');
+            
+            return escaped.replace(csharpRegex, (match, attribute, comment, string, keyword, constant, number) => {
+                if (attribute) return `<span class="csharp-attribute">${attribute}</span>`;
+                if (comment) return `<span class="json-comment">${comment}</span>`;
+                if (string) return `<span class="json-string">${string}</span>`;
+                if (keyword) return `<span class="json-key">${keyword}</span>`;
+                if (constant) return `<span class="json-boolean">${constant}</span>`;
+                if (number) return `<span class="json-number">${number}</span>`;
+                return match;
+            });
+        } else { // Default to JavaScript
             return escaped.replace(/(^\s*\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*)|("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")|(\b(function|var|let|const|if|else|return|try|catch|new|typeof|arguments|this)\b)|(\b(true|false|null|undefined)\b)|(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, 
                 (match, comment, string, keyword, constant, number) => {
                     if (comment) return `<span class="json-comment">${comment}</span>`;
@@ -125,16 +149,16 @@ export const Helpers = {
     formatXml(xmlStr) {
         try {
             let formatted = '', indent = '';
-            const tab = '  '; // 2 spaces for indentation
+            const tab = '  '; // 2 spaces
             xmlStr.split(/>\s*</).forEach(node => {
-                if (node.match(/^\/\w/)) indent = indent.substring(tab.length); // Decrease indent
+                if (node.match(/^\/\w/)) indent = indent.substring(tab.length);
                 formatted += `${indent}<${node}>\r\n`;
-                if (node.match(/^<?\w[^>]*[^\/]$/)) indent += tab; // Increase indent
+                if (node.match(/^<?\w[^>]*[^\/]$/)) indent += tab;
             });
             return formatted.substring(1, formatted.length - 3);
         } catch (e) {
             console.warn("Could not format XML, likely invalid.", e);
-            return xmlStr; // Return original on error
+            return xmlStr;
         }
     },
 
@@ -184,6 +208,7 @@ export const Helpers = {
      * Attaches a keydown listener to an input that triggers an action on 'Enter'.
      * @param {HTMLInputElement} inputElement - The input element.
      * @param {Function} action - The function to execute.
+     * @returns {void}
      */
     addEnterKeyListener(inputElement, action) {
         if (inputElement) {
@@ -197,9 +222,10 @@ export const Helpers = {
     },
     
     /**
-     * Formats a raw attribute value for clean display in the UI.
+     * Formats a raw attribute value for clean display in the UI, correctly handling lookups,
+     * option sets, dates, and other complex types.
      * @param {*} value - The raw value from `attribute.getValue()`.
-     * @param {Xrm.Attributes.Attribute} [attribute] - The optional attribute object.
+     * @param {XrmAttribute} [attribute] - The optional attribute object, used to get text values for option sets.
      * @param {string} [controlType] - The type of the control displaying the value.
      * @returns {string} A user-friendly string representation of the value.
      */
@@ -211,10 +237,8 @@ export const Helpers = {
             return String(value); 
         }
 
-        // Instead of just checking the type, we now also check if the .getText method actually exists.
         if (attribute && typeof attribute.getText === 'function') {
             const textValue = attribute.getText();
-            // For multiselect optionsets, getText() returns an array of strings.
             if (Array.isArray(textValue)) {
                 return textValue.join(', ');
             }
@@ -224,7 +248,7 @@ export const Helpers = {
         const attrType = attribute?.getAttributeType();
 
         if (attrType === 'lookup' && Array.isArray(value) && value[0]?.name) {
-             return value[0].name;
+              return value[0].name;
         }
 
         if (Array.isArray(value)) {
@@ -238,11 +262,11 @@ export const Helpers = {
     },
 
     /**
-     * Parses the value from an HTML input or select element into the correct data type.
+     * Parses the value from an HTML input/select element into the correct data type for the Xrm API.
      * @param {HTMLElement} input - The input or select element.
-     * @param {string} type - The target data type (e.g., 'integer', 'datetime', 'boolean').
+     * @param {string} type - The target Dataverse data type (e.g., 'integer', 'datetime', 'boolean').
      * @returns {string|number|boolean|Date|null} The parsed value in the correct type.
-     * @throws {Error} If the value is invalid for the target type.
+     * @throws {Error} If the value is invalid for the target type (e.g., non-numeric string for an integer field).
      */
     parseInputValue(input, type) {
         const value = input.value;
@@ -269,7 +293,6 @@ export const Helpers = {
                 return date;
             }
             case 'optionset': {
-                // This is the corrected logic for optionsets.
                 if (value === 'null') return null;
                 const num = parseInt(value, 10);
                 return isNaN(num) ? null : num;
@@ -284,9 +307,10 @@ export const Helpers = {
     },
 
     /**
-     * Triggers a browser download for a JSON object.
+     * Triggers a browser download for a given JavaScript object by converting it to a JSON file.
      * @param {object} data - The JSON object to download.
-     * @param {string} filename - The desired filename.
+     * @param {string} filename - The desired filename for the downloaded file.
+     * @returns {void}
      */
     downloadJson(data, filename) {
         const jsonString = JSON.stringify(data, null, 2);
@@ -304,40 +328,33 @@ export const Helpers = {
     /**
      * Checks if a property key is a system-generated OData property.
      * @param {string} key - The property key to check.
-     * @returns {boolean} True if the key is a system property.
+     * @returns {boolean} True if the key is a system property (e.g., starts with '_' or contains '@odata').
      */
     isOdataProperty(key) {
-        // A property is considered a system property if it starts with '_' or contains '@odata' (case-insensitive).
         return key.startsWith('_') || /@odata/i.test(key);
     },
 
     /**
-     * Applies basic syntax highlighting to a plugin trace log message.
+     * Applies basic syntax highlighting to a plugin trace log message for better readability.
      * @param {string} message - The raw trace message string.
-     * @returns {string} An HTML string with syntax highlighting.
+     * @returns {string} An HTML string with syntax highlighting applied.
      */
     highlightTraceMessage(message) {
         if (!message) return '';
         
-        // Escape HTML to prevent XSS
-        let highlighted = Helpers.escapeHtml(message);
+        let highlighted = this.escapeHtml(message);
 
         // Highlight strings in quotes
         highlighted = highlighted.replace(/"([^"]*)"/g, `"<span class="trace-string">$1</span>"`);
-        
         // Highlight GUIDs
         highlighted = highlighted.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, `<span class="trace-guid">$&</span>`);
-        
         // Highlight keywords (like 'Exception:', 'Error Code:')
         highlighted = highlighted.replace(/(Exception:|Error Code:|Message:|--)/g, `<span class="trace-keyword">$&</span>`);
-        
         // Highlight numbers (standalone)
         highlighted = highlighted.replace(/\b\d+\b/g, `<span class="trace-number">$&</span>`);
-        
         // Highlight specific error messages
         highlighted = highlighted.replace(/at Microsoft.Xrm.Sdk.ServiceProxy/g, `<span class="trace-error-msg">$&</span>`);
 
         return highlighted;
     }
-
 };

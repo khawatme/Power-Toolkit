@@ -15,9 +15,13 @@ import { NotificationService } from '../services/NotificationService.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 
 /**
- * A component that displays a detailed, interactive grid of a form's attributes.
- * @class FormColumnsTab
+ * A component that displays a detailed, interactive grid of attributes from the
+ * current form or the underlying record data. Features live updates, sorting,
+ * filtering, lazy-rendering for performance, and control highlighting on the form.
  * @extends {BaseComponent}
+ * @property {Array<object>} allColumns - The complete, cached list of all columns.
+ * @property {'form'|'all'} viewMode - The current data source ('form' or 'all' record columns).
+ * @property {Array<{attribute: Xrm.Attributes.Attribute, handler: Function}>} liveHandlers - Stores `onChange` handlers for cleanup.
  */
 export class FormColumnsTab extends BaseComponent {
     /**
@@ -226,7 +230,8 @@ export class FormColumnsTab extends BaseComponent {
     }
     
     /**
-     * Filters, sorts, and prepares the data for rendering, then renders the first batch of rows.
+     * Applies all active filters and sorting to the `allColumns` array, then resets
+     * and triggers the lazy-rendering process for the table body.
      * @private
      */
     _renderTableRows() {
@@ -245,8 +250,9 @@ export class FormColumnsTab extends BaseComponent {
                                 String(c.logicalName || '').toLowerCase().includes(filters.search);
 
             if (this.viewMode === 'all') {
-                const systemMatch = !filters.hideSystem || !c.isSystem;
-                const unusedMatch = !filters.showUnusedOnly || !c.onForm;
+                // This is the corrected filter logic.
+                const systemMatch = filters.hideSystem ? !c.isSystem : true;
+                const unusedMatch = filters.showUnusedOnly ? !c.onForm : true;
                 return searchMatch && systemMatch && unusedMatch;
             }
             return searchMatch;
@@ -321,40 +327,33 @@ export class FormColumnsTab extends BaseComponent {
     }
 
     /**
-     * Handles mouse movement over the table to highlight the corresponding control on the main form.
-     * This version uses the Xrm API to find a reliable selector for the control.
+     * Handles mouse movement over the table to highlight the corresponding control
+     * and its label on the main form.
      * @param {MouseEvent} event - The mousemove event object.
      * @private
      */
     _handleMouseMove(event) {
         const row = event.target.closest('tr');
         if (row === this.currentlyHoveredRow) return;
-        
-        this._handleMouseOut();
+
+        this._handleMouseOut(); // Clear previous highlight
         if (!row) return;
 
         this.currentlyHoveredRow = row;
         const logicalName = row.dataset.logicalName;
         if (!logicalName) return;
 
-        // Find the column data to get the associated Xrm.Attribute object.
         const columnData = this.allColumns.find(c => c.logicalName === logicalName);
-        if (!columnData || !columnData.attribute) return;
+        const controls = columnData?.attribute?.controls.get();
+        if (!controls?.length) return;
 
-        // Get all controls associated with this attribute on the form.
-        const controls = columnData.attribute.controls.get();
-        if (controls.length > 0) {
-            // Use the first control to find the element.
-            const control = controls[0];
-            const controlName = control.getName();
-            
-            // This is a much more reliable selector for modern Power Apps controls.
-            const controlElement = document.querySelector(`div[data-control-name="${controlName}"]`);
-            
-            if (controlElement) {
-                controlElement.classList.add('pdt-highlight-border');
-                this.highlightedElement = controlElement;
-            }
+        const controlElement = document.querySelector(`div[data-control-name="${controls[0].getName()}"]`);
+
+        const highlightTarget = controlElement?.closest('.data-container') || controlElement;
+
+        if (highlightTarget) {
+            highlightTarget.classList.add('pdt-highlight-border');
+            this.highlightedElement = highlightTarget;
         }
     }
 
@@ -438,8 +437,9 @@ export class FormColumnsTab extends BaseComponent {
 
     /**
      * Sorts the `currentColumns` array in place and triggers a re-render of the table rows.
-     * @param {string} column - The key of the column to sort by.
-     * @param {boolean} [isInitialSort=false] - If true, sorts the data without toggling the sort direction.
+     * @param {string} column - The key of the column to sort by (e.g., 'displayName').
+     * @param {boolean} [isInitialSort=false] - If true, sorts the data but does not toggle
+     * the sort direction or trigger an immediate DOM re-render.
      * @private
      */
     _sortTable(column, isInitialSort = false) {

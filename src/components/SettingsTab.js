@@ -13,6 +13,14 @@ import { NotificationService } from '../services/NotificationService.js';
 import { DialogService } from '../services/DialogService.js';
 import { Helpers } from '../utils/Helpers.js';
 
+/**
+ * A component for configuring the toolkit's UI and behavior. It allows users to
+ * reorder and toggle the visibility of tabs via drag-and-drop and provides
+ * functionality to import, export, and reset all user settings.
+ * @extends {BaseComponent}
+ * @property {HTMLElement|null} draggedItem - The list item element currently being dragged.
+ * @property {Function} throttledDragOver - A throttled version of the dragover handler for performance.
+ */
 export class SettingsTab extends BaseComponent {
     /**
      * Initializes the SettingsTab component.
@@ -31,15 +39,15 @@ export class SettingsTab extends BaseComponent {
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
-            <div class="section-title">Tab Configuration</div>
-            <p class="pdt-note">Drag to reorder tabs. Use the toggle to show or hide them.</p>
-            <ul id="tab-settings-list"></ul>
             <div class="section-title">Toolkit Settings</div>
             <div class="pdt-toolbar" style="justify-content:flex-start;">
                 <button id="pdt-export-settings" class="modern-button secondary">Export Settings</button>
                 <button id="pdt-import-settings" class="modern-button secondary">Import Settings</button>
                 <button id="pdt-reset-settings" class="modern-button danger" style="margin-left:auto;">Reset All Settings</button>
-            </div>`;
+            </div>
+            <div class="section-title">Tab Configuration</div>
+            <p class="pdt-note">Drag to reorder tabs. Use the toggle to show or hide them.</p>
+            <ul id="tab-settings-list"></ul>`;
             
         this._renderList(container.querySelector('#tab-settings-list'));
         return container;
@@ -95,6 +103,11 @@ export class SettingsTab extends BaseComponent {
         });
     }
 
+    /**
+     * Handles changes to a tab's visibility toggle.
+     * @param {Event} e - The change event object from the input checkbox.
+     * @private
+     */
     _handleVisibilityChange(e) {
         if (!e.target.classList.contains('tab-visibility-toggle')) return;
         
@@ -105,6 +118,11 @@ export class SettingsTab extends BaseComponent {
         Store.setState({ tabSettings: newSettings });
     }
 
+    /**
+     * Handles the start of a drag operation, caching the dragged item and applying a visual style.
+     * @param {DragEvent} e - The dragstart event object.
+     * @private
+     */
     _handleDragStart(e) {
         if (e.target.draggable) {
             this.draggedItem = e.target;
@@ -114,6 +132,11 @@ export class SettingsTab extends BaseComponent {
         }
     }
 
+    /**
+     * Handles the end of a drag operation, cleaning up styles and saving the new tab order.
+     * @param {DragEvent} e - The dragend event object.
+     * @private
+     */
     _handleDragEnd(e) {
         if (this.draggedItem) {
             this.draggedItem.classList.remove('dragging');
@@ -122,6 +145,12 @@ export class SettingsTab extends BaseComponent {
         }
     }
 
+    /**
+     * Handles the dragover event, calculating the dragged item's new position in the list in real-time.
+     * This handler is throttled to prevent excessive calculations during the drag.
+     * @param {DragEvent} e - The dragover event object.
+     * @private
+     */
     _handleDragOver(e) {
         e.preventDefault();
         const list = e.currentTarget;
@@ -135,15 +164,28 @@ export class SettingsTab extends BaseComponent {
         }
     }
 
+    /**
+     * Saves the new order of tabs to the central store after a drag-and-drop operation.
+     * @param {HTMLUListElement} listElement - The list element containing the reordered tabs.
+     * @private
+     */
     _saveNewOrder(listElement) {
         const newOrderedIds = [...listElement.querySelectorAll('li')].map(li => li.dataset.tabId);
         const currentSettings = Store.getState().tabSettings;
-        // Create a map for quick lookups
         const settingsMap = new Map(currentSettings.map(s => [s.id, s]));
         const newSettings = newOrderedIds.map(id => settingsMap.get(id)).filter(Boolean);
         Store.setState({ tabSettings: newSettings });
     }
 
+    /**
+     * Calculates which list element the dragged item should be placed before.
+     * It determines this by finding the draggable element closest to the cursor's
+     * vertical position (y-coordinate).
+     * @param {HTMLUListElement} container - The list container.
+     * @param {number} y - The cursor's vertical position.
+     * @returns {HTMLElement|null} The element to insert before, or null if it should be last.
+     * @private
+     */
     _getDragAfterElement(container, y) {
         const draggableElements = [...container.querySelectorAll('li:not(.dragging)')];
         return draggableElements.reduce((closest, child) => {
@@ -153,6 +195,10 @@ export class SettingsTab extends BaseComponent {
         }, { offset: Number.NEGATIVE_INFINITY }).element;
     }
 
+    /**
+     * Gathers all current settings from the store and initiates a JSON file download.
+     * @private
+     */
     _exportSettings() {
         try {
             const settingsToExport = {
@@ -167,6 +213,11 @@ export class SettingsTab extends BaseComponent {
         }
     }
 
+    /**
+     * Opens a file dialog for the user to select a settings JSON file, then parses
+     * and applies the settings from that file to the application's state.
+     * @private
+     */
     _importSettings() {
         const input = document.createElement('input');
         input.type = 'file';
@@ -198,6 +249,11 @@ export class SettingsTab extends BaseComponent {
         input.click();
     }
 
+    /**
+     * Displays a confirmation dialog and, if confirmed, resets all application
+     * settings in the store to their original default values.
+     * @private
+     */
     _resetAllSettings() {
         DialogService.show('Reset All Settings', '<p>Are you sure you want to reset all settings to their default values? This will reset the tab order, visibility, and theme.</p>', () => {
             // Use the new, clean method to reset the state.

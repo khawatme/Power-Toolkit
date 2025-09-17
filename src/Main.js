@@ -9,6 +9,10 @@
 import { App } from './App.js';
 import { Config } from './utils/Config.js';
 
+/**
+ * @description An IIFE (Immediately Invoked Function Expression) to create a private scope
+ * for the application's startup logic, preventing pollution of the global namespace.
+ */
 (function () {
     'use strict';
 
@@ -24,7 +28,13 @@ import { Config } from './utils/Config.js';
     document.querySelector('.powerapps-dev-toolkit')?.remove();
     window.PDT_VERSION = Config.TOOL_VERSION;
 
-    // --- Safe Initialization Logic ---
+    /**
+     * Determines the correct moment to initialize the application based on the state
+     * of the `Xrm` object. It handles fully-loaded forms, partially-loaded forms (by
+     * waiting for OnLoad), and non-form pages like views.
+     * @private
+     * @throws {Error} If a usable Xrm context cannot be found.
+     */
     function safeInitialize() {
         if (typeof Xrm !== 'undefined' && Xrm.Page?.data) {
             if (Xrm.Page.ui?.getFormType?.() > 0) {

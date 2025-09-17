@@ -5,6 +5,23 @@
  * and a publish-subscribe system for components to react to state changes.
  */
 
+/**
+ * Represents the configuration for a single feature tab.
+ * @typedef {object} TabSetting
+ * @property {string} id - The unique identifier for the tab component.
+ * @property {boolean} visible - Whether the tab is currently visible in the UI.
+ * @property {boolean} formOnly - Whether the tab should only be enabled on a record form.
+ */
+
+/**
+ * Represents the entire shared state of the application.
+ * @typedef {object} AppState
+ * @property {'light'|'dark'} theme - The current UI theme.
+ * @property {TabSetting[]} tabSettings - The ordered list of tab configurations.
+ * @property {object} dimensions - The saved dimensions (width/height) of the main dialog.
+ * @property {string|null} impersonationUserId - The GUID of the currently impersonated user, if any.
+ */
+
 // --- Private state and listeners ---
 let _state = {};
 const _listeners = new Set();
@@ -51,7 +68,8 @@ function getDefaultTabSettings() {
  */
 export const Store = {
     /**
-     * Initializes the store by loading state from localStorage or setting defaults.
+     * Gets the current state.
+     * @returns {AppState} The current state object.
      */
     init() {
         const defaultSettings = getDefaultTabSettings();
@@ -85,8 +103,8 @@ export const Store = {
 
     /**
      * Subscribes a listener function to state changes.
-     * @param {Function} listener - The callback function to execute on state change. It receives (newState, oldState).
-     * @returns {Function} An unsubscribe function to clean up the listener.
+     * @param {(newState: AppState, oldState: AppState) => void} listener - The callback function to execute on state change.
+     * @returns {() => void} An unsubscribe function to clean up the listener.
      */
     subscribe(listener) {
         _listeners.add(listener);
@@ -95,7 +113,8 @@ export const Store = {
 
     /**
      * Updates the state, persists it to localStorage, and notifies all listeners.
-     * @param {object} newState - An object with the new state properties to merge.
+     * @param {Partial<AppState>} newState - An object with the new state properties to merge.
+     * @returns {void}
      */
     setState(newState) {
         const oldState = { ..._state };
@@ -117,14 +136,16 @@ export const Store = {
 
     /**
      * Gets the current state.
-     * @returns {object} The current state object.
+     * @returns {AppState} The current state object.
      */
     getState() {
         return _state;
     },
 
     /**
-     * Resets the store's state to the application defaults.
+     * Resets all persistable state properties to their original default values and
+     * clears them from localStorage.
+     * @returns {void}
      */
     resetToDefaults() {
         const defaultSettings = getDefaultTabSettings();
