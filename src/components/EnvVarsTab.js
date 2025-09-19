@@ -74,18 +74,13 @@ export class EnvironmentVariablesTab extends BaseComponent {
             const button = e.target.closest('button');
             const copyable = e.target.closest('.copyable');
 
-            if (copyable) {
-                Helpers.copyToClipboard(copyable.textContent, 'Value copied!');
-                return;
-            }
-
             if (button) {
                 if (button.matches('.copy-btn')) {
                     const codeBlock = button.closest('.copyable-code-block');
                     if (codeBlock) {
                         const codeElement = codeBlock.querySelector('pre, code');
                         if (codeElement) {
-                            Helpers.copyToClipboard(codeElement.textContent, 'Code copied!');
+                            Helpers.copyToClipboard(codeElement.textContent);
                         }
                     }
                     return;
@@ -140,7 +135,7 @@ export class EnvironmentVariablesTab extends BaseComponent {
         currentValueWrapper.appendChild(this._formatValue(variable.currentValue, true));
 
         const defaultValueWrapper = card.querySelector('.pdt-value-wrapper-default');
-        defaultValueWrapper.appendChild(this._formatValue(variable.defaultValue, false));
+        defaultValueWrapper.appendChild(this._formatValue(variable.defaultValue, true));
 
         return card;
     }
