@@ -1,7 +1,7 @@
 # Power-Toolkit for Power Apps & Dataverse
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)
 
 **Power-Toolkit** is a comprehensive, client-side developer tool designed to accelerate the development and debugging of Power Apps Model-Driven Apps. It provides a suite of powerful features to inspect, debug, and manipulate form data, metadata, and server-side processes in real-time, directly within your browser.
 
@@ -39,24 +39,17 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 
 You can use the Power-Toolkit as a simple bookmarklet for quick use or as a browser extension for a more integrated experience.
 
-### Method 1: Bookmarklet (Quick Use)
 
-1.  **Copy the Code:** Open the `dist/Power-Toolkit.min.js` file and copy its entire content.
-2.  **Create a Bookmark:** In your browser, create a new bookmark.
-3.  **Edit the URL:** In the URL field, type `javascript:` and then paste the code you copied.
-4.  **Save and Run:** Navigate to a Power Apps Model-Driven App and click the bookmark to launch the tool.
+### Browser Extension
 
-### Method 2: Browser Extension (Recommended)
+Installing it from Edge or Chrome Store.
 
-Installing as an unpacked extension is more convenient for regular use.
+**Microsoft Edge-Add-Ons:**
+* [https://microsoftedge.microsoft.com/addons/detail/powertoolkit-for-power-a/bcdhpcgnalcckffananlnedhcedfadhg](Power-Toolkit on Edge)
 
-**For Chrome or Edge:**
-1.  **Download:** Download this repository as a ZIP and unzip it.
-2.  **Navigate to Extensions:** Go to `chrome://extensions` (Chrome) or `edge://extensions` (Edge).
-3.  **Enable Developer Mode:** Turn on the "Developer mode" toggle.
-4.  **Load Unpacked:** Click the "Load unpacked" button and select the **`dist/extension`** folder from the project files.
 
-The Power-Toolkit icon will appear in your toolbar. Click it to launch the tool on any Power Apps page.
+**Chrome Web Store:**
+* [https://chromewebstore.google.com/detail/power-toolkit-for-power-a/pohgckfkhjeahcjnmihobcoccpccgpca](Power-Toolkit on Chrome)
 
 ---
 
