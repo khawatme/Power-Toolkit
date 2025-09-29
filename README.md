@@ -45,11 +45,11 @@ You can use the Power-Toolkit as a simple bookmarklet for quick use or as a brow
 Installing it from Edge or Chrome Store.
 
 **Microsoft Edge-Add-Ons:**
-* [https://microsoftedge.microsoft.com/addons/detail/powertoolkit-for-power-a/bcdhpcgnalcckffananlnedhcedfadhg](Power-Toolkit on Edge)
+* [Power-Toolkit on Edge](https://microsoftedge.microsoft.com/addons/detail/powertoolkit-for-power-a/bcdhpcgnalcckffananlnedhcedfadhg)
 
 
 **Chrome Web Store:**
-* [https://chromewebstore.google.com/detail/power-toolkit-for-power-a/pohgckfkhjeahcjnmihobcoccpccgpca](Power-Toolkit on Chrome)
+* [Power-Toolkit on Chrome](https://chromewebstore.google.com/detail/power-toolkit-for-power-a/pohgckfkhjeahcjnmihobcoccpccgpca)
 
 ---
 
