@@ -7,7 +7,7 @@ export const Config = {
      * The current version number of the toolkit.
      * @type {string}
      */
-    TOOL_VERSION: '1.0.1',
+    TOOL_VERSION: '1.0.2',
 
     /**
      * The name of the application's author.

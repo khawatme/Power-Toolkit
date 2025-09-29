@@ -389,7 +389,14 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _renderTable(container) {
-        const headers = [{ key: 'displayName', label: 'Display Name' }, { key: 'logicalName', label: 'Logical Name' }, { key: 'value', label: 'Current Value' }, { key: 'type', label: 'Type' }, { key: 'isDirty', label: 'Dirty' }, { key: 'requiredLevel', label: 'Required' }];
+        const headers = [
+            { key: 'displayName', label: 'Display Name' },
+            { key: 'logicalName', label: 'Logical Name' },
+            { key: 'value', label: 'Current Value' },
+            { key: 'type', label: 'Type' },
+            { key: 'isDirty', label: 'Dirty' },
+            { key: 'requiredLevel', label: 'Required' }
+        ];
         const headerHtml = headers.map(h => `<th data-column="${h.key}">${h.label}</th>`).join('');
         container.innerHTML = `<table class="pdt-table"><thead><tr>${headerHtml}</tr></thead><tbody></tbody></table>`;
         this.tableBody = container.querySelector('tbody');

@@ -544,7 +544,7 @@ export class FetchXmlTesterTab extends BaseComponent {
                             <input type="checkbox" id="odata-filter-toggle" ${this.hideOdata ? 'checked' : ''}>
                             <span class="pdt-toggle-slider"></span>
                         </span>
-                        @odata
+                        Hide System
                     </label>
                 </div>
             </div>

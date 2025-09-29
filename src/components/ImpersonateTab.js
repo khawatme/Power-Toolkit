@@ -129,7 +129,7 @@ export class ImpersonateTab extends BaseComponent {
 
         this.ui.resultsContainer.innerHTML = `<p class="pdt-note">Searching...</p>`;
         try {
-            let filterClause = "isdisabled eq false";
+            let filterClause = "isdisabled eq false and azureactivedirectoryobjectid ne null";
             if (searchTerm) {
                 filterClause += ` and contains(fullname,'${searchTerm}')`;
             }

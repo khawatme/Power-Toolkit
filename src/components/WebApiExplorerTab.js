@@ -443,7 +443,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     <button id="api-view-table" class="pdt-sub-tab">Table</button>
                     <button id="api-view-json" class="pdt-sub-tab">JSON</button>
                     <label class="pdt-switcher-toggle" title="Hide system properties">
-                        <span class="pdt-toggle-switch"><input type="checkbox" id="odata-filter-toggle" ${this.hideOdata ? 'checked' : ''}><span class="pdt-toggle-slider"></span></span>@odata
+                        <span class="pdt-toggle-switch"><input type="checkbox" id="odata-filter-toggle" ${this.hideOdata ? 'checked' : ''}><span class="pdt-toggle-slider"></span></span>Hide System
                     </label>
                 </div>
             </div>
