@@ -37,13 +37,6 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 
 ## 🚀 Installation & Usage
 
-You can use the Power-Toolkit as a simple bookmarklet for quick use or as a browser extension for a more integrated experience.
-
-
-### Browser Extension
-
-Installing it from Edge or Chrome Store.
-
 **Microsoft Edge-Add-Ons:**
 * [Power-Toolkit on Edge](https://microsoftedge.microsoft.com/addons/detail/powertoolkit-for-power-a/bcdhpcgnalcckffananlnedhcedfadhg)
 
