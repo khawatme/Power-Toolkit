@@ -7,6 +7,7 @@
 
 import { UIFactory } from '../ui/UIFactory.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
+import { Config } from '../constants/index.js';
 
 /**
  * Represents the abstract base for a feature tab component.
@@ -20,10 +21,10 @@ export class BaseComponent {
      * @param {string} icon - The SVG string for the tab's icon.
      * @param {boolean} [isFormOnly=false] - True if this tab should only be enabled on a record form.
      */
-    constructor(id, label, icon, isFormOnly = false) {
+    constructor(id, label, icon, isFormOnly = Config.BASE_COMPONENT_DEFAULTS.isFormOnly) {
         // Enforce the abstract nature of this class, preventing direct instantiation.
         if (new.target === BaseComponent) {
-            throw new TypeError("Cannot construct BaseComponent instances directly. Please extend this class.");
+            throw new TypeError(Config.BASE_COMPONENT_ERRORS.abstractInstantiation);
         }
         this.id = id;
         this.label = label;
@@ -46,10 +47,10 @@ export class BaseComponent {
         if (this.isFormOnly && !PowerAppsApiService.isFormContextAvailable) {
             return UIFactory.createFormDisabledMessage();
         }
-        
+
         // This serves as a placeholder and a reminder for developers to implement the method.
         const el = document.createElement('div');
-        el.innerHTML = `<p class="pdt-error">Render method for <strong>${this.label}</strong> has not been implemented.</p>`;
+        el.innerHTML = `<p class="pdt-error">${Config.BASE_COMPONENT_ERRORS.renderNotImplemented(this.label)}</p>`;
         return el;
     }
 

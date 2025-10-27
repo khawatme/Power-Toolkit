@@ -5,15 +5,16 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { UIFactory } from '../ui/UIFactory.js';
-import { Helpers } from '../utils/Helpers.js';
+import { buildODataFilterClauses, clearContainer, copyToClipboard, debounce, escapeHtml, highlightTraceMessage, toggleElementHeight, updatePaginationUI } from '../helpers/index.js';
+import { Config } from '../constants/index.js';
 
 /**
  * @typedef {object} PluginTraceFilters
- * @property {string} typeName - The filter for the plugin's class name.
- * @property {string} messageContent - The filter for the trace message content.
+ * @property {string} typeName - Filter for the plugin's class name.
+ * @property {string} messageContent - Filter for the trace message content.
  */
 
 /**
@@ -27,13 +28,20 @@ export class PluginTraceLogTab extends BaseComponent {
      */
     constructor() {
         super('traces', 'Plugin Traces', ICONS.traces);
+        /** @type {{[k:string]: HTMLElement}} */
         this.ui = {};
+        /** @type {number} */
         this.currentPage = 1;
+        /** @type {number} */
         this.pageSize = 25;
+        /** @type {string[]} OData querystrings (search parts) for each page */
         this.pageLinks = [];
+        /** @type {number|null} */
         this.pollingTimer = null;
+        /** @type {PluginTraceFilters} */
         this.filters = { typeName: '', messageContent: '' };
-        this.filterTraces = Helpers.debounce(this._filterTraces, 300);
+        /** @private */
+        this.filterTraces = debounce(this._filterTraces, 300);
     }
 
     /**
@@ -42,39 +50,48 @@ export class PluginTraceLogTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
-        container.style.display = 'flex';
-        container.style.flexDirection = 'column';
-        container.style.height = '100%';
+        container.className = 'pdt-traces-root';
+
         container.innerHTML = `
             <div class="section-title">Plugin Trace Logs</div>
+
             <div class="pdt-toolbar">
                 <input type="text" id="trace-filter-typename" class="pdt-input" placeholder="Type Name contains..." title="Filter by plugin class name">
                 <input type="text" id="trace-filter-content" class="pdt-input" placeholder="Trace content contains..." title="Filter by text inside the trace message block">
                 <button id="apply-server-filters-btn" class="modern-button">Filter</button>
+
                 <div id="trace-toolbar-right-controls">
                     <label class="pdt-toggle-label" title="Automatically refresh traces">
-                        <span id="live-status-indicator"></span>Live
+                        <span id="live-status-indicator" class="live-indicator" aria-hidden="true"></span>
+                        Live
                         <span class="pdt-toggle-switch">
                             <input type="checkbox" id="trace-live-toggle">
                             <span class="pdt-toggle-slider"></span>
                         </span>
                     </label>
-                    <select id="trace-live-interval" class="pdt-select" style="width:80px;" title="Polling interval">
+                    <select id="trace-live-interval" class="pdt-select w-80" title="Polling interval">
                         <option value="5000">5s</option>
                         <option value="10000" selected>10s</option>
                         <option value="30000">30s</option>
                     </select>
                 </div>
             </div>
-            <div class="pdt-toolbar" style="margin-top: 5px;">
-                <input type="text" id="trace-local-search" class="pdt-input" placeholder="Filter current page results..." style="flex-grow:1;">
+
+            <div class="pdt-toolbar pdt-toolbar--tight">
+                <input type="text" id="trace-local-search" class="pdt-input" placeholder="Filter current page results...">
             </div>
-            <div id="trace-log-list" style="flex-grow: 1; overflow-y: auto; min-height:0;"><p class="pdt-note">Loading...</p></div>
+
+            <div id="trace-log-list" class="pdt-content-host">
+                <p class="pdt-note">${Config.MESSAGES.PLUGIN_TRACE.loading}</p>
+            </div>
+
             <div class="pdt-pagination">
                 <button id="prev-page-btn" class="modern-button secondary">&lt; Prev</button>
                 <span id="page-info">Page 1</span>
                 <button id="next-page-btn" class="modern-button secondary">Next &gt;</button>
-            </div>`;
+            </div>
+        `;
+
         return container;
     }
 
@@ -95,33 +112,11 @@ export class PluginTraceLogTab extends BaseComponent {
             logList: element.querySelector('#trace-log-list'),
             pageInfo: element.querySelector('#page-info'),
             prevPageBtn: element.querySelector('#prev-page-btn'),
-            nextPageBtn: element.querySelector('#next-page-btn')
+            nextPageBtn: element.querySelector('#next-page-btn'),
         };
 
+        this._bindEvents();
         this._loadTraces();
-
-        this.ui.serverFilterBtn.addEventListener('click', () => this._applyServerFilters());
-        this.ui.localSearchInput.addEventListener('keyup', () => this.filterTraces());
-        this.ui.prevPageBtn.addEventListener('click', () => this._changePage(-1));
-        this.ui.nextPageBtn.addEventListener('click', () => this._changePage(1));
-        this.ui.liveToggle.addEventListener('change', () => this._handlePolling(this.ui.liveToggle.checked));
-        this.ui.liveIntervalSelect.addEventListener('change', () => {
-            if (this.ui.liveToggle.checked) this._handlePolling(true);
-        });
-
-        this.ui.logList.addEventListener('click', (e) => {
-            const target = e.target;
-            const header = target.closest('.trace-header');
-            if (header && !target.classList.contains('copyable')) {
-                const details = header.nextElementSibling;
-                details.style.maxHeight = (details.style.maxHeight && details.style.maxHeight !== '0px')
-                    ? '0px'
-                    : `${details.scrollHeight}px`;
-            }
-            if (target.classList.contains('copyable')) {
-                Helpers.copyToClipboard(target.textContent, 'Correlation ID Copied!');
-            }
-        });
     }
 
     /**
@@ -132,6 +127,32 @@ export class PluginTraceLogTab extends BaseComponent {
             clearInterval(this.pollingTimer);
             this.pollingTimer = null;
         }
+    }
+
+    /** @private */
+    _bindEvents() {
+        this.ui.serverFilterBtn.addEventListener('click', () => this._applyServerFilters());
+        this.ui.localSearchInput.addEventListener('input', () => this.filterTraces());
+        this.ui.prevPageBtn.addEventListener('click', () => this._changePage(-1));
+        this.ui.nextPageBtn.addEventListener('click', () => this._changePage(1));
+
+        this.ui.liveToggle.addEventListener('change', () => this._handlePolling(this.ui.liveToggle.checked));
+        this.ui.liveIntervalSelect.addEventListener('change', () => {
+            if (this.ui.liveToggle.checked) this._handlePolling(true);
+        });
+
+        // Expand/collapse & copy correlation id
+        this.ui.logList.addEventListener('click', (e) => {
+            const target = /** @type {HTMLElement} */(e.target);
+            if (target.classList.contains('copyable')) {
+                copyToClipboard(target.textContent, Config.MESSAGES.PLUGIN_TRACE.correlationCopied);
+                return;
+            }
+            const header = target.closest('.trace-header');
+            if (!header) return;
+            const details = header.nextElementSibling;
+            toggleElementHeight(details);
+        });
     }
 
     /**
@@ -153,9 +174,10 @@ export class PluginTraceLogTab extends BaseComponent {
      */
     _changePage(direction) {
         const newPage = this.currentPage + direction;
-        if (newPage < 1 || (direction > 0 && !this.pageLinks[this.currentPage])) {
-            return;
-        }
+        if (newPage < 1) return;
+        // only allow Next if we cached a link for the next page
+        if (direction > 0 && !this.pageLinks[this.currentPage]) return;
+
         this.currentPage = newPage;
         this._loadTraces();
     }
@@ -168,88 +190,90 @@ export class PluginTraceLogTab extends BaseComponent {
      */
     _handlePolling(isEnabled) {
         this.destroy(); // Clear any existing timer
-        if (isEnabled) {
-            const interval = this.ui.liveIntervalSelect.value;
-            this.pollingTimer = setInterval(() => {
-                this.currentPage = 1;
-                this.pageLinks = [];
-                this._loadTraces(true);
-            }, parseInt(interval, 10));
-            this.ui.liveStatusIndicator.textContent = '🟢 ';
-            this._applyServerFilters();
-        } else {
-            this.ui.liveStatusIndicator.textContent = '';
-        }
+        this.ui.liveStatusIndicator.classList.toggle('is-live', !!isEnabled);
+
+        if (!isEnabled) return;
+
+        const interval = parseInt(this.ui.liveIntervalSelect.value, 10);
+        this.pollingTimer = setInterval(() => {
+            this.currentPage = 1;
+            this.pageLinks = [];
+            this._loadTraces(true);
+        }, interval);
+
+        // Kick a fresh fetch immediately with current filters
+        this._applyServerFilters();
     }
 
     /**
-     * Constructs the OData query options string based on the current server-side filters.
-     * @returns {string} The OData query string.
+     * Constructs the OData query options string based on current server-side filters.
+     * @returns {string} The OData query string (search part).
      * @private
      */
     _buildODataOptions() {
         const select = "$select=typename,messagename,primaryentity,exceptiondetails,messageblock,performanceexecutionduration,createdon,correlationid";
-        const filterClauses = [];
-        if (this.filters.typeName) {
-            filterClauses.push(`contains(typename, '${this.filters.typeName}')`);
-        }
-        if (this.filters.messageContent) {
-            filterClauses.push(`contains(messageblock, '${this.filters.messageContent}')`);
-        }
-        const filter = filterClauses.length > 0 ? `&$filter=${filterClauses.join(' and ')}` : "";
+        const filter = this._buildODataFilter();
         const orderby = "&$orderby=createdon desc";
         return `?${select}${filter}${orderby}`;
+    }
+
+    /** @private */
+    _buildODataFilter() {
+        const filters = {};
+        if (this.filters.typeName) filters.typename = this.filters.typeName;
+        if (this.filters.messageContent) filters.messageblock = this.filters.messageContent;
+        return buildODataFilterClauses(filters);
     }
 
     /**
      * Fetches and renders a page of trace logs based on the current page, filters,
      * and pagination state. It also manages the state of the pagination buttons.
-     * @param {boolean} [isPolling=false] - If true, the "Loading..." message is suppressed for a smoother UI update.
+     * @param {boolean} [isPolling=false] - If true, the "Loading..." message is suppressed for smoother UI.
      * @private
      */
     async _loadTraces(isPolling = false) {
-        if (!isPolling) this.ui.logList.innerHTML = '<p class="pdt-note">Loading...</p>';
+        if (!isPolling) this.ui.logList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PLUGIN_TRACE.loading}</p>`;
 
-        this.ui.pageInfo.textContent = `Page ${this.currentPage}`;
-        this.ui.prevPageBtn.disabled = this.currentPage === 1;
-        this.ui.nextPageBtn.disabled = true;
+        updatePaginationUI(this.ui.prevPageBtn, this.ui.nextPageBtn, this.ui.pageInfo, this.currentPage, false);
 
         try {
-            // Build the OData query if it's the first time on this page
+            // Build and cache this page’s OData search-part if needed
             if (!this.pageLinks[this.currentPage - 1]) {
                 this.pageLinks[this.currentPage - 1] = this._buildODataOptions();
             }
+
             const options = this.pageLinks[this.currentPage - 1];
             const result = await DataService.getPluginTraceLogs(options, this.pageSize);
 
-            // Store the link for the next page if it exists
-            if (result.nextLink) {
+            // Cache next page link (if any)
+            const hasNext = !!result?.nextLink;
+            if (hasNext) {
                 const url = new URL(result.nextLink);
                 this.pageLinks[this.currentPage] = url.search;
-                this.ui.nextPageBtn.disabled = false;
             }
 
-            this._renderTraceList(result.entities);
-            this._filterTraces();
+            updatePaginationUI(this.ui.prevPageBtn, this.ui.nextPageBtn, this.ui.pageInfo, this.currentPage, hasNext);
+            this._renderTraceList(Array.isArray(result?.entities) ? result.entities : []);
+            this._filterTraces(); // re-apply local search
         } catch (e) {
-            this.ui.logList.innerHTML = `<div class="pdt-error">Error loading traces. The Tracing service might be disabled.</div>`;
+            this.ui.logList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.PLUGIN_TRACE.loadFailed}</div>`;
         }
     }
 
     /**
      * Renders a list of trace log items into the main container.
-     * @param {Array<object>} traces - An array of trace log data objects.
+     * @param {Array<object>} traces - Trace log data objects.
      * @private
      */
     _renderTraceList(traces) {
-        if (traces.length === 0) {
-            this.ui.logList.innerHTML = '<p class="pdt-note">No plugin trace logs found for the current filter criteria.</p>';
+        if (!traces.length) {
+            this.ui.logList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PLUGIN_TRACE.noTracesFound}</p>`;
             return;
         }
-        const fragment = document.createDocumentFragment();
-        traces.forEach(log => fragment.appendChild(this._createTraceItemElement(log)));
-        this.ui.logList.innerHTML = '';
-        this.ui.logList.appendChild(fragment);
+        const frag = document.createDocumentFragment();
+        traces.forEach(log => frag.appendChild(this._createTraceItemElement(log)));
+        clearContainer(this.ui.logList);
+        this.ui.logList.appendChild(frag);
     }
 
     /**
@@ -261,31 +285,59 @@ export class PluginTraceLogTab extends BaseComponent {
     _createTraceItemElement(log) {
         const item = document.createElement('div');
         item.className = 'trace-item';
-        const isError = !!log.exceptiondetails;
 
-        const correlationHtml = log.correlationid ? `&bull; Correlation: <span class="copyable" title="Click to copy">${Helpers.escapeHtml(log.correlationid)}</span>` : '';
+        const isError = !!log.exceptiondetails;
         const createdOn = new Date(log.createdon).toLocaleString();
+        const corr = log.correlationid
+            ? `&bull; Correlation: <span class="copyable" title="Click to copy">${escapeHtml(log.correlationid)}</span>`
+            : '';
 
         item.innerHTML = `
             <div class="trace-header ${isError ? 'trace-error' : 'trace-success'}">
                 <div class="trace-summary">
-                    <span class="trace-type">${Helpers.escapeHtml(log.typename)}</span>
-                    <span class="trace-meta">${Helpers.escapeHtml(log.messagename)} on ${Helpers.escapeHtml(log.primaryentity)} &bull; ${createdOn} ${correlationHtml}</span>
+                    <span class="trace-type">${escapeHtml(log.typename)}</span>
+                    <span class="trace-meta">${escapeHtml(log.messagename)} on ${escapeHtml(log.primaryentity)} &bull; ${createdOn} ${corr}</span>
                 </div>
-                <span>${log.performanceexecutionduration || 'N/A'} ms</span>
+                <span class="trace-duration">${log.performanceexecutionduration ?? 'N/A'} ms</span>
             </div>
-            <div class="trace-details"></div>`;
+            <div class="trace-details"></div>
+        `;
 
-        const detailsContainer = item.querySelector('.trace-details');
-        detailsContainer.appendChild(UIFactory.createCopyableCodeBlock(log.messageblock, 'text'));
+        const details = item.querySelector('.trace-details');
 
-        if (isError) {
-            const exHeader = document.createElement('h4');
-            exHeader.textContent = 'Exception Details';
-            exHeader.style.color = 'var(--pro-error)';
-            detailsContainer.appendChild(exHeader);
-            detailsContainer.appendChild(UIFactory.createCopyableCodeBlock(log.exceptiondetails, 'text'));
+        // Only render the message copy block when it has content
+        const msg = (log.messageblock ?? '').toString().trim();
+        if (msg) {
+            if (isError) {
+                // If error, show message with heading
+                const msgWrap = document.createElement('div');
+                msgWrap.className = 'trace-exception';
+                msgWrap.innerHTML = `<h4 class="trace-exception-title">Message Block</h4>`;
+                msgWrap.appendChild(UIFactory.createCopyableCodeBlock(msg, 'text'));
+                details.appendChild(msgWrap);
+            } else {
+                // If not error, show message without heading
+                details.appendChild(UIFactory.createCopyableCodeBlock(msg, 'text'));
+            }
         }
+
+        // If error, optionally render exception only when it has content
+        if (isError) {
+            const ex = (log.exceptiondetails ?? '').toString().trim();
+            if (ex) {
+                const exWrap = document.createElement('div');
+                exWrap.className = 'trace-exception';
+                exWrap.innerHTML = `<h4 class="trace-exception-title">Exception Details</h4>`;
+                exWrap.appendChild(UIFactory.createCopyableCodeBlock(ex, 'text'));
+                details.appendChild(exWrap);
+            }
+        }
+
+        // If nothing was added, remove the details container so nothing shows
+        if (!details.childElementCount) {
+            details.remove();
+        }
+
         return item;
     }
 
@@ -293,10 +345,10 @@ export class PluginTraceLogTab extends BaseComponent {
      * Performs a client-side filter on the currently visible trace items.
      * @private
      */
-    _filterTraces() {
-        const term = this.ui.localSearchInput.value.toLowerCase();
+    _filterTraces = () => {
+        const term = (this.ui.localSearchInput.value || '').toLowerCase();
         this.ui.logList.querySelectorAll('.trace-item').forEach(item => {
             item.style.display = item.textContent.toLowerCase().includes(term) ? '' : 'none';
         });
-    }
+    };
 }

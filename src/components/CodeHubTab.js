@@ -1,240 +1,201 @@
 /**
  * @file Code Hub component.
  * @module components/CodeHubTab
- * @description A searchable, best-practice library of modern JavaScript code snippets for Power Apps.
+ * @description A searchable, best-practice library of modern JavaScript code snippets for Power Apps (Model-driven apps).
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { UIFactory } from '../ui/UIFactory.js';
-import { Helpers } from '../utils/Helpers.js';
+import { buildSearchIndex, debounce, escapeHtml, setAllAccordionCategories, toggleAccordionCategory } from '../helpers/index.js';
+import codeSnippetsData from '../data/codeSnippets.json';
 
 /**
  * @typedef {object} CodeSnippet
- * @property {string} t - The title of the snippet.
- * @property {string} d - A brief description of the snippet's purpose.
- * @property {string} c - The raw code content of the snippet.
+ * @property {string} t  - Title
+ * @property {string} d  - Description
+ * @property {string} c  - Code
+ * @property {string[]} [tags] - Search tags (optional)
+ * @property {string}  [lang] - Language for syntax hint (defaults to 'javascript')
  */
 
 /**
  * @typedef {object} SnippetCategory
- * @property {string} description - A summary of the snippet category.
- * @property {CodeSnippet[]} snippets - An array of code snippets in this category.
+ * @property {string} description
+ * @property {CodeSnippet[]} snippets
  */
 
 /**
- * A UI component that provides a searchable library of best-practice
- * JavaScript code snippets for Power Apps development.
+ * A searchable, accessible code library for Model-driven app development.
  * @extends {BaseComponent}
- * @property {Object.<string, SnippetCategory>} snippets - The collection of all code snippets, organized by category.
  */
 export class CodeHubTab extends BaseComponent {
-    /**
-     * Initializes the CodeHubTab, loads snippets, and debounces the filter function.
-     */
     constructor() {
         super('codeHub', 'Code Hub', ICONS.codeHub);
+        /** @type {{[category: string]: SnippetCategory}} */
+        this.snippets = codeSnippetsData;
+        /** @type {{container?:HTMLElement, search?:HTMLInputElement}} */
         this.ui = {};
-        this.snippets = this._getCodeSnippets();
-        this.filterSnippets = Helpers.debounce(this._filterSnippets, 250);
+        this.filterSnippets = debounce(this._filterSnippets, 200);
     }
 
-    /**
-     * Renders the component's HTML structure using the accordion layout.
-     * @returns {Promise<HTMLElement>} The root element of the component.
-     */
+    /** @returns {Promise<HTMLElement>} */
     async render() {
-        const container = document.createElement('div');
+        const root = document.createElement('div');
 
+        // Title
         const title = document.createElement('div');
         title.className = 'section-title';
         title.textContent = 'Code Hub';
 
-        const toolbar = document.createElement('div');
-        toolbar.className = 'pdt-toolbar';
-        toolbar.innerHTML = `<input type="text" id="codehub-search" class="pdt-input" placeholder="Search snippets (e.g., 'subgrid', 'async')..." style="flex-grow: 1;">`;
+        // Toolbar (search + clear)
+        const bar = document.createElement('div');
+        bar.className = 'pdt-toolbar';
+        bar.innerHTML = `
+      <input id="codehub-search" class="pdt-input" type="text"
+             placeholder="Search (e.g. prevent save, navigateTo, lookup filter)…"
+             aria-label="Search code snippets" />
+      <div class="pdt-toolbar-group">
+        <button id="codehub-clear" class="modern-button" title="Clear search">Clear</button>
+      </div>
+    `;
 
-        const contentHost = document.createElement('div');
-        contentHost.className = 'pdt-content-host';
+        // Content
+        const host = document.createElement('div');
+        host.className = 'pdt-content-host';
+        host.appendChild(this._buildCategories());
 
-        const fragment = document.createDocumentFragment();
+        root.append(title, bar, host);
+        return root;
+    }
 
-        Object.keys(this.snippets).forEach(categoryName => {
-            const categoryData = this.snippets[categoryName]; // Get the category object
-            
-            const categoryDiv = document.createElement('div');
-            categoryDiv.className = 'codehub-category';
+    /** @param {HTMLElement} element */
+    postRender(element) {
+        this.ui.container = element;
+        this.ui.search = element.querySelector('#codehub-search');
 
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'codehub-category-header';
-            // Add the description paragraph to the header
-            headerDiv.innerHTML = `<div>
-                                    <h4>${categoryName}</h4>
-                                    <p class="codehub-category-description">${categoryData.description}</p>
-                                </div>`;
-            
-            const list = document.createElement('ul');
-            list.className = 'pdt-list codehub-list';
+        // Search
+        this.ui.search.addEventListener('input', () => this.filterSnippets());
 
-            // Loop through the snippets array inside the category object
-            categoryData.snippets.forEach(s => {
-                const searchText = `${s.t} ${s.d} ${s.c}`.toLowerCase();
-                const listItem = document.createElement('li');
-                listItem.className = 'codehub-snippet';
-                listItem.dataset.searchText = Helpers.escapeHtml(searchText);
-                
-                const title = document.createElement('strong');
-                title.textContent = s.t;
-                
-                const description = document.createElement('p');
-                description.className = 'pdt-note';
-                description.textContent = s.d;
-
-                const codeBlockElement = UIFactory.createCopyableCodeBlock(s.c, 'javascript');
-
-                listItem.append(title, description, codeBlockElement);
-                list.appendChild(listItem);
-            });
-
-            categoryDiv.append(headerDiv, list);
-            fragment.appendChild(categoryDiv);
+        // Clear
+        element.querySelector('#codehub-clear').addEventListener('click', () => {
+            this.ui.search.value = '';
+            this.filterSnippets();
+            // Collapse all when search is cleared
+            setAllAccordionCategories(this.ui.container, '.codehub-category', false);
         });
 
-        contentHost.appendChild(fragment);
-        container.append(title, toolbar, contentHost);
-
-        return container;
-    }
-    
-    /**
-     * Attaches event listeners for search and accordion functionality.
-     * @param {HTMLElement} element - The root element of the component.
-     */
-    postRender(element) {
-        this.ui.searchInput = element.querySelector('#codehub-search');
-        this.ui.container = element;
-        this.ui.searchInput.addEventListener('keyup', () => this.filterSnippets());
-
-        // Add back the accordion click handler
+        // Accordion (mouse & keyboard)
         element.addEventListener('click', (e) => {
             const header = e.target.closest('.codehub-category-header');
-            if (header) {
-                header.parentElement.classList.toggle('expanded');
+            if (!header) return;
+            toggleAccordionCategory(header.parentElement);
+        });
+        element.addEventListener('keydown', (e) => {
+            const header = e.target.closest('.codehub-category-header');
+            if (!header) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleAccordionCategory(header.parentElement);
             }
         });
     }
 
+    /** @returns {DocumentFragment} */
+    _buildCategories() {
+        const frag = document.createDocumentFragment();
+        Object.entries(this.snippets).forEach(([name, cat]) => {
+            frag.appendChild(this._buildCategory(name, cat));
+        });
+        return frag;
+    }
+
     /**
-     * Filters snippets and categories based on the search term, expanding categories with matches.
-     * @private
+     * @param {string} name
+     * @param {SnippetCategory} cat
+     * @returns {HTMLElement}
      */
-    _filterSnippets() {
-        const term = this.ui.searchInput.value.toLowerCase();
-        this.ui.container.querySelectorAll('.codehub-category').forEach(category => {
-            let hasVisibleSnippets = false;
-            category.querySelectorAll('.codehub-snippet').forEach(snippet => {
-                const isMatch = (snippet.dataset.searchText || '').includes(term);
-                snippet.style.display = isMatch ? '' : 'none';
-                if (isMatch) hasVisibleSnippets = true;
+    _buildCategory(name, cat) {
+        const wrap = document.createElement('div');
+        wrap.className = 'codehub-category';
+        wrap.setAttribute('role', 'region');
+        wrap.setAttribute('aria-label', name);
+        wrap.dataset.category = name.toLowerCase();
+
+        const header = document.createElement('div');
+        header.className = 'codehub-category-header';
+        header.setAttribute('role', 'button');
+        header.setAttribute('tabindex', '0');
+        header.setAttribute('aria-expanded', 'false');
+        header.innerHTML = `
+      <div>
+        <h4>${escapeHtml(name)}</h4>
+        <p class="codehub-category-description">${escapeHtml(cat.description)}</p>
+      </div>
+    `;
+
+        const list = document.createElement('ul');
+        list.className = 'pdt-list codehub-list';
+
+        cat.snippets.forEach(sn => list.appendChild(this._buildSnippet(sn)));
+
+        wrap.append(header, list);
+        return wrap;
+    }
+
+    /**
+     * @param {CodeSnippet} s
+     * @returns {HTMLLIElement}
+     */
+    _buildSnippet(s) {
+        const li = document.createElement('li');
+        li.className = 'codehub-snippet';
+
+        // Build search payload (title + description + tags + code)
+        li.dataset.searchText = buildSearchIndex(
+            s.t || '',
+            s.d || '',
+            ...(s.tags || []),
+            s.c || ''
+        );
+
+        const title = document.createElement('strong');
+        title.textContent = s.t;
+
+        const desc = document.createElement('p');
+        desc.className = 'pdt-note';
+        desc.textContent = s.d;
+
+        const code = UIFactory.createCopyableCodeBlock(s.c, s.lang || 'javascript');
+
+        li.append(title, desc, code);
+        return li;
+    }
+
+    /** Filter snippets across title/desc/tags/code; shows only categories with matches. */
+    _filterSnippets = () => {
+        const term = (this.ui.search.value || '').toLowerCase().trim();
+        const categories = this.ui.container.querySelectorAll('.codehub-category');
+
+        categories.forEach(cat => {
+            let visibleCount = 0;
+            cat.querySelectorAll('.codehub-snippet').forEach(sn => {
+                const match = !term || (sn.dataset.searchText || '').includes(term);
+                sn.style.display = match ? '' : 'none';
+                if (match) visibleCount++;
             });
-            category.style.display = hasVisibleSnippets ? '' : 'none';
-
-            // If searching, expand the categories to show the matches.
-            if (term && hasVisibleSnippets) {
-                category.classList.add('expanded');
+            cat.style.display = visibleCount ? '' : 'none';
+            // Auto-expand when searching and there are matches
+            const header = cat.querySelector('.codehub-category-header');
+            if (visibleCount && term) {
+                cat.classList.add('expanded');
+                header?.setAttribute('aria-expanded', 'true');
             } else if (!term) {
-                category.classList.remove('expanded');
+                // collapse back to tidy state if search cleared
+                cat.classList.remove('expanded');
+                header?.setAttribute('aria-expanded', 'false');
             }
         });
-    }
-
-    /**
-     * Contains the raw data for all code snippets, organized by category.
-     * @returns {Object.<string, SnippetCategory>} An object where each key is a
-     * category name and the value is a SnippetCategory object.
-     * @private
-     */
-    _getCodeSnippets() {
-        // t = title, d = description, c = code
-        return {
-            "Form Context (Basics)": {
-                description: "Core functions for interacting with form data and attributes.",
-                snippets: [
-                    {
-                        t: "Get/Set Field Value",
-                        d: "Get or set the value of a string, number, or optionset field using the form context.",
-                        c: `function onFieldChange(executionContext) {\n    const formContext = executionContext.getFormContext();\n    \n    // Get value\n    const telephone = formContext.getAttribute("telephone1").getValue();\n    console.log(telephone);\n\n    // Set value\n    formContext.getAttribute("description").setValue("This is the new value.");\n}`
-                    }, {
-                        t: "Get/Set Lookup Value",
-                        d: "Read or set a lookup (foreign key) field's value.",
-                        c: `function onLookupChange(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const lookupAttr = formContext.getAttribute("primarycontactid");\n\n    // Get lookup value (returns an array)\n    const contact = lookupAttr.getValue();\n    if (contact && contact[0]) {\n        const id = contact[0].id;\n        const name = contact[0].name;\n        const entityType = contact[0].entityType;\n        console.log(\`Contact: \${name} (\${id})\`);\n    }\n\n    // Set lookup value\n    const newLookup = [{\n        id: "{GUID-HERE}",\n        name: "New Contact Name",\n        entityType: "contact"\n    }];\n    lookupAttr.setValue(newLookup);\n}`
-                    }, {
-                        t: "Set Required Level",
-                        d: "Make a field required, recommended, or optional.",
-                        c: `function onLoad(executionContext) {\n    const formContext = executionContext.getFormContext();\n\n    // Set as required\n    formContext.getAttribute("fax").setRequiredLevel("required");\n\n    // Set as recommended\n    formContext.getAttribute("emailaddress1").setRequiredLevel("recommended");\n\n    // Remove required level\n    formContext.getAttribute("telephone1").setRequiredLevel("none");\n}`
-                    }
-                ]
-            },
-            "UI (Tabs, Sections, Notifications)": {
-                description: "Functions for controlling the user interface elements on a form.",
-                snippets: [
-                    {
-                        t: "Show/Hide a Control",
-                        d: "Control the visibility of a field on the form.",
-                        c: `function onSomeCondition(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const control = formContext.getControl("fax");\n\n    // Hide the control\n    control.setVisible(false);\n\n    // Show the control\n    control.setVisible(true);\n}`
-                    }, {
-                        t: "Show/Hide a Tab or Section",
-                        d: "Control the visibility of entire tabs or sections on the form.",
-                        c: `function onLoad(executionContext) {\n    const formContext = executionContext.getFormContext();\n    \n    // Get a tab by its name (check form properties)\n    const detailsTab = formContext.ui.tabs.get("DETAILS_TAB");\n    if (detailsTab) {\n        detailsTab.setVisible(false);\n    }\n\n    // Get a section by its name\n    const addressSection = detailsTab.sections.get("ADDRESS");\n    if (addressSection) {\n        addressSection.setVisible(true);\n    }\n}`
-                    }, {
-                        t: "Show a Form Notification",
-                        d: "Display an information, warning, or error message at the top of the form.",
-                        c: `function showNotification(executionContext) {\n    const formContext = executionContext.getFormContext();\n\n    // Show an ERROR notification for 5 seconds\n    formContext.ui.setFormNotification("This is an error message.", "ERROR", "myUniqueId");\n    setTimeout(() => formContext.ui.clearFormNotification("myUniqueId"), 5000);\n\n    // Show a WARNING or INFO notification\n    // formContext.ui.setFormNotification("This is a warning.", "WARNING", "myWarningId");\n    // formContext.ui.setFormNotification("This is an info message.", "INFO", "myInfoId");\n}`
-                    },
-                ]
-            },
-            "Web API (async/await)": {
-                description: "Modern, asynchronous methods for creating, reading, updating, and deleting records.",
-                snippets: [
-                    {
-                        t: "Retrieve a Record",
-                        d: "Get data from a single record using its ID.",
-                        c: `async function getAccountName(accountId) {\n    try {\n        const account = await Xrm.WebApi.retrieveRecord("account", accountId, "?$select=name,telephone1");\n        console.log(account.name);\n        return account.name;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
-                    }, {
-                        t: "Retrieve Multiple Records",
-                        d: "Query for a set of records using OData filters.",
-                        c: `async function getActiveContacts(accountId) {\n    const options = \`?$select=fullname,emailaddress1&$filter=statecode eq 0 and _parentcustomerid_value eq \${accountId}\`;\n    try {\n        const result = await Xrm.WebApi.retrieveMultipleRecords("contact", options);\n        for (const contact of result.entities) {\n            console.log(contact.fullname);\n        }\n        return result.entities;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
-                    }, {
-                        t: "Create a Record",
-                        d: "Create a new record in a Dataverse table.",
-                        c: `async function createAccount(data) {\n    // data = { name: "Sample Account", telephone1: "555-1234" }\n    try {\n        const result = await Xrm.WebApi.createRecord("account", data);\n        console.log("Account created with ID: " + result.id);\n        return result.id;\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
-                    }, {
-                        t: "Update a Record",
-                        d: "Update columns on an existing record.",
-                        c: `async function updateAccount(accountId, data) {\n    // data = { telephone1: "555-9999", "primarycontactid@odata.bind": "/contacts(GUID)" }\n    try {\n        const result = await Xrm.WebApi.updateRecord("account", accountId, data);\n        console.log("Account updated. ID: " + result.id);\n    } catch (error) {\n        console.error(error.message);\n    }\n}`
-                    }
-                ]
-            },
-            "Subgrids": {
-                description: "Code snippets for interacting with subgrids on a form.",
-                snippets: [{
-                    t: "Refresh a Subgrid",
-                    d: "Force a subgrid on the form to refresh its data.",
-                    c: `function refreshContactsGrid(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const gridContext = formContext.getControl("Contacts"); // Get control by subgrid name\n    if (gridContext) {\n        gridContext.refresh();\n    }\n}`
-                }, {
-                    t: "Get Selected Subgrid Rows",
-                    d: "Get the data for all currently selected rows in a subgrid.",
-                    c: `function getSelectedContacts(executionContext) {\n    const formContext = executionContext.getFormContext();\n    const gridContext = formContext.getControl("Contacts");\n    if (gridContext) {\n        const selectedRows = gridContext.getGrid().getSelectedRows();\n        selectedRows.forEach(row => {\n            console.log(\`Selected Row ID: \${row.getId()}\`);\n            const contactName = row.data.entity.attributes.get("fullname").getValue();\n            console.log(\`Contact Name: \${contactName}\`);\n        });\n    }\n}`
-                }]
-            },
-            "Navigation": {
-                description: "Functions to navigate within the application or open new windows.",
-                snippets: [{
-                    t: "Open a New Record Form",
-                    d: "Open the 'create' form for a new record, with pre-filled default values.",
-                    c: `function openNewContact() {\n    const entityName = "contact";\n    const defaultValues = {\n        firstname: "John",\n        lastname: "Doe"\n    };\n    Xrm.Navigation.openForm({ entityName: entityName, useQuickCreateForm: true }, defaultValues).then(\n        (result) => console.log("Contact created with ID:", result.savedEntityReference[0].id),\n        (error) => console.error(error)\n    );\n}`
-                }]
-            }
-        };
-    }
+    };
 }
+

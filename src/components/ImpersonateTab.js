@@ -5,9 +5,10 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { addEnterKeyListener, escapeHtml, escapeODataString, generateSortableTableHeaders, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
+import { Config } from '../constants/index.js';
 
 /**
  * A component that allows developers to search for and impersonate another
@@ -38,9 +39,9 @@ export class ImpersonateTab extends BaseComponent {
             <p class="pdt-note">
                 Select a user to execute all subsequent Web API requests from within this tool (e.g., in the Metadata Browser, WebAPI Explorer,FetchXML Tester and User Context) on their behalf. This is useful for testing security roles.
             </p>
-            <div id="impersonation-status-container" style="margin-top: 15px;"></div>
+            <div id="impersonation-status-container" class="mt-15"></div>
             <div class="pdt-toolbar">
-                <input type="text" id="impersonate-search-input" class="pdt-input" placeholder="Search for a user by name..." style="flex-grow:1;">
+                <input type="text" id="impersonate-search-input" class="pdt-input flex-grow" placeholder="Search for a user by name...">
                 <button id="impersonate-search-btn" class="modern-button">Search</button>
             </div>
             <div id="impersonate-results-container" class="pdt-table-wrapper"></div>`;
@@ -53,50 +54,45 @@ export class ImpersonateTab extends BaseComponent {
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
-            this.ui = {
-                statusContainer: element.querySelector('#impersonation-status-container'),
-                searchInput: element.querySelector('#impersonate-search-input'),
-                searchBtn: element.querySelector('#impersonate-search-btn'),
-                resultsContainer: element.querySelector('#impersonate-results-container')
-            };
+        this.ui = {
+            statusContainer: element.querySelector('#impersonation-status-container'),
+            searchInput: element.querySelector('#impersonate-search-input'),
+            searchBtn: element.querySelector('#impersonate-search-btn'),
+            resultsContainer: element.querySelector('#impersonate-results-container')
+        };
 
-            this.ui.searchBtn.onclick = () => this._performSearch();
-            Helpers.addEnterKeyListener(this.ui.searchInput, () => this._performSearch());
+        this.ui.searchBtn.onclick = () => this._performSearch();
+        addEnterKeyListener(this.ui.searchInput, () => this._performSearch());
 
-            this.ui.resultsContainer.addEventListener('click', e => {
-                // Handle header clicks for sorting
-                const header = e.target.closest('th[data-sort-key]');
-                if (header) {
-                    const sortKey = header.dataset.sortKey;
-                    if (this.sortState.column === sortKey) {
-                        this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        this.sortState.column = sortKey;
-                        this.sortState.direction = 'asc';
-                    }
-                    this._renderResults(); // Re-render with new sort order
-                    return;
-                }
-                
-                // Handle row clicks for impersonation
-                const row = e.target.closest('tr[data-user-id]');
-                if (row) {
-                    const userId = row.dataset.userId;
-                    const fullName = row.dataset.fullName;
-                    DataService.setImpersonation(userId, fullName);
-                    this._updateStatus();
-                }
-            });
-            
-            this.ui.statusContainer.addEventListener('click', e => {
-                if (e.target.id === 'impersonate-clear-btn') {
-                    DataService.clearImpersonation();
-                    this._updateStatus();
-                }
-            });
+        this.ui.resultsContainer.addEventListener('click', e => {
+            // Handle header clicks for sorting
+            const header = e.target.closest('th[data-sort-key]');
+            if (header) {
+                const sortKey = header.dataset.sortKey;
+                toggleSortState(this.sortState, sortKey);
+                this._renderResults(); // Re-render with new sort order
+                return;
+            }
 
-            this._updateStatus();
-        }
+            // Handle row clicks for impersonation
+            const row = e.target.closest('tr[data-user-id]');
+            if (row) {
+                const userId = row.dataset.userId;
+                const fullName = row.dataset.fullName;
+                DataService.setImpersonation(userId, fullName);
+                this._updateStatus();
+            }
+        });
+
+        this.ui.statusContainer.addEventListener('click', e => {
+            if (e.target.id === 'impersonate-clear-btn') {
+                DataService.clearImpersonation();
+                this._updateStatus();
+            }
+        });
+
+        this._updateStatus();
+    }
 
     /**
      * Updates the status container to reflect the current impersonation state.
@@ -109,11 +105,11 @@ export class ImpersonateTab extends BaseComponent {
         if (info.isImpersonating) {
             this.ui.statusContainer.innerHTML = `
                 <div class="pdt-note" style="border-left-color: var(--pro-warn);">
-                    Currently impersonating: <strong>${Helpers.escapeHtml(info.userName)}</strong>
-                    <button id="impersonate-clear-btn" class="modern-button secondary" style="margin-left:auto; padding: 4px 10px; font-size: 12px;">Clear</button>
+                    Currently impersonating: <strong>${escapeHtml(info.userName)}</strong>
+                    <button id="impersonate-clear-btn" class="modern-button secondary ml-auto" style="padding: 4px 10px; font-size: 12px;">Clear</button>
                 </div>`;
         } else {
-            this.ui.statusContainer.innerHTML = '';
+            this.ui.statusContainer.textContent = '';
         }
     }
 
@@ -127,20 +123,29 @@ export class ImpersonateTab extends BaseComponent {
     async _performSearch() {
         const searchTerm = this.ui.searchInput.value.trim();
 
-        this.ui.resultsContainer.innerHTML = `<p class="pdt-note">Searching...</p>`;
+        // Show loading state
+        this.ui.searchBtn.disabled = true;
+        this.ui.searchBtn.textContent = Config.MESSAGES.IMPERSONATE.searching;
+        this.ui.resultsContainer.innerHTML = `<p class="pdt-note">${Config.MESSAGES.IMPERSONATE.searching}</p>`;
+
         try {
             let filterClause = "isdisabled eq false and azureactivedirectoryobjectid ne null";
             if (searchTerm) {
-                filterClause += ` and contains(fullname,'${searchTerm}')`;
+                const escapedTerm = escapeODataString(searchTerm);
+                filterClause += ` and contains(fullname,'${escapedTerm}')`;
             }
             const options = `?$select=fullname,systemuserid,domainname&$filter=${filterClause}`;
-            
+
             const result = await DataService.retrieveMultipleRecords('systemuser', options);
             this.lastSearchResults = result.entities; // Cache the results
             this.sortState = { column: 'fullname', direction: 'asc' }; // Reset sort on new search
             this._renderResults(); // Render the sorted results
         } catch (e) {
-            this.ui.resultsContainer.innerHTML = `<div class="pdt-error">Error searching for users: ${e.message}</div>`;
+            this.ui.resultsContainer.innerHTML = `<div class="pdt-error">${Config.MESSAGES.IMPERSONATE.searchFailed(escapeHtml(e.message))}</div>`;
+        } finally {
+            // Reset button state
+            this.ui.searchBtn.disabled = false;
+            this.ui.searchBtn.textContent = 'Search';
         }
     }
 
@@ -152,21 +157,17 @@ export class ImpersonateTab extends BaseComponent {
      */
     _renderResults() {
         if (!this.lastSearchResults || this.lastSearchResults.length === 0) {
-            this.ui.resultsContainer.innerHTML = `<p class="pdt-note">No active users found matching your search.</p>`;
+            this.ui.resultsContainer.innerHTML = `<p class="pdt-note">${Config.MESSAGES.IMPERSONATE.noUsersFound}</p>`;
             return;
         }
 
-        // Sort the cached results based on the current sortState
-        const { column, direction } = this.sortState;
-        const dir = direction === 'asc' ? 1 : -1;
-        this.lastSearchResults.sort((a, b) => {
-            return String(a[column] || '').localeCompare(String(b[column] || '')) * dir;
-        });
+        // Sort the cached results using the helper
+        sortArrayByColumn(this.lastSearchResults, this.sortState.column, this.sortState.direction);
 
         const rows = this.lastSearchResults.map(user => `
-            <tr class="copyable-cell" data-user-id="${user.systemuserid}" data-full-name="${Helpers.escapeHtml(user.fullname)}" title="Click to impersonate this user">
-                <td>${Helpers.escapeHtml(user.fullname)}</td>
-                <td class="code-like">${Helpers.escapeHtml(user.domainname)}</td>
+            <tr class="copyable-cell" data-user-id="${user.systemuserid}" data-full-name="${escapeHtml(user.fullname)}" title="Click to impersonate this user">
+                <td>${escapeHtml(user.fullname)}</td>
+                <td class="code-like">${escapeHtml(user.domainname)}</td>
             </tr>
         `).join('');
 
@@ -174,17 +175,11 @@ export class ImpersonateTab extends BaseComponent {
             { key: 'fullname', label: 'Full Name' },
             { key: 'domainname', label: 'User Name' }
         ];
-        const headerHtml = headers.map(h => {
-            const isSorted = this.sortState.column === h.key;
-            const sortClass = isSorted ? `sort-${this.sortState.direction}` : '';
-            return `<th class="${sortClass}" data-sort-key="${h.key}">${h.label}</th>`;
-        }).join('');
+        const headerHtml = generateSortableTableHeaders(headers, this.sortState);
 
         this.ui.resultsContainer.innerHTML = `
             <table class="pdt-table">
-                <thead>
-                    <tr>${headerHtml}</tr>
-                </thead>
+                <thead>${headerHtml}</thead>
                 <tbody>${rows}</tbody>
             </table>`;
     }

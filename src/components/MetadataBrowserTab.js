@@ -6,11 +6,16 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { debounce, escapeHtml, filterODataProperties, getMetadataDisplayName, sortArrayByColumn } from '../helpers/index.js';
 import { DialogService } from '../services/DialogService.js';
 import { Store } from '../core/Store.js';
+import { Config } from '../constants/index.js';
+
+const _debounce = debounce || ((fn, wait = 200) => {
+    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn.apply(null, args), wait); };
+});
 
 /**
  * A component that provides a master-detail view for browsing Dataverse metadata.
@@ -34,6 +39,9 @@ export class MetadataBrowserTab extends BaseComponent {
         this.selectedEntity = null;
         this.selectedEntityAttributes = [];
         this.unsubscribe = null;
+        /** @private */ this._loadToken = 0;
+        /** @private */ this._attrLoadToken = 0;
+        /** @private */ this._persistKey = 'pdt-metadata:lastEntity';
     }
 
     /**
@@ -42,17 +50,15 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
-        container.style.display = 'flex';
-        container.style.flexDirection = 'column';
-        container.style.height = '100%';
+        container.className = 'pdt-full-height-column';
 
         container.innerHTML = `
-            <div class="section-title" style="flex-shrink: 0;">Metadata Browser</div>
+            <div class="section-title flex-shrink-0">Metadata Browser</div>
             
             <div class="pdt-metadata-browser">
                 <div class="pdt-metadata-panel entities">
                     <div class="pdt-metadata-panel-header">
-                        <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="Search tables...">
+                        <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="${Config.COMMON_PLACEHOLDERS.searchTables}">
                     </div>
                     <div id="pdt-entity-list-container" class="pdt-metadata-panel-body">
                         <p class="pdt-note">Loading tables...</p>
@@ -96,12 +102,12 @@ export class MetadataBrowserTab extends BaseComponent {
                 this._loadData();
             }
         });
-        
+
         // Initial data load.
         this._loadData();
 
-        this.ui.entitySearch.addEventListener('keyup', Helpers.debounce(() => this._filterEntityList(), 200));
-        this.ui.attributeSearch.addEventListener('keyup', Helpers.debounce(() => this._filterAttributeList(), 200));
+        this.ui.entitySearch.addEventListener('keyup', _debounce(() => this._filterEntityList(), 200));
+        this.ui.attributeSearch.addEventListener('keyup', _debounce(() => this._filterAttributeList(), 200));
 
         this.ui.entityList.addEventListener('click', (e) => {
             const row = e.target.closest('tr[data-logical-name]');
@@ -110,7 +116,7 @@ export class MetadataBrowserTab extends BaseComponent {
                 this._handleEntitySelect(logicalName);
                 const entity = this.allEntities.find(e => e.LogicalName === row.dataset.logicalName);
                 if (entity) {
-                    const title = entity.DisplayName?.UserLocalizedLabel?.Label || entity.SchemaName;
+                    const title = getMetadataDisplayName(entity);
                     this._showMetadataDetailsDialog(`Table Details: ${title}`, entity);
                 }
                 this.ui.entityList.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
@@ -123,13 +129,13 @@ export class MetadataBrowserTab extends BaseComponent {
             if (row) {
                 const attribute = this.selectedEntityAttributes.find(a => a.LogicalName === row.dataset.logicalName);
                 if (attribute) {
-                    const title = attribute.DisplayName?.UserLocalizedLabel?.Label || attribute.SchemaName;
+                    const title = getMetadataDisplayName(attribute);
                     this._showMetadataDetailsDialog(`Column Details: ${title}`, attribute);
                 }
             }
         });
     }
-    
+
     /**
      * Lifecycle hook for cleaning up resources, specifically the store subscription, to prevent memory leaks.
      */
@@ -145,46 +151,51 @@ export class MetadataBrowserTab extends BaseComponent {
      * @private
      */
     async _loadData() {
-        this.ui.entityList.innerHTML = `<p class="pdt-note">Loading tables...</p>`;
-        this.ui.attributeList.innerHTML = `<p class="pdt-note">Select a table to view its columns.</p>`;
+        const myToken = ++this._loadToken;
+
+        this.ui.entityList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.loadingTables}</p>`;
+        this.ui.attributeList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.selectTable}</p>`;
         this.ui.attributeSearch.value = '';
         this.ui.attributeSearch.disabled = true;
 
-        // This is the restored logic to show the impersonation warning.
-        const impersonationInfo = DataService.getImpersonationInfo();
+        // Impersonation notice (unchanged behavior)
+        const impersonationInfo = DataService.getImpersonationInfo?.() || {};
         const warningDismissed = sessionStorage.getItem('pdt-impersonation-warning-dismissed') === 'true';
-
         if (impersonationInfo.isImpersonating && !warningDismissed) {
             const notification = document.createElement('div');
             notification.className = 'pdt-note';
-            notification.style.cssText = `
-                display: flex; 
-                align-items: center; 
-                gap: 15px; 
-                margin: 0 10px 10px 10px;
-            `;
+            notification.style.cssText = `display:flex;align-items:center;gap:15px;margin:0 10px 10px`;
             notification.innerHTML = `
-                <span style="font-size: 1.5em;">ℹ️</span>
-                <div style="text-align: left; flex-grow: 1;">
-                    <strong>Impersonation Active:</strong> Permission checks may generate expected errors in the developer console. This is normal.
-                </div>
-                <button class="pdt-icon-btn pdt-close-btn" title="Dismiss" style="width: 28px; height: 28px; flex-shrink: 0;">&times;</button>
-            `;
-            
+      <span style="font-size:1.5em;">ℹ️</span>
+      <div style="text-align:left;flex-grow:1;">
+        <strong>Impersonation Active:</strong> Permission checks may generate expected errors in the console.
+      </div>
+      <button class="pdt-icon-btn pdt-close-btn" title="Dismiss" style="width:28px;height:28px;flex-shrink:0">&times;</button>`;
             notification.querySelector('.pdt-close-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 sessionStorage.setItem('pdt-impersonation-warning-dismissed', 'true');
                 notification.remove();
             });
-            
             this.ui.entityList.prepend(notification);
         }
 
         try {
-            this.allEntities = await DataService.getEntityDefinitions();
+            const entities = await DataService.getEntityDefinitions();
+            if (myToken !== this._loadToken) return; // stale
+            this.allEntities = entities || [];
             this._renderEntityList(this.allEntities);
+
+            // Try to restore the last selected entity
+            const last = sessionStorage.getItem(this._persistKey);
+            if (last && this.allEntities.some(e => e.LogicalName === last)) {
+                this._handleEntitySelect(last); // async, race-safe in its own method
+                // visually select the row
+                const row = this.ui.entityList.querySelector(`tr[data-logical-name="${last}"]`);
+                row?.classList.add('active');
+            }
         } catch (e) {
-            this.ui.entityList.innerHTML = `<div class="pdt-error">Could not load tables: ${e.message}</div>`;
+            if (myToken !== this._loadToken) return;
+            this.ui.entityList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.METADATA_BROWSER.loadTablesFailed(escapeHtml(e.message || String(e)))}</div>`;
         }
 
         this._makePanelsResizable(this.ui.resizer);
@@ -197,10 +208,10 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _makePanelsResizable(resizer) {
         const leftPanel = resizer.previousElementSibling;
-        
+
         resizer.addEventListener('mousedown', (e) => {
             e.preventDefault();
-            
+
             const startX = e.clientX;
             const startWidth = leftPanel.offsetWidth;
 
@@ -230,18 +241,26 @@ export class MetadataBrowserTab extends BaseComponent {
      * @private
      */
     async _handleEntitySelect(logicalName) {
-        this.selectedEntity = this.allEntities.find(e => e.LogicalName === logicalName);
+        const myToken = ++this._attrLoadToken;
+
+        this.selectedEntity = this.allEntities.find(e => e.LogicalName === logicalName) || null;
         if (!this.selectedEntity) return;
+
+        // Persist selection
+        sessionStorage.setItem(this._persistKey, logicalName);
 
         this.ui.attributeSearch.disabled = false;
         this.ui.attributeSearch.placeholder = `Search columns in ${this.selectedEntity.LogicalName}...`;
-        this.ui.attributeList.innerHTML = `<p class="pdt-note">Loading columns...</p>`;
-        
+        this.ui.attributeList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.loadingColumns}</p>`;
+
         try {
-            this.selectedEntityAttributes = await DataService.getAttributeDefinitions(logicalName);
+            const attrs = await DataService.getAttributeDefinitions(logicalName);
+            if (myToken !== this._attrLoadToken) return; // stale
+            this.selectedEntityAttributes = attrs || [];
             this._renderAttributeList(this.selectedEntityAttributes);
         } catch (e) {
-            this.ui.attributeList.innerHTML = `<div class="pdt-error">Could not load columns: ${e.message}</div>`;
+            if (myToken !== this._attrLoadToken) return;
+            this.ui.attributeList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.METADATA_BROWSER.loadColumnsFailed(escapeHtml(e.message || String(e)))}</div>`;
         }
     }
 
@@ -253,15 +272,19 @@ export class MetadataBrowserTab extends BaseComponent {
     _renderEntityList(entities) {
         const listContainer = this.ui.entityList;
         const validEntities = entities.filter(item => item && item.LogicalName);
-        const getDisplayName = item => item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName;
-        validEntities.sort((a,b) => (getDisplayName(a) || '').localeCompare(getDisplayName(b) || ''));
-        
+
+        // Add a temporary _displayName property for sorting, then sort by it
+        validEntities.forEach(item => {
+            item._displayName = getMetadataDisplayName(item);
+        });
+        sortArrayByColumn(validEntities, '_displayName', 'asc');
+
         const rows = validEntities.map(item => `
             <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details and load columns">
-                <td>${getDisplayName(item)}</td>
+                <td>${item._displayName}</td>
                 <td class="code-like">${item.LogicalName}</td>
             </tr>`).join('');
-        
+
         const tableHTML = `
             <table class="pdt-table">
                 <thead><tr><th>Display Name</th><th>Logical Name</th></tr></thead>
@@ -282,7 +305,7 @@ export class MetadataBrowserTab extends BaseComponent {
             listContainer.insertAdjacentHTML('beforeend', tableHTML);
         }
     }
-    
+
     /**
      * Renders the list of attributes for the selected entity into the attribute panel.
      * @param {Array<object>} attributes - The array of attribute definitions to render.
@@ -290,12 +313,16 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _renderAttributeList(attributes) {
         const validAttributes = attributes.filter(item => item && item.LogicalName);
-        const getDisplayName = item => item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName;
-        validAttributes.sort((a,b) => (getDisplayName(a) || '').localeCompare(getDisplayName(b) || ''));
+
+        // Add a temporary _displayName property for sorting, then sort by it
+        validAttributes.forEach(item => {
+            item._displayName = getMetadataDisplayName(item);
+        });
+        sortArrayByColumn(validAttributes, '_displayName', 'asc');
 
         const rows = validAttributes.map(item => `
             <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details">
-                <td>${getDisplayName(item)}</td>
+                <td>${item._displayName}</td>
                 <td class="code-like">${item.LogicalName}</td>
                 <td>${item.AttributeType}</td>
             </tr>`).join('');
@@ -312,10 +339,10 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _filterEntityList() {
         const term = this.ui.entitySearch.value.toLowerCase();
-        const getDisplayName = item => (item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName).toLowerCase();
-        const filtered = this.allEntities.filter(e => 
-            getDisplayName(e).includes(term) || e.LogicalName.toLowerCase().includes(term)
-        );
+        const filtered = this.allEntities.filter(e => {
+            const displayName = getMetadataDisplayName(e).toLowerCase();
+            return displayName.includes(term) || e.LogicalName.toLowerCase().includes(term);
+        });
         this._renderEntityList(filtered);
     }
 
@@ -325,10 +352,10 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _filterAttributeList() {
         const term = this.ui.attributeSearch.value.toLowerCase();
-        const getDisplayName = item => (item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName).toLowerCase();
-        const filtered = this.selectedEntityAttributes.filter(a =>
-            getDisplayName(a).includes(term) || a.LogicalName.toLowerCase().includes(term)
-        );
+        const filtered = this.selectedEntityAttributes.filter(a => {
+            const displayName = getMetadataDisplayName(a).toLowerCase();
+            return displayName.includes(term) || a.LogicalName.toLowerCase().includes(term);
+        });
         this._renderAttributeList(filtered);
     }
 
@@ -347,10 +374,8 @@ export class MetadataBrowserTab extends BaseComponent {
         const grid = content.querySelector('.info-grid');
         const searchInput = content.querySelector('input');
 
-        // Filter and sort the properties for display
-        const properties = Object.entries(metadataObject)
-            .filter(([key, value]) => value !== null && typeof value !== 'object' && !key.startsWith('@odata'))
-            .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+        // Filter and sort the properties
+        const properties = filterODataProperties(metadataObject);
 
         // Create and append the grid rows
         properties.forEach(([key, value]) => {
@@ -364,7 +389,7 @@ export class MetadataBrowserTab extends BaseComponent {
         });
 
         // Attach the live filter listener
-        searchInput.addEventListener('keyup', Helpers.debounce(() => {
+        searchInput.addEventListener('keyup', debounce(() => {
             const term = searchInput.value.toLowerCase();
             for (let i = 0; i < grid.children.length; i += 2) {
                 const labelEl = grid.children[i];

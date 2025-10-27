@@ -5,13 +5,12 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { Store } from '../core/Store.js';
 import { ComponentRegistry } from '../core/ComponentRegistry.js';
-import { Config } from '../utils/Config.js';
+import { Config } from '../constants/index.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { DialogService } from '../services/DialogService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { throttle, clearContainer, downloadJson, createFileInputElement, readJsonFile, showConfirmDialog } from '../helpers/index.js';
 
 /**
  * A component for configuring the toolkit's UI and behavior. It allows users to
@@ -29,7 +28,7 @@ export class SettingsTab extends BaseComponent {
         super('settings', 'Settings', ICONS.settings);
         this.draggedItem = null;
         // Bind and throttle the dragover handler for performance
-        this.throttledDragOver = Helpers.throttle(this._handleDragOver.bind(this), 100);
+        this.throttledDragOver = throttle(this._handleDragOver.bind(this), 100);
     }
 
     /**
@@ -40,15 +39,15 @@ export class SettingsTab extends BaseComponent {
         const container = document.createElement('div');
         container.innerHTML = `
             <div class="section-title">Toolkit Settings</div>
-            <div class="pdt-toolbar" style="justify-content:flex-start;">
+            <div class="pdt-toolbar pdt-toolbar-start">
                 <button id="pdt-export-settings" class="modern-button secondary">Export Settings</button>
                 <button id="pdt-import-settings" class="modern-button secondary">Import Settings</button>
-                <button id="pdt-reset-settings" class="modern-button danger" style="margin-left:auto;">Reset All Settings</button>
+                <button id="pdt-reset-settings" class="modern-button ml-auto">Reset All Settings</button>
             </div>
             <div class="section-title">Tab Configuration</div>
             <p class="pdt-note">Drag to reorder tabs. Use the toggle to show or hide them.</p>
             <ul id="tab-settings-list"></ul>`;
-            
+
         this._renderList(container.querySelector('#tab-settings-list'));
         return container;
     }
@@ -68,7 +67,7 @@ export class SettingsTab extends BaseComponent {
         element.querySelector('#pdt-import-settings').onclick = () => this._importSettings();
         element.querySelector('#pdt-reset-settings').onclick = () => this._resetAllSettings();
     }
-    
+
     /**
      * Renders the list of configurable tabs.
      * @param {HTMLUListElement} listElement - The <ul> element to populate.
@@ -76,7 +75,7 @@ export class SettingsTab extends BaseComponent {
      */
     _renderList(listElement) {
         const tabSettings = Store.getState().tabSettings;
-        listElement.innerHTML = '';
+        clearContainer(listElement);
         tabSettings.forEach(setting => {
             const component = ComponentRegistry.get(setting.id);
             if (component) {
@@ -90,7 +89,7 @@ export class SettingsTab extends BaseComponent {
                 li.innerHTML = `
                     <span class="drag-handle" style="cursor:${isUnconfigurable ? 'not-allowed' : 'grab'};">☰</span>
                     <span>${component.label}</span>
-                    <label class="pdt-toggle-label" style="margin-left:auto;">
+                    <label class="pdt-toggle-label ml-auto">
                         <span class="pdt-toggle-switch">
                             <input type="checkbox" class="tab-visibility-toggle" 
                                 ${setting.visible ? 'checked' : ''} 
@@ -110,7 +109,7 @@ export class SettingsTab extends BaseComponent {
      */
     _handleVisibilityChange(e) {
         if (!e.target.classList.contains('tab-visibility-toggle')) return;
-        
+
         const tabId = e.target.closest('li').dataset.tabId;
         const newSettings = Store.getState().tabSettings.map(setting =>
             setting.id === tabId ? { ...setting, visible: e.target.checked } : setting
@@ -206,10 +205,10 @@ export class SettingsTab extends BaseComponent {
                 theme: Store.getState().theme,
                 tabSettings: Store.getState().tabSettings
             };
-            Helpers.downloadJson(settingsToExport, 'pdt-settings.json');
-            NotificationService.show('Settings exported successfully.', 'success');
+            downloadJson(settingsToExport, 'pdt-settings.json');
+            NotificationService.show(Config.MESSAGES.SETTINGS.exportSuccess, 'success');
         } catch (e) {
-            NotificationService.show(`Error exporting settings: ${e.message}`, 'error');
+            NotificationService.show(Config.MESSAGES.SETTINGS.exportFailed(e.message), 'error');
         }
     }
 
@@ -218,34 +217,31 @@ export class SettingsTab extends BaseComponent {
      * and applies the settings from that file to the application's state.
      * @private
      */
-    _importSettings() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = e => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = readerEvent => {
+    async _importSettings() {
+        const input = createFileInputElement({
+            accept: '.json',
+            onChange: async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
                 try {
-                    const imported = JSON.parse(readerEvent.target.result);
+                    const imported = await readJsonFile(file);
                     let newState = {};
                     if (imported.tabSettings) newState.tabSettings = imported.tabSettings;
                     if (imported.theme) newState.theme = imported.theme;
-                    
-                    if(Object.keys(newState).length > 0) {
+
+                    if (Object.keys(newState).length > 0) {
                         Store.setState(newState);
                         this._renderList(document.getElementById('tab-settings-list'));
-                        NotificationService.show('Settings imported successfully.', 'success');
+                        NotificationService.show(Config.MESSAGES.SETTINGS.importSuccess, 'success');
                     } else {
-                        NotificationService.show('Import failed: File does not contain valid settings.', 'error');
+                        NotificationService.show(Config.MESSAGES.SETTINGS.invalidSettings, 'error');
                     }
                 } catch (err) {
-                    NotificationService.show(`Error importing settings: ${err.message}`, 'error');
+                    NotificationService.show(Config.MESSAGES.SETTINGS.importFailed(err.message), 'error');
                 }
-            };
-            reader.readAsText(file);
-        };
+            }
+        });
         input.click();
     }
 
@@ -254,15 +250,19 @@ export class SettingsTab extends BaseComponent {
      * settings in the store to their original default values.
      * @private
      */
-    _resetAllSettings() {
-        DialogService.show('Reset All Settings', '<p>Are you sure you want to reset all settings to their default values? This will reset the tab order, visibility, and theme.</p>', () => {
-            // Use the new, clean method to reset the state.
+    async _resetAllSettings() {
+        const confirmed = await showConfirmDialog(
+            'Reset All Settings',
+            'Are you sure you want to reset all settings to their default values? This will reset the tab order, visibility, and theme.'
+        );
+
+        if (confirmed) {
             Store.resetToDefaults();
-            
+
             // Manually re-render the list inside this settings tab.
             // The main navigation will update automatically via the store subscription.
             this._renderList(document.getElementById('tab-settings-list'));
-            NotificationService.show('All settings have been reset.', 'success');
-        });
+            NotificationService.show(Config.MESSAGES.SETTINGS.resetSuccess, 'success');
+        }
     }
 }

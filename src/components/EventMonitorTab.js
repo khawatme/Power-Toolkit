@@ -5,8 +5,10 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
+import { appendLogEntry, clearContainer } from '../helpers/index.js';
+import { Config } from '../constants/index.js';
 
 /**
  * @callback LogFunction
@@ -34,6 +36,12 @@ export class EventMonitorTab extends BaseComponent {
         this.attachedHandlers = [];
     }
 
+    /** @private */ _maxLogEntries = 500;
+    /** @private */ _clearBtnHandler = null;
+
+    /** @private */
+    _safeArray(v) { return Array.isArray(v) ? v : []; }
+
     /**
      * Renders the component's HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
@@ -43,10 +51,11 @@ export class EventMonitorTab extends BaseComponent {
         container.innerHTML = `
             <div class="section-title">Form Event Monitor</div>
             <div class="pdt-toolbar">
-                <span id="monitoring-status"></span>
-                <button id="clear-log-btn" class="modern-button secondary" style="margin-left: auto;">Clear Log</button>
+                <span id="live-status-indicator" class="live-indicator is-live" aria-hidden="true"></span>
+                <span id="monitoring-status" aria-live="polite" role="status"></span>
+                <button id="clear-log-btn" class="modern-button secondary ml-auto">Clear Log</button>
             </div>
-            <div id="event-log-container"></div>`;
+            <div id="event-log-container" role="log" aria-live="polite" aria-relevant="additions"></div>`;
         return container;
     }
 
@@ -55,44 +64,64 @@ export class EventMonitorTab extends BaseComponent {
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
-        // 1. Get a direct reference to the container. This variable will be "captured" by the functions below.
         const logContainer = element.querySelector('#event-log-container');
-        
-        // 2. Define the logging function locally. It now uses the `logContainer` variable directly.
+        const statusEl = element.querySelector('#monitoring-status');
+
         const logEvent = (className, message, context) => {
             if (!logContainer) return;
-
-            const attr = context?.getEventSource?.();
-            const attrName = attr?.getName?.();
-            const fullMessage = attrName ? `${message}: ${attrName}` : message;
-
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${className}`;
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${fullMessage}`;
-            
-            logContainer.appendChild(entry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        };
-
-        // 3. The "Clear Log" button also uses the local `logContainer` reference.
-        element.querySelector('#clear-log-btn').onclick = () => {
-            if (logContainer) {
-                while (logContainer.firstChild) {
-                    logContainer.removeChild(logContainer.firstChild);
-                }
+            try {
+                // Try to surface useful context without risking errors
+                const src = context?.getEventSource?.();
+                const attrName = src?.getName?.();
+                const depth = context?.getDepth?.();
+                let extra = '';
+                // Save mode, when present (only on OnSave)
+                const saveMode = context?.getEventArgs?.()?.getSaveMode?.();
+                if (typeof saveMode === 'number') extra += ` [mode:${saveMode}]`;
+                if (typeof depth === 'number') extra += ` [depth:${depth}]`;
+                const fullMessage = attrName ? `${message}: ${attrName}${extra}` : `${message}${extra}`;
+                appendLogEntry(logContainer, className, fullMessage, this._maxLogEntries);
+            } catch (err) {
+                appendLogEntry(logContainer, 'log-entry-warn', `${message} (context unavailable)`, this._maxLogEntries);
             }
         };
 
-        // 4. Pass the self-contained `logEvent` function to the monitoring logic.
+        // Clear button
+        const clearBtn = element.querySelector('#clear-log-btn');
+        this._clearBtnHandler = () => {
+            if (!logContainer) return;
+            clearContainer(logContainer);
+            statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.cleared;
+            // Revert back to monitoring status after a brief moment
+            setTimeout(() => {
+                if (statusEl) statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.monitoring;
+            }, 2000);
+        };
+        clearBtn?.addEventListener('click', this._clearBtnHandler);
+
+        // Start monitoring (guarded)
         this._startMonitoring(logEvent);
-        element.querySelector('#monitoring-status').textContent = '🟢 Monitoring form events...';
+        statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.monitoring;
+
+        // Add initial info message
+        appendLogEntry(logContainer, 'log-entry-warn',
+            'Event Monitor started. Note: OnLoad event may have already fired. Modify a field or save the form to see new events.',
+            this._maxLogEntries);
     }
 
     /**
      * Cleans up all attached event listeners when the component is destroyed.
      */
     destroy() {
-        this._stopMonitoring();
+        try {
+            this._stopMonitoring();
+            // Remove the clear handler if it was set (query from the current root if available)
+            const root = document.querySelector('[data-component-id="eventMonitor"]') || document;
+            const clearBtn = root.querySelector?.('#clear-log-btn');
+            if (clearBtn && this._clearBtnHandler) {
+                clearBtn.removeEventListener('click', this._clearBtnHandler);
+            }
+        } catch { }
     }
 
     /**
@@ -101,23 +130,42 @@ export class EventMonitorTab extends BaseComponent {
      * @private
      */
     _startMonitoring(logFunction) {
-        if (this.isMonitoring) return;
-        
+        // Always stop monitoring first to ensure clean state
+        // This handles cases where the tab is switched without dispose being called
         this._stopMonitoring();
 
-        const onLoadHandler = (context) => logFunction('log-entry-load', 'Form OnLoad', context);
-        PowerAppsApiService.addOnLoad(onLoadHandler);
-        this.attachedHandlers.push({ type: 'load', handler: onLoadHandler });
+        let handlersAdded = 0;
 
-        const onSaveHandler = (context) => logFunction('log-entry-save', 'Form OnSave', context);
-        PowerAppsApiService.addOnSave(onSaveHandler);
-        this.attachedHandlers.push({ type: 'save', handler: onSaveHandler });
+        try {
+            const onLoadHandler = (ctx) => logFunction('log-entry-load', 'Form OnLoad', ctx);
+            PowerAppsApiService.addOnLoad?.(onLoadHandler);
+            this.attachedHandlers.push({ type: 'load', handler: onLoadHandler });
+            handlersAdded++;
+        } catch (e) {
+            // Silent - event handler attachment failure is not critical
+        }
 
-        PowerAppsApiService.getAllAttributes().forEach(attr => {
-            if (typeof attr.addOnChange === 'function') {
-                const onChangeHandler = (context) => logFunction('log-entry-change', 'Attribute OnChange', context);
-                attr.addOnChange(onChangeHandler);
-                this.attachedHandlers.push({ type: 'change', attr, handler: onChangeHandler });
+        try {
+            const onSaveHandler = (ctx) => logFunction('log-entry-save', 'Form OnSave', ctx);
+            PowerAppsApiService.addOnSave?.(onSaveHandler);
+            this.attachedHandlers.push({ type: 'save', handler: onSaveHandler });
+            handlersAdded++;
+        } catch (e) {
+            // Silent - event handler attachment failure is not critical
+        }
+
+        // Attributes can be missing early; guard and iterate safely
+        const attrs = this._safeArray(PowerAppsApiService.getAllAttributes?.());
+        attrs.forEach(attr => {
+            try {
+                if (typeof attr?.addOnChange === 'function') {
+                    const onChangeHandler = (ctx) => logFunction('log-entry-change', 'Attribute OnChange', ctx);
+                    attr.addOnChange(onChangeHandler);
+                    this.attachedHandlers.push({ type: 'change', attr, handler: onChangeHandler });
+                    handlersAdded++;
+                }
+            } catch (e) {
+                // Silent - individual attribute handler failures are not critical
             }
         });
 
@@ -131,30 +179,20 @@ export class EventMonitorTab extends BaseComponent {
      * @private
      */
     _stopMonitoring() {
-        if (!this.isMonitoring) return;
-
+        // Detach regardless of isMonitoring, in case state got out of sync
         try {
             this.attachedHandlers.forEach(item => {
-                switch (item.type) {
-                    case 'load':
-                        PowerAppsApiService.removeOnLoad(item.handler);
-                        break;
-                    case 'save':
-                        PowerAppsApiService.removeOnSave(item.handler);
-                        break;
-                    case 'change':
-                        if (item.attr && typeof item.attr.removeOnChange === 'function') {
-                            item.attr.removeOnChange(item.handler);
-                        }
-                        break;
-                }
+                try {
+                    if (item.type === 'load') PowerAppsApiService.removeOnLoad?.(item.handler);
+                    else if (item.type === 'save') PowerAppsApiService.removeOnSave?.(item.handler);
+                    else if (item.type === 'change') item.attr?.removeOnChange?.(item.handler);
+                } catch { }
             });
-            console.log('PDT Event Monitor stopped and all listeners detached.');
         } catch (e) {
-            console.warn("PDT Event Monitor: A non-critical error occurred while removing listeners.", e);
+            // Silent - cleanup errors are handled gracefully
+        } finally {
+            this.attachedHandlers = [];
+            this.isMonitoring = false;
         }
-        
-        this.attachedHandlers = [];
-        this.isMonitoring = false;
     }
 }

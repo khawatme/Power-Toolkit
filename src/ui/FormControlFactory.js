@@ -5,7 +5,8 @@
  * for a given Power Apps field type, pre-populated with its current value.
  */
 
-import { Helpers } from '../utils/Helpers.js';
+import { escapeHtml } from '../helpers/index.js';
+import { Config } from '../constants/index.js';
 
 /**
  * Represents the Xrm.Attributes.Attribute object from the Power Apps Client API.
@@ -20,13 +21,13 @@ import { Helpers } from '../utils/Helpers.js';
  */
 function _toLocalISOString(dateValue) {
     if (!dateValue) return "";
-    
+
     const date = new Date(dateValue);
     if (isNaN(date.getTime())) return "";
 
     const tzoffset = date.getTimezoneOffset() * 60000;
     const localISOTime = new Date(date.valueOf() - tzoffset).toISOString().slice(0, -1);
-    
+
     return localISOTime.substring(0, 16);
 }
 
@@ -48,32 +49,33 @@ export const FormControlFactory = {
     create(attrType, currentValue, attribute) {
         switch (attrType) {
             case 'memo':
-                return `<textarea id="pdt-prompt-input" class="pdt-textarea" rows="4">${Helpers.escapeHtml(currentValue ?? "")}</textarea>`;
+                return `<textarea id="pdt-prompt-input" class="pdt-textarea" rows="4">${escapeHtml(currentValue ?? "")}</textarea>`;
 
             case 'boolean':
                 return `<select id="pdt-prompt-input" class="pdt-select">
                             <option value="true" ${currentValue === true ? 'selected' : ''}>True</option>
                             <option value="false" ${currentValue === false ? 'selected' : ''}>False</option>
-                            <option value="null" ${currentValue === null ? 'selected' : ''}>--- (Clear Value) ---</option>
+                            <option value="null" ${currentValue === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>
                         </select>`;
-            
+
             case 'optionset':
+            case 'multiselectoptionset':
                 if (attribute && typeof attribute.getOptions === 'function') {
-                    const isRequired = attribute.getRequiredLevel() === 'required';
+                    const isRequired = attribute.getRequiredLevel?.() === Config.FORM_CONTROL_LABELS.requiredLevel.required;
                     const options = attribute.getOptions();
-                    
-                    let optionsHtml = isRequired ? '' : `<option value="null" ${currentValue === null ? 'selected' : ''}>--- (Clear Value) ---</option>`;
-                    
+
+                    let optionsHtml = isRequired ? '' : `<option value="null" ${currentValue === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>`;
+
                     optionsHtml += options.map(opt => {
-                        if (opt.value === null) return ""; 
+                        if (opt.value === null) return "";
                         const isSelected = String(opt.value) === String(currentValue);
-                        return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${Helpers.escapeHtml(opt.text)}</option>`;
+                        return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${escapeHtml(opt.text)} (${opt.value})</option>`;
                     }).join('');
-                    
+
                     return `<select id="pdt-prompt-input" class="pdt-select">${optionsHtml}</select>`;
                 }
                 // Fallback for optionsets without the full attribute object
-                return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${Helpers.escapeHtml(currentValue ?? "")}" placeholder="Enter integer value...">`;
+                return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? "")}" placeholder="${Config.FORM_CONTROL_LABELS.optionsetPlaceholder}">`;
 
             case 'datetime':
                 return `<input type="datetime-local" id="pdt-prompt-input" class="pdt-input" value="${_toLocalISOString(currentValue)}">`;
@@ -82,10 +84,18 @@ export const FormControlFactory = {
             case 'decimal':
             case 'double':
             case 'integer':
+            case 'bigint':
                 return `<input type="number" id="pdt-prompt-input" class="pdt-input" value="${currentValue ?? ""}" step="any">`;
 
+            // Lookup types (customer, owner, lookup) are typically read-only in this context
+            // but provide a text input for edge cases where they might be editable
+            case 'lookup':
+            case 'customer':
+            case 'owner':
+                return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? "")}" readonly>`;
+
             default: // Handles 'string' and other types
-                return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${Helpers.escapeHtml(currentValue ?? "")}">`;
+                return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? "")}">`;
         }
     }
 };

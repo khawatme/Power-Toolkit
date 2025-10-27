@@ -1,0 +1,401 @@
+{
+    "Form Context (Basics)": {
+        "description": "Get formContext, read/set values, change handlers, focus, visibility, and ribbon refresh.",
+        "snippets": [
+            {
+                "t": "Get formContext (reliable pattern)",
+                "d": "Always derive formContext from executionContext. Avoid deprecated Xrm.Page.",
+                "tags": [
+                    "formContext",
+                    "executionContext",
+                    "onLoad",
+                    "onChange"
+                ],
+                "c": "function onLoad(executionContext) {\n  /** @type {Xrm.FormContext} */\n  const formContext = executionContext.getFormContext();\n  // Safe to use formContext now...\n}"
+            },
+            {
+                "t": "Add/Remove OnChange handler",
+                "d": "Wire a field change handler and clean up later.",
+                "tags": [
+                    "attribute",
+                    "onChange",
+                    "events"
+                ],
+                "c": "let _emailChanged;\nfunction wireEmailOnChange(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const attr = formContext.getAttribute(\"emailaddress1\");\n  if (!attr || _emailChanged) return;\n  _emailChanged = () => console.log(\"Email changed:\", attr.getValue());\n  attr.addOnChange(_emailChanged);\n}\nfunction unwireEmailOnChange(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const attr = formContext.getAttribute(\"emailaddress1\");\n  if (attr && _emailChanged) {\n    attr.removeOnChange(_emailChanged);\n    _emailChanged = null;\n  }\n}"
+            },
+            {
+                "t": "Set focus / show-hide / enable-disable",
+                "d": "Common control interactions.",
+                "tags": [
+                    "setFocus",
+                    "setVisible",
+                    "setDisabled"
+                ],
+                "c": "function tweakField(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const ctrl = formContext.getControl(\"telephone1\");\n  ctrl?.setFocus();\n  ctrl?.setVisible(true);\n  ctrl?.setDisabled(false); // or true\n}"
+            },
+            {
+                "t": "Refresh Ribbon programmatically",
+                "d": "When field state changes should affect command enable rules.",
+                "tags": [
+                    "refreshRibbon",
+                    "ui"
+                ],
+                "c": "function refreshRibbon(executionContext) {\n  const formContext = executionContext.getFormContext();\n  formContext.ui.refreshRibbon();\n}"
+            },
+            {
+                "t": "Detect form type (create/update)",
+                "d": "Use getFormType to branch logic.",
+                "tags": [
+                    "getFormType"
+                ],
+                "c": "function isCreateForm(executionContext) {\n  const formContext = executionContext.getFormContext();\n  return formContext.ui.getFormType() === 1; // 1=create, 2=update\n}"
+            }
+        ]
+    },
+    "Save & Lifecycle": {
+        "description": "Save responsibly, prevent save when invalid, and refresh data.",
+        "snippets": [
+            {
+                "t": "Save if dirty",
+                "d": "Avoid unnecessary saves.",
+                "tags": [
+                    "save",
+                    "dirty"
+                ],
+                "c": "async function saveIfDirty(executionContext) {\n  const formContext = executionContext.getFormContext();\n  if (formContext.data.entity.getIsDirty()) {\n    await formContext.data.save();\n  }\n}"
+            },
+            {
+                "t": "Prevent save with message",
+                "d": "Cancel save in OnSave with reason.",
+                "tags": [
+                    "preventDefault",
+                    "OnSave"
+                ],
+                "c": "function onSave(executionContext) {\n  const eventArgs = executionContext.getEventArgs();\n  // your validation...\n  const isValid = false;\n  if (!isValid) {\n    eventArgs.preventDefault();\n    const formContext = executionContext.getFormContext();\n    formContext.ui.setFormNotification(\"Please fix required fields.\", \"ERROR\", \"save.blocked\");\n  }\n}"
+            },
+            {
+                "t": "Save & Close the form",
+                "d": "Explicit save mode.",
+                "tags": [
+                    "save",
+                    "saveandclose"
+                ],
+                "c": "async function saveAndClose(executionContext) {\n  const formContext = executionContext.getFormContext();\n  await formContext.data.save(\"saveandclose\");\n}"
+            },
+            {
+                "t": "Refresh form data (no save)",
+                "d": "Reload data from server.",
+                "tags": [
+                    "refresh",
+                    "data"
+                ],
+                "c": "async function refreshData(executionContext) {\n  const formContext = executionContext.getFormContext();\n  await formContext.data.refresh(false);\n}"
+            },
+            {
+                "t": "Progress indicator",
+                "d": "Show/close global spinner while doing async work.",
+                "tags": [
+                    "Xrm.Utility",
+                    "showProgressIndicator"
+                ],
+                "c": "async function withProgressIndicator(fn) {\n  try {\n    Xrm.Utility.showProgressIndicator(\"Working…\");\n    await fn();\n  } finally {\n    Xrm.Utility.closeProgressIndicator();\n  }\n}"
+            }
+        ]
+    },
+    "UI (Tabs, Sections, Notifications)": {
+        "description": "Toggle UI and surface friendly notifications.",
+        "snippets": [
+            {
+                "t": "Show/Hide Tab & Section",
+                "d": "Toggle visibility by name.",
+                "tags": [
+                    "tab",
+                    "section",
+                    "visibility"
+                ],
+                "c": "function toggleDetailsTab(executionContext, visible) {\n  const formContext = executionContext.getFormContext();\n  const tab = formContext.ui.tabs.get(\"DETAILS_TAB\");\n  if (!tab) return;\n  tab.setVisible(!!visible);\n  tab.sections.get(\"ADDRESS\")?.setVisible(!!visible);\n}"
+            },
+            {
+                "t": "Form notification (INFO/WARNING/ERROR)",
+                "d": "Use a unique ID so you can clear it later.",
+                "tags": [
+                    "notification",
+                    "ui"
+                ],
+                "c": "function showError(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const id = \"err.my.unique.id\";\n  formContext.ui.setFormNotification(\"Something went wrong.\", \"ERROR\", id);\n  setTimeout(() => formContext.ui.clearFormNotification(id), 4000);\n}"
+            },
+            {
+                "t": "Control-level notification",
+                "d": "Inline message on a field.",
+                "tags": [
+                    "control",
+                    "notification"
+                ],
+                "c": "function markEmailInvalid(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const ctrl = formContext.getControl(\"emailaddress1\");\n  ctrl.setNotification(\"Invalid email format\", \"email.err\");\n  // later: ctrl.clearNotification(\"email.err\");\n}"
+            }
+        ]
+    },
+    "Lookup Filters": {
+        "description": "Filter lookup search results with PreSearch + custom filter XML.",
+        "snippets": [
+            {
+                "t": "Add PreSearch + custom filter",
+                "d": "Filter contacts to active children of the current account.",
+                "tags": [
+                    "lookup",
+                    "PreSearch",
+                    "addCustomFilter"
+                ],
+                "c": "function onPrimaryContactOnLoad(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const ctrl = formContext.getControl(\"primarycontactid\");\n  if (!ctrl) return;\n  ctrl.addPreSearch(() => {\n    const accountId = formContext.data.entity.getId().replace(/[{}]/g, \"\");\n    const filter = `<filter type=\"and\">\n      <condition attribute=\"parentcustomerid\" operator=\"eq\" value=\"${accountId}\" />\n      <condition attribute=\"statecode\" operator=\"eq\" value=\"0\" />\n    </filter>`;\n    ctrl.addCustomFilter(filter, \"contact\");\n  });\n}"
+            },
+            {
+                "t": "Remove PreSearch (cleanup)",
+                "d": "Detach handler when no longer needed.",
+                "tags": [
+                    "lookup",
+                    "PreSearch",
+                    "cleanup"
+                ],
+                "c": "let _preSearchAdded = false;\nlet _preSearchHandler;\n\nfunction wireLookup(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const ctrl = formContext.getControl(\"primarycontactid\");\n  if (!ctrl || _preSearchAdded) return;\n  _preSearchHandler = () => { /* ctrl.addCustomFilter(...) */ };\n  ctrl.addPreSearch(_preSearchHandler);\n  _preSearchAdded = true;\n}\n\nfunction unwireLookup(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const ctrl = formContext.getControl(\"primarycontactid\");\n  if (ctrl && _preSearchAdded && _preSearchHandler) {\n    try { ctrl.removePreSearch(_preSearchHandler); } catch {}\n    _preSearchAdded = false;\n    _preSearchHandler = null;\n  }\n}"
+            }
+        ]
+    },
+    "Business Process Flow (BPF)": {
+        "description": "Read active process & stage, handle events, move through stages.",
+        "snippets": [
+            {
+                "t": "Get active process & stage",
+                "d": "Inspect BPF name and current stage.",
+                "tags": [
+                    "BPF",
+                    "process",
+                    "stage"
+                ],
+                "c": "function logActiveStage(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const proc = formContext.data.process;\n  console.log(\"Process:\", proc.getActiveProcess()?.getName());\n  console.log(\"Stage:\", proc.getActiveStage()?.getName());\n}"
+            },
+            {
+                "t": "Move to next stage",
+                "d": "Advance if allowed.",
+                "tags": [
+                    "BPF",
+                    "moveNext"
+                ],
+                "c": "function moveNextStage(executionContext) {\n  const formContext = executionContext.getFormContext();\n  formContext.data.process.moveNext(\n    () => console.log(\"Moved to next stage\"),\n    (e) => console.error(\"Failed:\", e)\n  );\n}"
+            },
+            {
+                "t": "On stage change / selected stage change",
+                "d": "Wire BPF events once on load.",
+                "tags": [
+                    "BPF",
+                    "events"
+                ],
+                "c": "function onLoad(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const proc = formContext.data.process;\n  const onStage = () => console.log(\"Stage changed:\", proc.getActiveStage()?.getName());\n  const onSelected = () => console.log(\"Selected stage changed:\", proc.getSelectedStage()?.getName());\n  proc.addOnStageChange(onStage);\n  proc.addOnStageSelected(onSelected);\n  // Remove later:\n  // proc.removeOnStageChange(onStage);\n  // proc.removeOnStageSelected(onSelected);\n}"
+            }
+        ]
+    },
+    "Web API (async/await)": {
+        "description": "CRUD, associate/disassociate, actions/functions, batch, and lookup @odata.bind.",
+        "snippets": [
+            {
+                "t": "Retrieve a record",
+                "d": "Select only necessary columns.",
+                "tags": [
+                    "WebApi",
+                    "retrieveRecord"
+                ],
+                "c": "async function getAccountName(accountId) {\n  const q = \"?$select=name,telephone1\";\n  const rec = await Xrm.WebApi.retrieveRecord(\"account\", accountId, q);\n  return rec.name;\n}"
+            },
+            {
+                "t": "Retrieve multiple (filter/order)",
+                "d": "Server-side filtering & sorting.",
+                "tags": [
+                    "WebApi",
+                    "retrieveMultipleRecords"
+                ],
+                "c": "async function getActiveContactsByAccount(accountId) {\n  const odata = `?$select=fullname,emailaddress1\n    &$filter=statecode eq 0 and _parentcustomerid_value eq ${accountId}\n    &$orderby=fullname asc`;\n  const res = await Xrm.WebApi.retrieveMultipleRecords(\"contact\", odata);\n  return res.entities;\n}"
+            },
+            {
+                "t": "Create / Update",
+                "d": "Create then update a field.",
+                "tags": [
+                    "WebApi",
+                    "createRecord",
+                    "updateRecord"
+                ],
+                "c": "async function createAndUpdateAccount() {\n  const created = await Xrm.WebApi.createRecord(\"account\", { name: \"Contoso\" });\n  await Xrm.WebApi.updateRecord(\"account\", created.id, { telephone1: \"555-0100\" });\n  return created.id;\n}"
+            },
+            {
+                "t": "Associate / Disassociate",
+                "d": "Use relationship schema name.",
+                "tags": [
+                    "WebApi",
+                    "associate",
+                    "disassociate"
+                ],
+                "c": "async function relateContactToAccount(accountId, contactId) {\n  await Xrm.WebApi.associate(\"account\", accountId, \"account_primary_contact\", [\n    { id: contactId, entityType: \"contact\" }\n  ]);\n}\nasync function unrelateContactFromAccount(accountId, contactId) {\n  await Xrm.WebApi.disassociate(\"account\", accountId, \"account_primary_contact\", contactId);\n}"
+            },
+            {
+                "t": "Execute bound action",
+                "d": "Invoke standard/custom actions.",
+                "tags": [
+                    "WebApi",
+                    "execute",
+                    "action"
+                ],
+                "c": "async function qualifyLead(leadId) {\n  const req = {\n    entity: { entityType: \"lead\", id: leadId },\n    getMetadata: () => ({\n      boundParameter: \"entity\",\n      parameterTypes: { entity: { typeName: \"mscrm.lead\", structuralProperty: 5 } },\n      operationName: \"QualifyLead\",\n      operationType: 0 // Action\n    })\n  };\n  const resp = await Xrm.WebApi.online.execute(req);\n  if (resp.ok) console.log(\"Lead qualified\");\n}"
+            },
+            {
+                "t": "Execute unbound function",
+                "d": "Functions return data (e.g., WhoAmI).",
+                "tags": [
+                    "WebApi",
+                    "function",
+                    "execute"
+                ],
+                "c": "async function whoAmI() {\n  const req = {\n    getMetadata: () => ({\n      boundParameter: null,\n      parameterTypes: {},\n      operationName: \"WhoAmI\",\n      operationType: 1 // Function\n    })\n  };\n  const resp = await Xrm.WebApi.online.execute(req);\n  return await resp.json();\n}"
+            },
+            {
+                "t": "Batch (executeMultiple)",
+                "d": "Send multiple operations in one request.",
+                "tags": [
+                    "WebApi",
+                    "batch",
+                    "executeMultiple"
+                ],
+                "c": "async function batchCreateContacts() {\n  const reqs = [1,2,3].map(i => ({\n    entity: { firstname: \"John\", lastname: \"Batch\"+i },\n    getMetadata: () => ({\n      boundParameter: null,\n      parameterTypes: { entity: { typeName: \"mscrm.contact\", structuralProperty: 5 } },\n      operationName: \"Create\",\n      operationType: 2 // CRUD\n    })\n  }));\n  return await Xrm.WebApi.online.executeMultiple(reqs);\n}"
+            },
+            {
+                "t": "Bind lookup via @odata.bind",
+                "d": "Bind related record on create/update payload.",
+                "tags": [
+                    "odata.bind",
+                    "lookup",
+                    "updateRecord"
+                ],
+                "c": "async function setPrimaryContactViaBind(accountId, contactId) {\n  const payload = { \"primarycontactid@odata.bind\": `/contacts(${contactId})` };\n  await Xrm.WebApi.updateRecord(\"account\", accountId, payload);\n}"
+            }
+        ]
+    },
+    "Navigation & Dialogs": {
+        "description": "Open forms/entityrecord/entitylist, URLs, web resources, files, and dialogs.",
+        "snippets": [
+            {
+                "t": "Open create form with defaults",
+                "d": "Open quick create (when available) with defaults.",
+                "tags": [
+                    "Navigation",
+                    "openForm",
+                    "quick create"
+                ],
+                "c": "async function openNewContact() {\n  const res = await Xrm.Navigation.openForm(\n    { entityName: \"contact\", useQuickCreateForm: true },\n    { firstname: \"Ada\", lastname: \"Lovelace\" }\n  );\n  console.log(\"Saved ref:\", res?.savedEntityReference?.[0]);\n}"
+            },
+            {
+                "t": "navigateTo entityrecord",
+                "d": "Open an existing record in a dialog or side pane.",
+                "tags": [
+                    "navigateTo",
+                    "entityrecord",
+                    "dialog",
+                    "pane"
+                ],
+                "c": "async function openAccountInDialog(accountId) {\n  await Xrm.Navigation.navigateTo(\n    { pageType: \"entityrecord\", entityName: \"account\", entityId: accountId },\n    { target: 2, height: { value: 80, unit: \"%\" }, width: { value: 50, unit: \"%\" }, position: 1 } // dialog, 50% width\n  );\n}"
+            },
+            {
+                "t": "navigateTo entitylist",
+                "d": "Open a view/list in a pane.",
+                "tags": [
+                    "navigateTo",
+                    "entitylist"
+                ],
+                "c": "async function openAccountsListPane() {\n  await Xrm.Navigation.navigateTo(\n    { pageType: \"entitylist\", entityName: \"account\" },\n    { target: 2, width: { value: 40, unit: \"%\" }, position: 1 } // side pane\n  );\n}"
+            },
+            {
+                "t": "openUrl / openWebResource / openFile",
+                "d": "Launch external or embedded content.",
+                "tags": [
+                    "openUrl",
+                    "openWebResource",
+                    "openFile"
+                ],
+                "c": "function openDocs() {\n  Xrm.Navigation.openUrl(\"https://learn.microsoft.com/power-apps/developer/\");\n}\nfunction openLocalWebResource() {\n  Xrm.Navigation.openWebResource(\"new_/html/help.html\", null, 800, 600);\n}\nfunction openServerFile() {\n  Xrm.Navigation.openFile(\n    { fileContent: \"SGVsbG8gV29ybGQ=\", fileName: \"hello.txt\", fileSize: 11, mimeType: \"text/plain\" },\n    { openMode: 1 } // 1=download\n  );\n}"
+            },
+            {
+                "t": "Lookup dialog (Xrm.Utility.lookupObjects)",
+                "d": "Prompt to choose records with filters.",
+                "tags": [
+                    "lookupObjects",
+                    "dialog"
+                ],
+                "c": "async function pickContact() {\n  const res = await Xrm.Utility.lookupObjects({\n    defaultEntityType: \"contact\",\n    entityTypes: [\"contact\"],\n    allowMultiSelect: false\n  });\n  if (res && res[0]) console.log(\"Picked:\", res[0].name, res[0].id);\n}"
+            },
+            {
+                "t": "Alert / Confirm / Error dialogs",
+                "d": "Simple user messaging primitives.",
+                "tags": [
+                    "alert",
+                    "confirm",
+                    "error"
+                ],
+                "c": "async function dialogsDemo() {\n  await Xrm.Navigation.openAlertDialog({ text: \"Hello!\" });\n  const confirm = await Xrm.Navigation.openConfirmDialog({ text: \"Proceed?\" });\n  if (!confirm.confirmed) return;\n  await Xrm.Navigation.openErrorDialog({ message: \"Something happened.\" });\n}"
+            }
+        ]
+    },
+    "Grids & Subgrids": {
+        "description": "Refresh, get selected rows, and handle subgrid load.",
+        "snippets": [
+            {
+                "t": "Refresh a subgrid",
+                "d": "Refresh by control name.",
+                "tags": [
+                    "subgrid",
+                    "refresh"
+                ],
+                "c": "function refreshContactsGrid(executionContext) {\n  const formContext = executionContext.getFormContext();\n  formContext.getControl(\"Contacts\")?.refresh();\n}"
+            },
+            {
+                "t": "Get selected rows",
+                "d": "Iterate selection and access primary attribute value.",
+                "tags": [
+                    "subgrid",
+                    "selection",
+                    "rows"
+                ],
+                "c": "function getSelectedContacts(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const grid = formContext.getControl(\"Contacts\")?.getGrid();\n  if (!grid) return;\n  grid.getSelectedRows().forEach(row => {\n    const id = row.getId();\n    const name = row?.getData()?.getEntity()?.getPrimaryAttributeValue?.();\n    console.log(\"Selected:\", name, id);\n  });\n}"
+            },
+            {
+                "t": "On subgrid data refresh",
+                "d": "Run logic when grid data reloads.",
+                "tags": [
+                    "subgrid",
+                    "onLoad",
+                    "event"
+                ],
+                "c": "function wireGridOnLoad(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const gridCtrl = formContext.getControl(\"Contacts\");\n  if (!gridCtrl) return;\n  const handler = () => console.log(\"Grid loaded/updated\");\n  gridCtrl.addOnLoad(handler);\n  // Remove later: gridCtrl.removeOnLoad(handler);\n}"
+            }
+        ]
+    },
+    "Utilities": {
+        "description": "Global context, user/organization info, and role checks.",
+        "snippets": [
+            {
+                "t": "Get user & org context",
+                "d": "Access userSettings and organizationSettings.",
+                "tags": [
+                    "getGlobalContext",
+                    "userSettings",
+                    "organizationSettings"
+                ],
+                "c": "function logContext() {\n  const ctx = Xrm.Utility.getGlobalContext();\n  console.log(\"User:\", ctx.userSettings.userName, ctx.userSettings.userId);\n  console.log(\"Org:\", ctx.organizationSettings.uniqueName, ctx.organizationSettings.organizationId);\n}"
+            },
+            {
+                "t": "Check role by ID",
+                "d": "Compare current user securityRoles (GUIDs).",
+                "tags": [
+                    "securityRoles",
+                    "userSettings"
+                ],
+                "c": "function userHasRole(roleId) {\n  const roles = Xrm.Utility.getGlobalContext().userSettings.securityRoles || [];\n  // roleId must be a GUID without braces\n  return roles.some(r => r.toLowerCase() === roleId.toLowerCase());\n}"
+            }
+        ]
+    }
+}

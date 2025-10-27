@@ -8,13 +8,13 @@
 
 import { Store } from './Store.js';
 import { StyleManager } from '../ui/StyleManager.js';
-import { Config } from '../utils/Config.js';
-import { ICONS } from '../utils/Icons.js';
+import { Config } from '../constants/index.js';
+import { ICONS } from '../assets/Icons.js';
 import { ComponentRegistry } from './ComponentRegistry.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { copyToClipboard, debounce, escapeHtml } from '../helpers/index.js';
 
 /**
  * Manages all aspects of the main user interface.
@@ -37,9 +37,9 @@ export const UIManager = {
         if (!this.dialog) return;
         const indicator = this.dialog.querySelector('#pdt-impersonation-indicator');
         if (userName) {
-            indicator.innerHTML = `<span class="pdt-badge" style="padding: 5px; border-radius: 5px; background-color: var(--pro-warn); color: #000;">👤 Impersonating: ${Helpers.escapeHtml(userName)}</span>`;
+            indicator.innerHTML = `<span class="pdt-badge" style="padding: 5px; border-radius: 5px; background-color: var(--pro-warn); color: #000;">👤 Impersonating: ${escapeHtml(userName)}</span>`;
         } else {
-            indicator.innerHTML = '';
+            indicator.textContent = '';
         }
     },
 
@@ -115,7 +115,7 @@ export const UIManager = {
         if (!tabsContainer || !contentArea) return; // Guard clause
 
         const previouslyActiveTabId = this.activeTabId;
-        tabsContainer.innerHTML = '';
+        tabsContainer.textContent = '';
 
         // Clean up the content of any form-only tabs that are about to be hidden
         this.renderedTabs.forEach((contentElement, tabId) => {
@@ -167,7 +167,7 @@ export const UIManager = {
     refreshActiveTab(showNotification = true) {
         if (showNotification) {
             DataService.clearCache();
-            NotificationService.show('Cache cleared. Reloading current tab.', 'success');
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.cacheCleared, 'success');
         }
 
         if (this.activeTabId) {
@@ -175,7 +175,7 @@ export const UIManager = {
             if (component) {
                 component.destroy();
             }
-            
+
             this.renderedTabs.get(this.activeTabId)?.remove();
             this.renderedTabs.delete(this.activeTabId);
 
@@ -215,11 +215,12 @@ export const UIManager = {
 
             try {
                 const content = await component.render();
-                contentWrapper.innerHTML = '';
+                contentWrapper.textContent = '';
                 contentWrapper.appendChild(content);
                 component.postRender(contentWrapper);
             } catch (e) {
                 contentWrapper.innerHTML = `<div class="pdt-error">Error rendering tab: ${e.message}</div>`;
+                NotificationService.show(Config.MESSAGES.UI_MANAGER.renderFailed(component.label), 'error');
                 console.error(`Failed to render ${component.label}:`, e);
             }
         }
@@ -240,7 +241,7 @@ export const UIManager = {
 
         // This is the critical change. The close button now performs a full cleanup.
         controls.close.onclick = () => this._handleClose();
-        
+
         controls.theme.onclick = () => this._handleThemeToggle();
         controls.refresh.onclick = () => this.refreshActiveTab();
 
@@ -253,12 +254,12 @@ export const UIManager = {
         }
 
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.powerapps-dev-toolkit, #pdt-dialog-overlay')) {
+            if (!e.target.closest(`.powerapps-dev-toolkit, #${Config.DIALOG_OVERLAY_ID}`)) {
                 return;
             }
             const copyable = e.target.closest('.copyable');
             if (copyable) {
-                Helpers.copyToClipboard(copyable.textContent, `Copied: ${copyable.textContent}`);
+                copyToClipboard(copyable.textContent, `Copied: ${copyable.textContent}`);
             }
         });
     },
@@ -313,18 +314,20 @@ export const UIManager = {
             // Constrain the new position to keep the dialog accessible
             newTop = Math.max(0, Math.min(newTop, vh - headerHeight));
             newLeft = Math.max(-this.dialog.offsetWidth + minVisibleWidth, Math.min(newLeft, vw - minVisibleWidth));
-            
+
             this.dialog.style.top = `${newTop}px`;
             this.dialog.style.left = `${newLeft}px`;
         };
 
-        const saveDimensions = Helpers.debounce(() => {
-            Store.setState({ dimensions: {
-                width: this.dialog.style.width,
-                height: this.dialog.style.height,
-                top: this.dialog.style.top,
-                left: this.dialog.style.left,
-            }});
+        const saveDimensions = debounce(() => {
+            Store.setState({
+                dimensions: {
+                    width: this.dialog.style.width,
+                    height: this.dialog.style.height,
+                    top: this.dialog.style.top,
+                    left: this.dialog.style.left,
+                }
+            });
         }, 500);
 
         const closeDragElement = () => {
@@ -379,7 +382,7 @@ export const UIManager = {
                 if (a?.getRequiredLevel() === 'required') { a.setRequiredLevel('none'); required++; }
             } catch (e) { /* Safely ignore */ }
         });
-        NotificationService.show(`God Mode: ${unlocked} fields unlocked, ${required} required fields updated.`, 'success');
+        NotificationService.show(Config.MESSAGES.UI_MANAGER.godModeSuccess(unlocked, required), 'success');
     },
 
     /**
@@ -388,14 +391,14 @@ export const UIManager = {
      */
     async _handleResetForm() {
         if (!PowerAppsApiService.getEntityId()) {
-            NotificationService.show("Cannot reset a new, unsaved record.", 'warn');
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.cannotResetNew, 'warn');
             return;
         }
         try {
             await PowerAppsApiService.refreshForm(false);
-            NotificationService.show('Form has been reset.', 'success');
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.formReset, 'success');
         } catch (e) {
-            NotificationService.show(`Error resetting form: ${e.message}`, 'error');
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.resetFailed(e.message), 'error');
         }
     },
 
@@ -428,31 +431,30 @@ export const UIManager = {
                 }
             });
         }
-        
+
         // Perform a robust cleanup of all active components. This is wrapped in a
         // try...catch to ensure that if one component's destroy() method fails,
         // it does not prevent the others from being cleaned up.
         try {
             const components = ComponentRegistry.getAll();
             components.forEach(c => c.destroy());
-            console.log(`Power-Toolkit: Destroyed ${components.length} components.`);
         } catch (error) {
-            console.warn("Power-Toolkit: A non-critical error occurred during component cleanup.", error);
+            // Non-critical cleanup errors handled gracefully
         }
-        
+
         // Remove the main UI dialog from the page.
         if (this.dialog) {
             this.dialog.remove();
             this.dialog = null;
         }
-        
+
         // Reset all internal state for a clean re-initialization.
         this.renderedTabs.clear();
         this.activeTabId = null;
         DataService.clearCache();
-        
+
         // Reset the global flag to allow the tool to be launched again.
-        window.PDT_INITIALIZED = false;
+        window[Config.MAIN.windowInitializedFlag] = false;
 
         // Find and remove the injected script tag using the correct ID to allow for re-injection.
         const scriptTag = document.getElementById('power-toolkit-script-module');

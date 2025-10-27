@@ -6,6 +6,7 @@
  */
 
 import { Store } from '../core/Store.js';
+import { Config } from '../constants/index.js';
 
 /**
  * A callback function that is executed when the 'OK' button is clicked.
@@ -30,30 +31,30 @@ export const DialogService = {
      * @returns {{close: () => void}} An object with a `close` method to programmatically close the dialog.
      */
     show(title, contentHTML, callback = null) {
-        document.getElementById('pdt-dialog-overlay')?.remove();
+        document.getElementById(Config.DIALOG_OVERLAY_ID)?.remove();
 
         const dialogOverlay = document.createElement('div');
-        dialogOverlay.id = 'pdt-dialog-overlay';
-        dialogOverlay.className = 'pdt-dialog-overlay';
+        dialogOverlay.id = Config.DIALOG_OVERLAY_ID;
+        dialogOverlay.className = Config.DIALOG_CLASSES.overlay;
 
         if (Store.getState().theme === 'light') {
             dialogOverlay.classList.add('light-mode');
         }
 
         dialogOverlay.innerHTML = `
-            <div class="pdt-dialog" role="dialog" aria-modal="true" aria-labelledby="pdt-dialog-title">
-                <div class="pdt-dialog-header">
-                    <h3 id="pdt-dialog-title">${title}</h3>
-                    <button class="pdt-icon-btn pdt-close-btn" aria-label="Close dialog">&times;</button>
+            <div class="${Config.DIALOG_CLASSES.dialog}" role="dialog" aria-modal="true" aria-labelledby="${Config.DIALOG_CLASSES.title}">
+                <div class="${Config.DIALOG_CLASSES.header}">
+                    <h3 id="${Config.DIALOG_CLASSES.title}">${title}</h3>
+                    <button class="${Config.DIALOG_CLASSES.iconBtn} ${Config.DIALOG_CLASSES.closeBtn}" aria-label="Close dialog">&times;</button>
                 </div>
-                <div class="pdt-dialog-content"></div>
-                <div class="pdt-dialog-footer">
-                    ${callback ? '<button class="modern-button pdt-dialog-ok">OK</button>' : ''}
-                    <button class="modern-button secondary pdt-dialog-cancel">Close</button>
+                <div class="${Config.DIALOG_CLASSES.content}"></div>
+                <div class="${Config.DIALOG_CLASSES.footer}">
+                    ${callback ? `<button class="modern-button ${Config.DIALOG_CLASSES.okBtn}">OK</button>` : ''}
+                    <button class="modern-button secondary ${Config.DIALOG_CLASSES.cancelBtn}">Close</button>
                 </div>
             </div>`;
 
-        const contentContainer = dialogOverlay.querySelector('.pdt-dialog-content');
+        const contentContainer = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.content}`);
         if (typeof contentHTML === 'string') {
             contentContainer.innerHTML = contentHTML;
         } else if (contentHTML instanceof HTMLElement) {
@@ -62,11 +63,21 @@ export const DialogService = {
 
         document.body.appendChild(dialogOverlay);
 
-        const okButton = dialogOverlay.querySelector('.pdt-dialog-ok');
-        const cancelButton = dialogOverlay.querySelector('.pdt-dialog-cancel');
-        const closeButton = dialogOverlay.querySelector('.pdt-close-btn');
+        const okButton = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.okBtn}`);
+        const cancelButton = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.cancelBtn}`);
+        const closeButton = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.closeBtn}`);
 
-        const close = () => dialogOverlay.remove();
+        const close = () => {
+            dialogOverlay.remove();
+            document.removeEventListener('keydown', handleEscKey);
+        };
+
+        const handleEscKey = (e) => {
+            if (e.key === 'Escape') close();
+        };
+
+        // Add ESC key support for accessibility
+        document.addEventListener('keydown', handleEscKey);
 
         closeButton.onclick = close;
         cancelButton.onclick = close;
@@ -81,7 +92,7 @@ export const DialogService = {
                 }
             };
         }
-        
+
         (okButton || cancelButton)?.focus();
 
         // Return the close function so the calling component can control the dialog.

@@ -10,6 +10,7 @@ import { Store } from './core/Store.js';
 import { UIManager } from './core/UIManager.js';
 import { ComponentRegistry } from './core/ComponentRegistry.js';
 import { PowerAppsApiService } from './services/PowerAppsApiService.js';
+import { Config } from './constants/index.js';
 
 // All Feature Tab Components
 import { InspectorTab } from './components/InspectorTab.js';
@@ -42,8 +43,8 @@ export const App = {
      * @returns {void}
      */
     init() {
-        if (window.PDT_INITIALIZED) {
-            const existingTool = document.querySelector('.powerapps-dev-toolkit');
+        if (window[Config.MAIN.windowInitializedFlag]) {
+            const existingTool = document.querySelector(`.${Config.MAIN.appContainerClass}`);
             if (existingTool) {
                 existingTool.style.display = 'flex';
             }
@@ -56,15 +57,14 @@ export const App = {
         UIManager.init();
 
         UIManager.showDialog();
-        
+
         window.ProToolkit_UpdateNav = () => {
             if (UIManager.dialog) {
                 UIManager.updateNavTabs();
             }
         };
-        
+
         const globalOnLoadHandler = () => {
-            console.log("PDT: Form OnLoad detected, silently refreshing active tab.");
             UIManager.updateNavTabs();
             if (UIManager.dialog && UIManager.activeTabId) {
                 UIManager.refreshActiveTab(false);
@@ -72,8 +72,7 @@ export const App = {
         };
         PowerAppsApiService.addOnLoad(globalOnLoadHandler);
 
-        window.PDT_INITIALIZED = true;
-        console.log("Power-Toolkit Initialized.");
+        window[Config.MAIN.windowInitializedFlag] = true;
     },
 
     /**
@@ -98,7 +97,7 @@ export const App = {
         ComponentRegistry.register(new PluginTraceLogTab());
         ComponentRegistry.register(new UserContextTab());
         ComponentRegistry.register(new CodeHubTab());
-        
+
         // Utility Components
         ComponentRegistry.register(new SettingsTab());
         ComponentRegistry.register(new HelpTab());

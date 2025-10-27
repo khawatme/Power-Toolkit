@@ -5,12 +5,25 @@
  * to dynamically discover and load features without being tightly coupled to them.
  */
 
+import { Config } from '../constants/index.js';
+import { NotificationService } from '../services/NotificationService.js';
+
 /**
  * A map to store component instances, keyed by their unique ID.
  * @private
  * @type {Map<string, import('./BaseComponent.js').BaseComponent>}
  */
 const components = new Map();
+
+/**
+ * Validates if a component is valid for registration.
+ * @private
+ * @param {any} component - The component to validate.
+ * @returns {boolean} True if the component is valid, false otherwise.
+ */
+function _isValidComponent(component) {
+    return component && component.id;
+}
 
 /**
  * The ComponentRegistry provides methods to manage UI components.
@@ -24,13 +37,13 @@ export const ComponentRegistry = {
      * @returns {void}
      */
     register(component) {
-        if (!component || !component.id) {
-            console.error("PDT Error: Attempted to register an invalid component.", component);
+        if (!_isValidComponent(component)) {
+            NotificationService.show(Config.COMPONENT_REGISTRY_MESSAGES.invalidComponent, 'error');
             return;
         }
-        
+
         if (components.has(component.id)) {
-            console.warn(`PDT Warning: A component with ID '${component.id}' is already registered. Overwriting.`);
+            NotificationService.show(Config.COMPONENT_REGISTRY_MESSAGES.duplicateComponent(component.id), 'warn');
         }
         components.set(component.id, component);
     },
@@ -42,6 +55,15 @@ export const ComponentRegistry = {
      */
     get(id) {
         return components.get(id);
+    },
+
+    /**
+     * Checks if a component with the given ID is registered.
+     * @param {string} id - The unique ID of the component to check.
+     * @returns {boolean} True if the component is registered, false otherwise.
+     */
+    has(id) {
+        return components.has(id);
     },
 
     /**
