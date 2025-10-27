@@ -5,8 +5,8 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
-import { Helpers } from '../utils/Helpers.js';
+import { ICONS } from '../assets/Icons.js';
+import { debounce, toggleElementHeight } from '../helpers/index.js';
 
 /**
  * A UI component that displays a searchable, accordion-style user guide for the toolkit.
@@ -58,7 +58,7 @@ export class HelpTab extends BaseComponent {
         }
 
         // Attach a debounced search listener for performance
-        searchInput.addEventListener('keyup', Helpers.debounce(() => {
+        searchInput.addEventListener('keyup', debounce(() => {
             const term = searchInput.value.toLowerCase().trim();
             cardContainer.querySelectorAll('.help-card').forEach(card => {
                 const cardText = card.textContent.toLowerCase();
@@ -74,7 +74,7 @@ export class HelpTab extends BaseComponent {
             }
         });
     }
-    
+
     /**
      * Toggles the accordion state for a clicked help card.
      * @param {HTMLElement} card - The card that was clicked.
@@ -85,23 +85,18 @@ export class HelpTab extends BaseComponent {
         const details = card.querySelector('.help-card-details');
         const isExpanded = card.classList.contains('expanded');
 
-        // Collapse all other expanded cards first
+        // Collapse all other expanded cards first (excluding the clicked one)
         container.querySelectorAll('.help-card.expanded').forEach(openCard => {
             if (openCard !== card) {
                 openCard.classList.remove('expanded');
-                openCard.querySelector('.help-card-details').style.maxHeight = '0px';
+                const openDetails = openCard.querySelector('.help-card-details');
+                if (openDetails) toggleElementHeight(openDetails);
             }
         });
 
         // Toggle the clicked card
-        if (isExpanded) {
-            card.classList.remove('expanded');
-            details.style.maxHeight = '0px';
-        } else {
-            card.classList.add('expanded');
-            // Set max-height to the element's full scrollable height for a smooth transition
-            details.style.maxHeight = details.scrollHeight + 'px';
-        }
+        card.classList.toggle('expanded');
+        if (details) toggleElementHeight(details);
     }
 
     /**
@@ -121,7 +116,7 @@ export class HelpTab extends BaseComponent {
             globalActions: {
                 title: 'Global Actions (Header Buttons)',
                 summary: 'Access powerful tools like God Mode, form reset, and theme toggling.',
-                content: 'The header provides quick access to powerful actions. <strong>God Mode</strong> unlocks all fields, removes required validations, and makes hidden UI elements visible on the form. <strong>Reset Form</strong> discards all unsaved changes by reloading the form data. <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab. <strong>Toggle Theme</strong> switches between light and dark mode.'
+                content: 'The header provides quick access to powerful actions.<br> <strong>God Mode</strong> unlocks all fields, removes required validations, and makes hidden UI elements visible on the form.<br> <strong>Reset Form</strong> discards all unsaved changes by reloading the form data.<br> <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab.<br> <strong>Toggle Theme</strong> switches between light and dark mode.'
             },
             inspector: {
                 title: 'Inspector',
@@ -175,7 +170,7 @@ export class HelpTab extends BaseComponent {
             },
             envVars: {
                 title: 'Env Variables',
-                summary: 'View and edit all Environment Variables and their current values.',
+                summary: 'View, edit and delete all Environment Variables and their current values.',
                 content: 'This tab displays a list of all Environment Variable Definitions in your environment. For each variable, it shows the schema name, type, default value, and, most importantly, the **current value**. You can click the **Edit** button to update the current value directly from the tool.'
             },
             userContext: {

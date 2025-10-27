@@ -6,13 +6,13 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { ICONS } from '../utils/Icons.js';
+import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, generateSortableTableHeaders, isSystemProperty, parseInputValue, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
 import { DialogService } from '../services/DialogService.js';
 import { FormControlFactory } from '../ui/FormControlFactory.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
+import { Config } from '../constants/index.js';
 
 /**
  * A component that displays a detailed, interactive grid of attributes from the
@@ -29,7 +29,9 @@ export class FormColumnsTab extends BaseComponent {
      */
     constructor() {
         super('formColumns', 'Form Columns', ICONS.formColumns, true);
-        
+
+        /** @private */
+        this._hasEnteredRecordView = false;
         /** @type {Array<object>} Caches the complete list of all columns from the data source. */
         this.allColumns = [];
         /** @type {Array<object>} Caches the currently filtered and sorted list of columns to be rendered. */
@@ -60,14 +62,12 @@ export class FormColumnsTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
-        container.style.display = 'flex';
-        container.style.flexDirection = 'column';
-        container.style.height = '100%';
+        container.className = 'pdt-full-height-column';
 
         container.innerHTML = `
-            <div class="section-title" style="flex-shrink: 0;">Form Columns & Attributes</div>
-            <div class="pdt-toolbar" style="flex-shrink: 0;">
-                <input type="text" id="form-cols-search" class="pdt-input" placeholder="Search by Display or Logical Name..." style="flex-grow: 1;">
+            <div class="section-title flex-shrink-0">Form Columns & Attributes</div>
+            <div class="pdt-toolbar flex-shrink-0">
+                <input type="text" id="form-cols-search" class="pdt-input flex-grow" placeholder="Search by Display or Logical Name...">
                 
                 <div class="pdt-toolbar-group">
                     <label id="unused-cols-container" class="pdt-switcher-toggle" style="display: none;" title="Show only columns that are not on the form">
@@ -77,7 +77,7 @@ export class FormColumnsTab extends BaseComponent {
                         </span>
                         Unused Only
                     </label>
-                    <label id="odata-filter-container" class="pdt-switcher-toggle" style="display: none;" title="Hide system properties like @odata.etag and _ownerid_value">
+                    <label id="odata-filter-container" class="pdt-switcher-toggle" style="display: none;" title="Hides system-generated fields (e.g., @odata.*, metadata) from results.">
                         <span class="pdt-toggle-switch">
                             <input type="checkbox" id="odata-filter-toggle" checked>
                             <span class="pdt-toggle-slider"></span>
@@ -91,10 +91,10 @@ export class FormColumnsTab extends BaseComponent {
                     <button class="pdt-switcher-btn" data-view="all" title="Show all columns for this record, fetched via Web API">Record Columns</button>
                 </div>
             </div>
-            <div id="form-cols-table-wrapper" class="pdt-table-wrapper" style="flex-grow: 1; min-height: 0;">
+            <div id="form-cols-table-wrapper" class="pdt-table-wrapper flex-grow" style="min-height: 0;">
                 <p class="pdt-note">Loading columns...</p>
             </div>`;
-        
+
         return container;
     }
 
@@ -112,53 +112,106 @@ export class FormColumnsTab extends BaseComponent {
             odataContainer: element.querySelector('#odata-filter-container'),
             unusedContainer: element.querySelector('#unused-cols-container')
         };
-        
+
         this._loadAndRenderTable();
 
-        const debouncedRender = Helpers.debounce(() => this._renderTableRows(), 250);
-        this.ui.searchInput.addEventListener('keyup', debouncedRender);
-        this.ui.odataToggle.addEventListener('change', () => this._renderTableRows());
-        this.ui.unusedColsToggle.addEventListener('change', () => this._renderTableRows());
-        this.ui.viewSwitcher.addEventListener('click', (e) => this._handleViewSwitch(e));
-        this.ui.tableWrapper.addEventListener('click', (e) => this._handleTableClick(e));
-        this.ui.tableWrapper.addEventListener('mousemove', (e) => this._handleMouseMove(e));
-        this.ui.tableWrapper.addEventListener('mouseleave', () => this._handleMouseOut());
-        
-        const debouncedScroll = Helpers.debounce(() => this._handleScroll(), 100);
-        this.ui.tableWrapper.addEventListener('scroll', debouncedScroll);
+        const debouncedRender = debounce(() => this._renderTableRows(), 250);
+        this._onSearch = debouncedRender;
+        this.ui.searchInput.addEventListener('input', this._onSearch);
+
+        this._onOdata = () => this._renderTableRows();
+        this._onUnused = () => this._renderTableRows();
+        this.ui.odataToggle.addEventListener('change', this._onOdata);
+        this.ui.unusedColsToggle.addEventListener('change', this._onUnused);
+
+        this._onSwitch = (e) => this._handleViewSwitch(e);
+        this.ui.viewSwitcher.addEventListener('click', this._onSwitch);
+
+        this._onClick = (e) => this._handleTableClick(e);
+        this._onMove = (e) => this._handleMouseMove(e);
+        this._onLeave = () => this._handleMouseOut();
+        this.ui.tableWrapper.addEventListener('click', this._onClick);
+        this.ui.tableWrapper.addEventListener('mousemove', this._onMove);
+        this.ui.tableWrapper.addEventListener('mouseleave', this._onLeave);
+
+        this._onScroll = debounce(() => this._handleScroll(), 100);
+        this.ui.tableWrapper.addEventListener('scroll', this._onScroll);
 
         this._updateViewState();
     }
-    
+
     /**
      * Cleans up all attached `onChange` event listeners when the component is destroyed
      * to prevent memory leaks and performance degradation of the host application.
      */
     destroy() {
-        console.log("✅ FormColumnsTab is being destroyed!");
+        // live form handlers
         this._detachLiveHandlers();
+        // visual highlight
         this._handleMouseOut();
+
+        try {
+            const w = this.ui?.tableWrapper;
+            if (w) {
+                if (this._onClick) w.removeEventListener('click', this._onClick);
+                if (this._onMove) w.removeEventListener('mousemove', this._onMove);
+                if (this._onLeave) w.removeEventListener('mouseleave', this._onLeave);
+                if (this._onScroll) w.removeEventListener('scroll', this._onScroll);
+            }
+            const s = this.ui?.searchInput;
+            if (s && this._onSearch) s.removeEventListener('input', this._onSearch);
+            if (this.ui?.odataToggle && this._onOdata) this.ui.odataToggle.removeEventListener('change', this._onOdata);
+            if (this.ui?.unusedColsToggle && this._onUnused) this.ui.unusedColsToggle.removeEventListener('change', this._onUnused);
+            const vs = this.ui?.viewSwitcher;
+            if (vs && this._onSwitch) vs.removeEventListener('click', this._onSwitch);
+        } catch { }
     }
-    
+
     /**
      * Asynchronously fetches column data based on the current view and triggers the initial table render.
      * @private
      */
     async _loadAndRenderTable() {
-        this.ui.tableWrapper.innerHTML = `<p class="pdt-note">Loading columns for '${this.viewMode}' view...</p>`;
+        this.ui.tableWrapper.innerHTML = `<p class="pdt-note">${Config.MESSAGES.FORM_COLUMNS.loading(this.viewMode)}</p>`;
         this._detachLiveHandlers();
         try {
-            this.allColumns = this.viewMode === 'form'
+            const res = this.viewMode === 'form'
                 ? await DataService.getFormColumns(true)
                 : await DataService.getAllRecordColumns(true);
-            
+            this.allColumns = this._normalizeColumnsResult(res);
+
             this._renderTable(this.ui.tableWrapper);
             this._attachLiveHandlers();
         } catch (e) {
-            this.ui.tableWrapper.innerHTML = `<div class="pdt-error">Could not load form columns: ${e.message}</div>`;
+            this.ui.tableWrapper.innerHTML = `<div class="pdt-error">${Config.MESSAGES.FORM_COLUMNS.loadFailed(e.message)}</div>`;
         }
     }
-    
+
+    _normalizeColumnsResult(res) {
+        if (Array.isArray(res)) return res;
+        if (Array.isArray(res?.value)) return res.value;
+        if (Array.isArray(res?.columns)) return res.columns;
+
+        // Plain object from Web API (single record): turn into array
+        if (res && typeof res === 'object') {
+            const rows = [];
+            for (const [key, raw] of Object.entries(res)) {
+                // include all keys (even system) — filtering is handled later
+                rows.push({
+                    logicalName: key,
+                    displayName: key,
+                    value: raw,
+                    // best-effort type string
+                    type: raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw,
+                    // allow filters to hide these if desired
+                    isSystem: isSystemProperty(key)
+                });
+            }
+            return rows;
+        }
+        return [];
+    }
+
     /**
      * Updates the UI for a single row in the table in response to a data change.
      * @param {string} logicalName - The logical name of the attribute to update.
@@ -169,15 +222,16 @@ export class FormColumnsTab extends BaseComponent {
         const colData = this.allColumns.find(c => c.logicalName === logicalName);
         if (!row || !colData?.attribute) return;
 
-        const newValue = Helpers.formatDisplayValue(colData.attribute.getValue(), colData.attribute);
+        const newValue = formatDisplayValue(colData.attribute.getValue(), colData.attribute);
         const isDirty = colData.attribute.getIsDirty();
 
         colData.isDirty = isDirty;
         colData.value = newValue;
 
-        row.cells[2].textContent = newValue;
-        row.cells[2].title = newValue;
-        row.cells[4].innerHTML = isDirty ? '<span title="Modified since last save">🟡</span>' : '';
+        const valueCell = row.cells?.[2];
+        const dirtyCell = row.cells?.[4];
+        if (valueCell) { valueCell.textContent = newValue; valueCell.title = newValue; }
+        if (dirtyCell) { dirtyCell.innerHTML = isDirty ? '<span title="Modified since last save">🟡</span>' : ''; }
     }
 
     /**
@@ -204,31 +258,30 @@ export class FormColumnsTab extends BaseComponent {
     _showAttributeEditor(columnData) {
         const { logicalName, displayName, type, attribute } = columnData;
         const currentValue = attribute ? attribute.getValue() : null;
-        
+
         const formControlHtml = FormControlFactory.create(type, currentValue, attribute);
-        
-        // This is the new, more descriptive content, matching the Inspector's dialog.
+
         const contentHtml = `
-            <p>Enter new value for <strong>${Helpers.escapeHtml(displayName)}</strong>.</p>
+            <p>Enter new value for <strong>${escapeHtml(displayName)}</strong>.</p>
             ${formControlHtml}
         `;
 
         DialogService.show(`Edit: ${logicalName}`, contentHtml, (contentDiv) => {
             try {
                 const input = contentDiv.querySelector("#pdt-prompt-input, select");
-                const newValue = Helpers.parseInputValue(input, type);
-                
+                const newValue = parseInputValue(input, type);
+
                 attribute.setValue(newValue);
-                NotificationService.show('Value updated on form.', 'success');
+                NotificationService.show(Config.MESSAGES.FORM_COLUMNS.updated, 'success');
 
                 this._updateRowUI(logicalName);
             } catch (e) {
-                NotificationService.show(`Update failed: ${e.message}`, 'error');
-                return false; 
+                NotificationService.show(Config.MESSAGES.FORM_COLUMNS.updateFailed(e.message), 'error');
+                return false;
             }
         });
     }
-    
+
     /**
      * Applies all active filters and sorting to the `allColumns` array, then resets
      * and triggers the lazy-rendering process for the table body.
@@ -245,14 +298,15 @@ export class FormColumnsTab extends BaseComponent {
         };
 
         this.currentColumns = this.allColumns.filter(c => {
-            const searchMatch = !filters.search || 
-                                String(c.displayName || '').toLowerCase().includes(filters.search) || 
-                                String(c.logicalName || '').toLowerCase().includes(filters.search);
+            const searchMatch = !filters.search ||
+                String(c.displayName || '').toLowerCase().includes(filters.search) ||
+                String(c.logicalName || '').toLowerCase().includes(filters.search);
 
             if (this.viewMode === 'all') {
-                // This is the corrected filter logic.
-                const systemMatch = filters.hideSystem ? !c.isSystem : true;
-                const unusedMatch = filters.showUnusedOnly ? !c.onForm : true;
+                const isSystem = c?.isSystem != null ? Boolean(c.isSystem) : isSystemProperty(c.logicalName);
+                const onForm = Boolean(c?.onForm);
+                const systemMatch = filters.hideSystem ? !isSystem : true;
+                const unusedMatch = filters.showUnusedOnly ? !onForm : true;
                 return searchMatch && systemMatch && unusedMatch;
             }
             return searchMatch;
@@ -260,11 +314,28 @@ export class FormColumnsTab extends BaseComponent {
 
         this._sortTable(this.sortState.column, true);
 
-        this.tableBody.innerHTML = '';
+        this.tableBody.textContent = '';
         this.renderIndex = 0;
         this.ui.tableWrapper.scrollTop = 0;
-        this._renderNextBatch();
-        
+
+        // Remove any existing "no results" message
+        const existingNote = this.ui.tableWrapper.querySelector('.pdt-note');
+        if (existingNote) existingNote.remove();
+
+        if (this.currentColumns.length === 0) {
+            const note = document.createElement('p');
+            note.className = 'pdt-note';
+            const why = this.viewMode === 'all'
+                ? (this.ui.odataToggle.checked || this.ui.unusedColsToggle.checked
+                    ? 'Try turning off filters (Hide System / Unused Only) or clearing search.'
+                    : 'No record columns were returned by the API.')
+                : 'No form columns matched your search.';
+            note.textContent = `No columns to display. ${why}`;
+            this.ui.tableWrapper.appendChild(note);
+        } else {
+            this._renderNextBatch();
+        }
+
         this.ui.tableWrapper.scrollLeft = scrollLeft;
     }
 
@@ -291,6 +362,12 @@ export class FormColumnsTab extends BaseComponent {
         this.ui.unusedContainer.style.display = isRecordView ? 'flex' : 'none';
         this.ui.viewSwitcher.querySelector('.active')?.classList.remove('active');
         this.ui.viewSwitcher.querySelector(`button[data-view="${this.viewMode}"]`)?.classList.add('active');
+
+        if (isRecordView && !this._hasEnteredRecordView) {
+            if (this.ui.odataToggle) this.ui.odataToggle.checked = false;
+            if (this.ui.unusedColsToggle) this.ui.unusedColsToggle.checked = false;
+            this._hasEnteredRecordView = true;
+        }
     }
 
     /**
@@ -310,7 +387,12 @@ export class FormColumnsTab extends BaseComponent {
         const columnData = this.allColumns.find(c => c.logicalName === logicalName);
         if (columnData?.type === 'lookup' && columnData.attribute) { this._showLookupDetails(columnData); return; }
         if (cell.classList.contains('editable-cell') && columnData) { this._showAttributeEditor(columnData); return; }
-        if (cell.classList.contains('copyable-cell')) { Helpers.copyToClipboard(cell.textContent, `Copied: ${cell.textContent}`); }
+        if (cell.classList.contains('copyable-cell')) {
+            const txt = (cell.getAttribute('data-full') || cell.textContent || '').trim();
+            if (!txt) return;
+            const preview = txt.length > 120 ? txt.slice(0, 117) + '…' : txt;
+            copyToClipboard(txt, `Copied: ${preview}`);
+        }
     }
 
     /**
@@ -320,10 +402,10 @@ export class FormColumnsTab extends BaseComponent {
      */
     _showLookupDetails(columnData) {
         const lookupValue = columnData.attribute.getValue();
-        if (!lookupValue?.length) { NotificationService.show('Lookup value is empty.', 'info'); return; }
+        if (!lookupValue?.length) { NotificationService.show(Config.MESSAGES.FORM_COLUMNS.lookupEmpty, 'info'); return; }
         const item = lookupValue[0];
-        const contentHtml = `<div class="info-grid"><strong>Record Name:</strong><span class="copyable">${Helpers.escapeHtml(item.name)}</span><strong>Record ID:</strong><span class="copyable">${Helpers.escapeHtml(item.id)}</span><strong>Table:</strong><span class="copyable">${Helpers.escapeHtml(item.entityType)}</span></div>`;
-        DialogService.show(`Lookup: ${Helpers.escapeHtml(columnData.displayName)}`, contentHtml);
+        const contentHtml = `<div class="info-grid"><strong>Record Name:</strong><span class="copyable">${escapeHtml(item.name)}</span><strong>Record ID:</strong><span class="copyable">${escapeHtml(item.id)}</span><strong>Table:</strong><span class="copyable">${escapeHtml(item.entityType)}</span></div>`;
+        DialogService.show(`Lookup: ${escapeHtml(columnData.displayName)}`, contentHtml);
     }
 
     /**
@@ -347,9 +429,15 @@ export class FormColumnsTab extends BaseComponent {
         const controls = columnData?.attribute?.controls.get();
         if (!controls?.length) return;
 
-        const controlElement = document.querySelector(`div[data-control-name="${controls[0].getName()}"]`);
-
-        const highlightTarget = controlElement?.closest('.data-container') || controlElement;
+        const ctrlName = controls[0].getName();
+        const controlElement =
+            document.querySelector(`div[data-control-name="${ctrlName}"]`) ||
+            document.querySelector(`[data-lp-id*="${ctrlName}"]`) ||
+            document.querySelector(`[aria-label="${ctrlName}"]`);
+        const highlightTarget =
+            controlElement?.closest?.('.data-container') ||
+            controlElement?.closest?.('[role="group"]') ||
+            controlElement;
 
         if (highlightTarget) {
             highlightTarget.classList.add('pdt-highlight-border');
@@ -375,9 +463,8 @@ export class FormColumnsTab extends BaseComponent {
             this.liveHandlers.forEach(({ attribute, handler }) => {
                 if (attribute && typeof attribute.removeOnChange === 'function') { attribute.removeOnChange(handler); }
             });
-            if (this.liveHandlers.length > 0) { console.log(`PDT Form Columns: Detached ${this.liveHandlers.length} live handlers.`); }
         } catch (error) {
-            console.warn("PDT Form Columns: A non-critical error occurred while removing listeners.", error);
+            // Silent - listener cleanup errors are handled gracefully
         } finally {
             this.liveHandlers = [];
         }
@@ -401,6 +488,15 @@ export class FormColumnsTab extends BaseComponent {
         container.innerHTML = `<table class="pdt-table"><thead><tr>${headerHtml}</tr></thead><tbody></tbody></table>`;
         this.tableBody = container.querySelector('tbody');
         this._renderTableRows();
+        const headRow = container.querySelector('thead tr');
+        this._updateHeaderSortClasses(headRow);
+
+        headRow?.querySelectorAll('th[data-column]')?.forEach(th => {
+            th.setAttribute('role', 'columnheader');
+            th.setAttribute('aria-sort', th.dataset.column === this.sortState.column
+                ? (this.sortState.direction === 'asc' ? 'ascending' : 'descending')
+                : 'none');
+        });
     }
 
     /**
@@ -431,6 +527,16 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _createRowHtml(column) {
+        const display = (column.displayName ?? column.logicalName ?? '');
+        const fullVal =
+            column.value == null
+                ? ''
+                : (typeof column.attribute?.getValue === 'function'
+                    ? formatDisplayValue(column.attribute.getValue(), column.attribute)
+                    : (typeof column.value === 'string'
+                        ? column.value
+                        : formatValuePreview(column.value)));
+        const valueStr = formatValuePreview(fullVal);
         const isEditable = this.viewMode === 'form' && column.type !== 'lookup' && (!column.isSystem || column.attribute);
         const dirtyIndicator = column.isDirty ? '<span title="Modified since last save">🟡</span>' : '';
         let requiredIndicator = '';
@@ -439,7 +545,22 @@ export class FormColumnsTab extends BaseComponent {
         } else if (column.requiredLevel === 'recommended') {
             requiredIndicator = '<span class="pdt-text-info" title="Business Recommended">*</span>';
         }
-        return `<tr data-logical-name="${column.logicalName}"><td class="copyable-cell" title="${Helpers.escapeHtml(column.displayName)}">${Helpers.escapeHtml(column.displayName)}</td><td class="code-like copyable-cell" title="Click to copy">${column.logicalName}</td><td class="copyable-cell ${isEditable ? 'editable-cell' : ''}" title="${isEditable ? 'Click to edit value.' : 'Click to copy value.'}">${Helpers.escapeHtml(column.value)}</td><td class="copyable-cell">${column.type}</td><td class="pdt-cell-center">${dirtyIndicator}</td><td class="pdt-cell-center">${requiredIndicator}</td></tr>`;
+
+        const editIcon = isEditable ? `<span class="edit-icon">${ICONS.edit}</span>` : '';
+
+        return `
+            <tr data-logical-name="${column.logicalName}">
+                <td class="copyable-cell" title="${escapeHtml(display)}">${escapeHtml(display)}</td>
+                <td class="code-like copyable-cell" title="${escapeHtml('Click to copy')}">${escapeHtml(column.logicalName ?? '')}</td>
+                <td class="copyable-cell ${isEditable ? 'editable-cell' : ''}"
+                    data-full="${escapeHtml(fullVal)}"
+                    title="${isEditable ? 'Click to edit value.' : 'Click to copy value.'}">
+                    ${editIcon}${escapeHtml(valueStr)}
+                </td>
+                <td class="copyable-cell">${column.type}</td>
+                <td class="pdt-cell-center">${dirtyIndicator}</td>
+                <td class="pdt-cell-center">${requiredIndicator}</td>
+            </tr>`;
     }
 
     /**
@@ -450,6 +571,11 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _sortTable(column, isInitialSort = false) {
+        // preserve scroll positions
+        const wrapper = this.ui?.tableWrapper;
+        const prevScrollLeft = wrapper ? wrapper.scrollLeft : 0;
+        const prevScrollTop = wrapper ? wrapper.scrollTop : 0;
+
         if (!isInitialSort && this.sortState.column === column) {
             this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
         } else {
@@ -459,18 +585,25 @@ export class FormColumnsTab extends BaseComponent {
         const direction = this.sortState.direction === 'asc' ? 1 : -1;
         this.currentColumns.sort((a, b) => {
             const valA = a[column]; const valB = b[column];
-            if (typeof valA === 'boolean') return (valA === valB) ? 0 : valA ? -1 * direction : 1 * direction;
-            return String(valA ?? '').localeCompare(String(valB ?? '')) * direction;
+            if (typeof valA === 'boolean' || typeof valB === 'boolean') {
+                return ((Number(!!valA) - Number(!!valB)) * direction);
+            }
+            return String(valA ?? '').localeCompare(String(valB ?? ''), undefined, { sensitivity: 'base' }) * direction;
         });
         if (!isInitialSort) {
-            this.tableBody.innerHTML = '';
+            this.tableBody.textContent = '';
             this.renderIndex = 0;
-            this.ui.tableWrapper.scrollTop = 0;
             this._renderNextBatch();
             this._updateHeaderSortClasses(this.tableBody.parentElement.querySelector('thead tr'));
+
+            // restore scroll positions (horizontal + vertical)
+            if (wrapper) {
+                wrapper.scrollLeft = prevScrollLeft;
+                wrapper.scrollTop = prevScrollTop;
+            }
         }
     }
-    
+
     /**
      * Updates the CSS classes on the table headers to display the current sort column and direction indicator.
      * @param {HTMLElement} headerRow - The `<tr>` element containing the table headers.
@@ -482,6 +615,9 @@ export class FormColumnsTab extends BaseComponent {
             th.classList.remove('sort-asc', 'sort-desc');
             if (th.dataset.column === this.sortState.column) {
                 th.classList.add(`sort-${this.sortState.direction}`);
+                th.setAttribute('aria-sort', this.sortState.direction === 'asc' ? 'ascending' : 'descending');
+            } else {
+                th.setAttribute('aria-sort', 'none');
             }
         });
     }

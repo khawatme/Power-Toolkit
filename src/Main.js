@@ -7,7 +7,7 @@
  */
 
 import { App } from './App.js';
-import { Config } from './utils/Config.js';
+import { Config } from './constants/index.js';
 
 /**
  * @description An IIFE (Immediately Invoked Function Expression) to create a private scope
@@ -17,16 +17,15 @@ import { Config } from './utils/Config.js';
     'use strict';
 
     // --- Singleton Check ---
-    if (window.PDT_INITIALIZED && window.PDT_VERSION === Config.TOOL_VERSION) {
-        console.log(`Power-Toolkit v${Config.TOOL_VERSION} is already running.`);
-        const existingDialog = document.querySelector('.powerapps-dev-toolkit');
+    if (window[Config.MAIN.windowInitializedFlag] && window[Config.MAIN.windowVersionFlag] === Config.TOOL_VERSION) {
+        const existingDialog = document.querySelector(`.${Config.MAIN.appContainerClass}`);
         if (existingDialog) {
             existingDialog.style.display = 'flex';
         }
         return;
     }
-    document.querySelector('.powerapps-dev-toolkit')?.remove();
-    window.PDT_VERSION = Config.TOOL_VERSION;
+    document.querySelector(`.${Config.MAIN.appContainerClass}`)?.remove();
+    window[Config.MAIN.windowVersionFlag] = Config.TOOL_VERSION;
 
     /**
      * Determines the correct moment to initialize the application based on the state
@@ -46,34 +45,34 @@ import { Config } from './utils/Config.js';
                 };
                 Xrm.Page.data.addOnLoad(initOnLoad);
             }
-        } 
+        }
         else if (typeof Xrm !== 'undefined' && Xrm.Utility) {
-            setTimeout(() => App.init(), 250);
+            setTimeout(() => App.init(), Config.MAIN.initDelay);
         }
         else {
-            throw new Error("Xrm context is not available on this page. This tool is for Power Apps Model-Driven Apps.");
+            throw new Error(Config.MAIN.errors.xrmNotAvailable);
         }
     }
 
     // --- Polling Mechanism to wait for Xrm ---
     let attempts = 0;
-    const maxAttempts = 20; // Try for 5 seconds (20 * 250ms)
+    const maxAttempts = Config.MAIN.maxPollingAttempts;
     const intervalId = setInterval(() => {
         attempts++;
         if (typeof Xrm !== 'undefined') {
             clearInterval(intervalId);
             try {
                 safeInitialize();
-            } catch(e) {
-                console.error("Power-Toolkit startup failed:", e);
-                alert(`Power-Toolkit could not start. Check the console for errors.\n\nError: ${e.message}`);
+            } catch (e) {
+                console.error(Config.MAIN.errors.startupFailed, e);
+                alert(Config.MAIN.alerts.startupError(e.message));
             }
         } else if (attempts >= maxAttempts) {
             clearInterval(intervalId);
-            const errorMessage = "Power-Toolkit could not start: The Xrm object was not found. Please ensure you are on a valid Power Apps page (like a Model-Driven App form/view or the Maker Portal) and try again.";
+            const errorMessage = Config.MAIN.errors.xrmNotFound;
             console.error(errorMessage);
             alert(errorMessage);
         }
-    }, 250);
+    }, Config.MAIN.pollingInterval);
 
 })();

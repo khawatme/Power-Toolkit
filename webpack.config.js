@@ -12,7 +12,7 @@ module.exports = (env, argv) => {
     const isProduction = argv.mode === 'production';
 
     return {
-        entry: './src/main.js',
+        entry: './src/Main.js',
         output: {
             path: path.resolve(__dirname, 'dist'),
             filename: 'extension/power-toolkit.js',
@@ -55,12 +55,7 @@ module.exports = (env, argv) => {
                 patterns: [
                     { from: 'extension/manifest.json', to: 'extension/manifest.json' },
                     { from: 'extension/background.js', to: 'extension/background.js' },
-                    { from: 'extension/icons', to: 'extension/icons' },
-                    {
-                        from: 'extension/power-toolkit.js',
-                        to: 'power-toolkit.min.js',
-                        context: 'dist'
-                    }
+                    { from: 'extension/icons', to: 'extension/icons' }
                 ],
             }),
         ],

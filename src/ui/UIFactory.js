@@ -5,7 +5,8 @@
  * such as formatted code blocks and informational messages.
  */
 
-import { Helpers } from '../utils/Helpers.js';
+import { Config } from '../constants/index.js';
+import { escapeHtml, highlightCode, formatXml, copyToClipboard } from '../helpers/index.js';
 
 /**
  * A factory for creating common UI elements.
@@ -24,43 +25,43 @@ export const UIFactory = {
         container.className = 'copyable-code-block';
 
         const button = document.createElement('button');
-        button.textContent = 'Copy';
+        button.textContent = Config.UI_FACTORY.copyButtonText;
 
         const pre = document.createElement('pre');
         const codeElement = document.createElement('code');
         pre.appendChild(codeElement);
-        
+
         let codeToCopy = typeof code === 'string' ? code : JSON.stringify(code, null, 2);
         let codeToDisplay = '';
 
         switch (language) {
             case 'json':
                 try { codeToCopy = JSON.stringify(JSON.parse(codeToCopy), null, 2); } catch (e) { /* Ignore parse error */ }
-                codeToDisplay = Helpers.highlightCode(codeToCopy, 'json');
+                codeToDisplay = highlightCode(codeToCopy, 'json');
                 break;
             case 'xml':
-                codeToCopy = Helpers.formatXml(codeToCopy);
-                codeToDisplay = Helpers.escapeHtml(codeToCopy);
+                codeToCopy = formatXml(codeToCopy);
+                codeToDisplay = escapeHtml(codeToCopy);
                 break;
             case 'javascript':
-                codeToDisplay = Helpers.highlightCode(codeToCopy, 'javascript');
+                codeToDisplay = highlightCode(codeToCopy, 'javascript');
                 break;
             case 'csharp':
             case 'text':
                 // Fallback to plain text for unsupported or un-highlighted languages
-                codeToDisplay = Helpers.escapeHtml(codeToCopy);
+                codeToDisplay = escapeHtml(codeToCopy);
                 break;
             default:
                 // Default to JS highlighting for any other case
-                codeToDisplay = Helpers.highlightCode(codeToCopy, 'javascript');
+                codeToDisplay = highlightCode(codeToCopy, 'javascript');
                 break;
         }
 
         codeElement.innerHTML = codeToDisplay;
-        
+
         button.onclick = (e) => {
             e.stopPropagation();
-            Helpers.copyToClipboard(codeToCopy, 'Code snippet copied!');
+            copyToClipboard(codeToCopy, Config.UI_FACTORY.copySuccessMessage);
         };
 
         container.append(button, pre);
@@ -74,7 +75,7 @@ export const UIFactory = {
     createFormDisabledMessage() {
         const el = document.createElement('div');
         el.className = 'pdt-form-disabled-message';
-        el.innerHTML = `<div class="icon">📄</div><h3>Form Context Required</h3><p>This feature is only available when viewing a record form.</p>`;
+        el.innerHTML = `<div class="icon">${Config.UI_FACTORY.formDisabledIcon}</div><h3>${Config.UI_FACTORY.formDisabledTitle}</h3><p>${Config.UI_FACTORY.formDisabledMessage}</p>`;
         return el;
     }
 };

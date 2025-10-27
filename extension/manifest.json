@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Power-Toolkit for Power Apps",
-    "version": "1.0.2",
+    "version": "2.0.0",
     "description": "A client-side toolkit for Power Apps and Dynamics365 developers to inspect, debug, and manipulate data.",
     "author": "Mohammed Khawatme",
     "icons": {

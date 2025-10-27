@@ -5,6 +5,8 @@
  * and a publish-subscribe system for components to react to state changes.
  */
 
+import { Config } from '../constants/index.js';
+
 /**
  * Represents the configuration for a single feature tab.
  * @typedef {object} TabSetting
@@ -73,7 +75,7 @@ export const Store = {
      */
     init() {
         const defaultSettings = getDefaultTabSettings();
-        const savedSettingsRaw = localStorage.getItem('pdt-tab-settings');
+        const savedSettingsRaw = localStorage.getItem(Config.STORAGE_KEYS.tabSettings);
         let finalSettings = defaultSettings;
 
         if (savedSettingsRaw) {
@@ -89,14 +91,14 @@ export const Store = {
                 });
                 finalSettings = relevantSettings;
             } catch (e) {
-                console.error("PDT: Could not parse saved tab settings, reverting to default.", e);
+                // Settings parse error is handled gracefully by falling back to defaults
             }
         }
 
         _state = {
-            theme: localStorage.getItem('pdt-theme') || 'dark',
+            theme: localStorage.getItem(Config.STORAGE_KEYS.theme) || 'dark',
             tabSettings: finalSettings,
-            dimensions: JSON.parse(localStorage.getItem('pdt-dimensions') || '{}'),
+            dimensions: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.dimensions) || '{}'),
             impersonationUserId: null,
         };
     },
@@ -122,13 +124,13 @@ export const Store = {
 
         // Persist specific state changes to localStorage using explicit, correct keys.
         if (newState.theme !== undefined) {
-            localStorage.setItem('pdt-theme', newState.theme);
+            localStorage.setItem(Config.STORAGE_KEYS.theme, newState.theme);
         }
         if (newState.tabSettings !== undefined) {
-            localStorage.setItem('pdt-tab-settings', JSON.stringify(newState.tabSettings));
+            localStorage.setItem(Config.STORAGE_KEYS.tabSettings, JSON.stringify(newState.tabSettings));
         }
         if (newState.dimensions !== undefined) {
-            localStorage.setItem('pdt-dimensions', JSON.stringify(newState.dimensions));
+            localStorage.setItem(Config.STORAGE_KEYS.dimensions, JSON.stringify(newState.dimensions));
         }
 
         _listeners.forEach(listener => listener(_state, oldState));
@@ -154,7 +156,7 @@ export const Store = {
             tabSettings: defaultSettings,
             dimensions: {}
         };
-        
+
         // Clear all persisted items from localStorage explicitly.
         localStorage.removeItem('pdt-tab-settings');
         localStorage.removeItem('pdt-theme');

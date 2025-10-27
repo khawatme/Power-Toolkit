@@ -4,7 +4,8 @@
  */
 import { DataService } from '../services/DataService.js';
 import { DialogService } from '../services/DialogService.js';
-import { Helpers } from '../utils/Helpers.js';
+import { debounce, escapeHtml, getMetadataDisplayName, sortArrayByColumn } from '../helpers/index.js';
+import { Config } from '../constants/index.js';
 
 /**
  * Callback function executed when a user selects a metadata item.
@@ -25,32 +26,35 @@ export const MetadataBrowserDialog = {
      */
     async show(type, onSelect, entityLogicalName = null) {
         if (type === 'attribute' && !entityLogicalName) {
-            DialogService.show('Error', '<p>A table name must be provided before browsing for columns.</p>');
+            DialogService.show(Config.METADATA_BROWSER_DIALOG.errorTitle, Config.METADATA_BROWSER_DIALOG.errorMessage);
             return;
         }
 
-        const title = type === 'entity' ? 'Select a Table' : `Select a Column for ${entityLogicalName}`;
-        const placeholder = type === 'entity' ? 'Search for a table...' : 'Search for a column...';
+        const title = type === 'entity'
+            ? Config.METADATA_BROWSER_DIALOG.titleEntity
+            : Config.METADATA_BROWSER_DIALOG.titleAttribute(entityLogicalName);
+        const placeholder = type === 'entity'
+            ? Config.METADATA_BROWSER_DIALOG.placeholderEntity
+            : Config.METADATA_BROWSER_DIALOG.placeholderAttribute;
 
         const dialogContent = document.createElement('div');
-        dialogContent.style.display = 'flex';
-        dialogContent.style.flexDirection = 'column';
+        dialogContent.className = 'pdt-full-height-column';
         dialogContent.style.height = '60vh';
         dialogContent.innerHTML = `
-            <input type="text" id="pdt-metadata-search" class="pdt-input" placeholder="${placeholder}" style="margin-bottom: 10px;">
-            <div id="pdt-metadata-list" class="pdt-table-wrapper" style="flex-grow:1;">
-                <p class="pdt-note">Loading metadata...</p>
+            <input type="text" id="pdt-metadata-search" class="pdt-input mb-15" placeholder="${placeholder}">
+            <div id="pdt-metadata-list" class="pdt-table-wrapper flex-grow">
+                ${Config.METADATA_BROWSER_DIALOG.loadingMessage}
             </div>
         `;
 
         const dialog = DialogService.show(title, dialogContent);
-        
+
         const searchInput = dialogContent.querySelector('#pdt-metadata-search');
         const listContainer = dialogContent.querySelector('#pdt-metadata-list');
         let allItems = [];
-        
+
         try {
-            allItems = type === 'entity' 
+            allItems = type === 'entity'
                 ? await DataService.getEntityDefinitions()
                 : await DataService.getAttributeDefinitions(entityLogicalName);
         } catch (e) {
@@ -59,31 +63,34 @@ export const MetadataBrowserDialog = {
         }
 
         const renderList = (items) => {
-            const getDisplayName = item => item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName;
+            // Add temporary _displayName property for sorting
+            items.forEach(item => {
+                item._displayName = getMetadataDisplayName(item);
+            });
+
             // Sort items alphabetically by display name
-            items.sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
+            sortArrayByColumn(items, '_displayName', 'asc');
 
             const rows = items.map(item => `
-                <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to select">
-                    <td>${getDisplayName(item)}</td>
+                <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="${Config.METADATA_BROWSER_DIALOG.clickToSelect}">
+                    <td>${escapeHtml(item._displayName)}</td>
                     <td class="code-like">${item.LogicalName}</td>
                 </tr>
             `).join('');
 
             listContainer.innerHTML = `
                 <table class="pdt-table">
-                    <thead><tr><th>Display Name</th><th>Logical Name</th></tr></thead>
+                    <thead><tr><th>${Config.METADATA_BROWSER_DIALOG.headerDisplayName}</th><th>${Config.METADATA_BROWSER_DIALOG.headerLogicalName}</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>`;
         };
-        
-        searchInput.addEventListener('keyup', Helpers.debounce(() => {
+
+        searchInput.addEventListener('keyup', debounce(() => {
             const term = searchInput.value.toLowerCase();
-            const getDisplayName = item => (item.DisplayName?.UserLocalizedLabel?.Label || item.SchemaName).toLowerCase();
-            const filteredItems = allItems.filter(item => 
-                getDisplayName(item).includes(term) ||
-                item.LogicalName.toLowerCase().includes(term)
-            );
+            const filteredItems = allItems.filter(item => {
+                const displayName = getMetadataDisplayName(item).toLowerCase();
+                return displayName.includes(term) || item.LogicalName.toLowerCase().includes(term);
+            });
             renderList(filteredItems);
         }, 200));
 
