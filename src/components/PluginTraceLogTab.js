@@ -8,7 +8,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { UIFactory } from '../ui/UIFactory.js';
-import { buildODataFilterClauses, clearContainer, copyToClipboard, debounce, escapeHtml, highlightTraceMessage, toggleElementHeight, updatePaginationUI } from '../helpers/index.js';
+import { buildODataFilterClauses, clearContainer, copyToClipboard, debounce, escapeHtml, toggleElementHeight, updatePaginationUI } from '../helpers/index.js';
 import { Config } from '../constants/index.js';
 
 /**
@@ -42,6 +42,15 @@ export class PluginTraceLogTab extends BaseComponent {
         this.filters = { typeName: '', messageContent: '' };
         /** @private */
         this.filterTraces = debounce(this._filterTraces, 300);
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._handleServerFilter = null;
+        /** @private {Function|null} */ this._handleLocalSearch = null;
+        /** @private {Function|null} */ this._handlePrevPage = null;
+        /** @private {Function|null} */ this._handleNextPage = null;
+        /** @private {Function|null} */ this._handleLiveToggle = null;
+        /** @private {Function|null} */ this._handleLiveInterval = null;
+        /** @private {Function|null} */ this._handleLogListClick = null;
     }
 
     /**
@@ -112,7 +121,7 @@ export class PluginTraceLogTab extends BaseComponent {
             logList: element.querySelector('#trace-log-list'),
             pageInfo: element.querySelector('#page-info'),
             prevPageBtn: element.querySelector('#prev-page-btn'),
-            nextPageBtn: element.querySelector('#next-page-btn'),
+            nextPageBtn: element.querySelector('#next-page-btn')
         };
 
         this._bindEvents();
@@ -122,37 +131,90 @@ export class PluginTraceLogTab extends BaseComponent {
     /**
      * Cleans up resources, specifically the polling timer, when the component is destroyed.
      */
+    /**
+     * Lifecycle hook for cleaning up event listeners and timers to prevent memory leaks.
+     */
     destroy() {
-        if (this.pollingTimer) {
-            clearInterval(this.pollingTimer);
-            this.pollingTimer = null;
+        // Remove event listeners
+        if (this.ui.serverFilterBtn && this._handleServerFilter) {
+            this.ui.serverFilterBtn.removeEventListener('click', this._handleServerFilter);
         }
+        if (this.ui.localSearchInput && this._handleLocalSearch) {
+            this.ui.localSearchInput.removeEventListener('input', this._handleLocalSearch);
+        }
+        if (this.ui.prevPageBtn && this._handlePrevPage) {
+            this.ui.prevPageBtn.removeEventListener('click', this._handlePrevPage);
+        }
+        if (this.ui.nextPageBtn && this._handleNextPage) {
+            this.ui.nextPageBtn.removeEventListener('click', this._handleNextPage);
+        }
+        if (this.ui.liveToggle && this._handleLiveToggle) {
+            this.ui.liveToggle.removeEventListener('change', this._handleLiveToggle);
+        }
+        if (this.ui.liveIntervalSelect && this._handleLiveInterval) {
+            this.ui.liveIntervalSelect.removeEventListener('change', this._handleLiveInterval);
+        }
+        if (this.ui.logList && this._handleLogListClick) {
+            this.ui.logList.removeEventListener('click', this._handleLogListClick);
+        }
+
+        // Clear polling timer using helper method
+        this._stopLiveMode();
+
+        // Cancel any pending debounced function calls
+        if (this.filterTraces && typeof this.filterTraces.cancel === 'function') {
+            this.filterTraces.cancel();
+        }
+
+        // Clear handler references
+        this._handleServerFilter = null;
+        this._handleLocalSearch = null;
+        this._handlePrevPage = null;
+        this._handleNextPage = null;
+        this._handleLiveToggle = null;
+        this._handleLiveInterval = null;
+        this._handleLogListClick = null;
     }
 
     /** @private */
     _bindEvents() {
-        this.ui.serverFilterBtn.addEventListener('click', () => this._applyServerFilters());
-        this.ui.localSearchInput.addEventListener('input', () => this.filterTraces());
-        this.ui.prevPageBtn.addEventListener('click', () => this._changePage(-1));
-        this.ui.nextPageBtn.addEventListener('click', () => this._changePage(1));
+        this._handleServerFilter = () => this._applyServerFilters();
+        this.ui.serverFilterBtn.addEventListener('click', this._handleServerFilter);
 
-        this.ui.liveToggle.addEventListener('change', () => this._handlePolling(this.ui.liveToggle.checked));
-        this.ui.liveIntervalSelect.addEventListener('change', () => {
-            if (this.ui.liveToggle.checked) this._handlePolling(true);
-        });
+        this._handleLocalSearch = () => this.filterTraces();
+        this.ui.localSearchInput.addEventListener('input', this._handleLocalSearch);
+
+        this._handlePrevPage = () => this._changePage(-1);
+        this.ui.prevPageBtn.addEventListener('click', this._handlePrevPage);
+
+        this._handleNextPage = () => this._changePage(1);
+        this.ui.nextPageBtn.addEventListener('click', this._handleNextPage);
+
+        this._handleLiveToggle = () => this._handlePolling(this.ui.liveToggle.checked);
+        this.ui.liveToggle.addEventListener('change', this._handleLiveToggle);
+
+        this._handleLiveInterval = () => {
+            if (this.ui.liveToggle.checked) {
+                this._handlePolling(true);
+            }
+        };
+        this.ui.liveIntervalSelect.addEventListener('change', this._handleLiveInterval);
 
         // Expand/collapse & copy correlation id
-        this.ui.logList.addEventListener('click', (e) => {
+        this._handleLogListClick = (e) => {
             const target = /** @type {HTMLElement} */(e.target);
             if (target.classList.contains('copyable')) {
                 copyToClipboard(target.textContent, Config.MESSAGES.PLUGIN_TRACE.correlationCopied);
                 return;
             }
             const header = target.closest('.trace-header');
-            if (!header) return;
+            if (!header) {
+                return;
+            }
             const details = header.nextElementSibling;
             toggleElementHeight(details);
-        });
+        };
+        this.ui.logList.addEventListener('click', this._handleLogListClick);
     }
 
     /**
@@ -174,9 +236,13 @@ export class PluginTraceLogTab extends BaseComponent {
      */
     _changePage(direction) {
         const newPage = this.currentPage + direction;
-        if (newPage < 1) return;
+        if (newPage < 1) {
+            return;
+        }
         // only allow Next if we cached a link for the next page
-        if (direction > 0 && !this.pageLinks[this.currentPage]) return;
+        if (direction > 0 && !this.pageLinks[this.currentPage]) {
+            return;
+        }
 
         this.currentPage = newPage;
         this._loadTraces();
@@ -189,11 +255,23 @@ export class PluginTraceLogTab extends BaseComponent {
      * @private
      */
     _handlePolling(isEnabled) {
-        this.destroy(); // Clear any existing timer
+        // Clear only the polling timer, not all event listeners
+        this._stopLiveMode();
         this.ui.liveStatusIndicator.classList.toggle('is-live', !!isEnabled);
 
-        if (!isEnabled) return;
+        if (!isEnabled) {
+            return;
+        }
 
+        // Start live mode
+        this._startLiveMode();
+    }
+
+    /**
+     * Starts the live polling mode with the current interval setting.
+     * @private
+     */
+    _startLiveMode() {
         const interval = parseInt(this.ui.liveIntervalSelect.value, 10);
         this.pollingTimer = setInterval(() => {
             this.currentPage = 1;
@@ -206,22 +284,37 @@ export class PluginTraceLogTab extends BaseComponent {
     }
 
     /**
+     * Stops the live polling mode by clearing the timer.
+     * @private
+     */
+    _stopLiveMode() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
+    }
+
+    /**
      * Constructs the OData query options string based on current server-side filters.
      * @returns {string} The OData query string (search part).
      * @private
      */
     _buildODataOptions() {
-        const select = "$select=typename,messagename,primaryentity,exceptiondetails,messageblock,performanceexecutionduration,createdon,correlationid";
+        const select = '$select=typename,messagename,primaryentity,exceptiondetails,messageblock,performanceexecutionduration,createdon,correlationid';
         const filter = this._buildODataFilter();
-        const orderby = "&$orderby=createdon desc";
+        const orderby = '&$orderby=createdon desc';
         return `?${select}${filter}${orderby}`;
     }
 
     /** @private */
     _buildODataFilter() {
         const filters = {};
-        if (this.filters.typeName) filters.typename = this.filters.typeName;
-        if (this.filters.messageContent) filters.messageblock = this.filters.messageContent;
+        if (this.filters.typeName) {
+            filters.typename = this.filters.typeName;
+        }
+        if (this.filters.messageContent) {
+            filters.messageblock = this.filters.messageContent;
+        }
         return buildODataFilterClauses(filters);
     }
 
@@ -232,7 +325,9 @@ export class PluginTraceLogTab extends BaseComponent {
      * @private
      */
     async _loadTraces(isPolling = false) {
-        if (!isPolling) this.ui.logList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PLUGIN_TRACE.loading}</p>`;
+        if (!isPolling) {
+            this.ui.logList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PLUGIN_TRACE.loading}</p>`;
+        }
 
         updatePaginationUI(this.ui.prevPageBtn, this.ui.nextPageBtn, this.ui.pageInfo, this.currentPage, false);
 
@@ -255,7 +350,7 @@ export class PluginTraceLogTab extends BaseComponent {
             updatePaginationUI(this.ui.prevPageBtn, this.ui.nextPageBtn, this.ui.pageInfo, this.currentPage, hasNext);
             this._renderTraceList(Array.isArray(result?.entities) ? result.entities : []);
             this._filterTraces(); // re-apply local search
-        } catch (e) {
+        } catch (_e) {
             this.ui.logList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.PLUGIN_TRACE.loadFailed}</div>`;
         }
     }
@@ -312,7 +407,7 @@ export class PluginTraceLogTab extends BaseComponent {
                 // If error, show message with heading
                 const msgWrap = document.createElement('div');
                 msgWrap.className = 'trace-exception';
-                msgWrap.innerHTML = `<h4 class="trace-exception-title">Message Block</h4>`;
+                msgWrap.innerHTML = '<h4 class="trace-exception-title">Message Block</h4>';
                 msgWrap.appendChild(UIFactory.createCopyableCodeBlock(msg, 'text'));
                 details.appendChild(msgWrap);
             } else {
@@ -327,7 +422,7 @@ export class PluginTraceLogTab extends BaseComponent {
             if (ex) {
                 const exWrap = document.createElement('div');
                 exWrap.className = 'trace-exception';
-                exWrap.innerHTML = `<h4 class="trace-exception-title">Exception Details</h4>`;
+                exWrap.innerHTML = '<h4 class="trace-exception-title">Exception Details</h4>';
                 exWrap.appendChild(UIFactory.createCopyableCodeBlock(ex, 'text'));
                 details.appendChild(exWrap);
             }

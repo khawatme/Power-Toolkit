@@ -107,13 +107,19 @@ export class PluginContextTab extends BaseComponent {
 
         // secondary toolbar buttons use the latest generated context
         this.ui.copyBtn.onclick = () => {
-            if (this._latestContext) this._copyContextJson(this._latestContext);
+            if (this._latestContext) {
+                this._copyContextJson(this._latestContext);
+            }
         };
         this.ui.testBtn.onclick = () => {
-            if (this._latestContext) this._generateCSharpTest(this._latestContext);
+            if (this._latestContext) {
+                this._generateCSharpTest(this._latestContext);
+            }
         };
         this.ui.exportWebApiBtn.onclick = async () => {
-            if (!this._latestContext) return;
+            if (!this._latestContext) {
+                return;
+            }
 
             const originalText = this.ui.exportWebApiBtn.textContent;
             try {
@@ -126,7 +132,9 @@ export class PluginContextTab extends BaseComponent {
             }
         };
         this.ui.exportCSharpBtn.onclick = () => {
-            if (this._latestContext) this._exportCSharpCode(this._latestContext);
+            if (this._latestContext) {
+                this._exportCSharpCode(this._latestContext);
+            }
         };
 
         this.ui.generateBtn.onclick = () => {
@@ -194,9 +202,15 @@ export class PluginContextTab extends BaseComponent {
 
     destroy() {
         try {
-            if (this.ui?.generateBtn) this.ui.generateBtn.onclick = null;
-            if (this.ui?.copyBtn) this.ui.copyBtn.onclick = null;
-            if (this.ui?.testBtn) this.ui.testBtn.onclick = null;
+            if (this.ui?.generateBtn) {
+                this.ui.generateBtn.onclick = null;
+            }
+            if (this.ui?.copyBtn) {
+                this.ui.copyBtn.onclick = null;
+            }
+            if (this.ui?.testBtn) {
+                this.ui.testBtn.onclick = null;
+            }
         } catch { /* noop */ }
     }
 
@@ -223,20 +237,20 @@ export class PluginContextTab extends BaseComponent {
         const emptyMessages = {
             target: (() => {
                 switch (context.MessageName?.toLowerCase()) {
-                    case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetUpdate;
-                    case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetDelete;
-                    case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetCreate;
-                    default: return 'Target not available for this message.';
+                case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetUpdate;
+                case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetDelete;
+                case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyTargetCreate;
+                default: return 'Target not available for this message.';
                 }
             })(),
             preImage: (() => {
                 switch (context.MessageName?.toLowerCase()) {
-                    case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageUpdate;
-                    case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): return context.Stage === Config.PLUGIN_STAGES.PRE_OPERATION.value
-                        ? Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageDeletePre
-                        : Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageDeleteOther;
-                    case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageCreate;
-                    default: return 'Pre-Image not available.';
+                case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageUpdate;
+                case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): return context.Stage === Config.PLUGIN_STAGES.PRE_OPERATION.value
+                    ? Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageDeletePre
+                    : Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageDeleteOther;
+                case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): return Config.MESSAGES.PLUGIN_CONTEXT.emptyPreImageCreate;
+                default: return 'Pre-Image not available.';
                 }
             })(),
             postImage: context.Stage === Config.PLUGIN_STAGES.POST_OPERATION.value
@@ -252,7 +266,9 @@ export class PluginContextTab extends BaseComponent {
             createSection('PostEntityImages["postimage"]', context.PostEntityImages.postimage, emptyMessages.postImage)
         ];
         sections.forEach((section, index) => {
-            if (index > 0) section.style.marginTop = '15px';
+            if (index > 0) {
+                section.style.marginTop = '15px';
+            }
             detailsContainer.appendChild(section);
         });
 
@@ -289,7 +305,9 @@ export class PluginContextTab extends BaseComponent {
         // Helper: construct an Entity-like object
         const asEntity = (attrs, idOpt) => {
             const entity = { LogicalName: primaryName, Attributes: { ...attrs } };
-            if (idOpt) entity.Id = idOpt;
+            if (idOpt) {
+                entity.Id = idOpt;
+            }
             return entity;
         };
 
@@ -301,51 +319,51 @@ export class PluginContextTab extends BaseComponent {
         });
 
         switch (msg) {
-            case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): {
-                // For Create, filter out system fields and NEVER include an ID
-                const filteredEntity = filterSystemFields(fullEntity);
-                context.InputParameters.Target = asEntity(filteredEntity); // No ID for Create
-                if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
-                    // Post-op post image: includes ID and system fields after creation
-                    context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
-                }
-                break;
+        case Config.PLUGIN_MESSAGES.CREATE.toLowerCase(): {
+            // For Create, filter out system fields and NEVER include an ID
+            const filteredEntity = filterSystemFields(fullEntity);
+            context.InputParameters.Target = asEntity(filteredEntity); // No ID for Create
+            if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
+                // Post-op post image: includes ID and system fields after creation
+                context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
             }
+            break;
+        }
 
-            case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): {
-                // Target must contain ONLY changed attributes + Id
-                const hasDirty = Object.keys(dirtyAttributes).length > 0;
-                context.InputParameters.Target = asEntity(dirtyAttributes, primaryId || undefined);
+        case Config.PLUGIN_MESSAGES.UPDATE.toLowerCase(): {
+            // Target must contain ONLY changed attributes + Id
+            const hasDirty = Object.keys(dirtyAttributes).length > 0;
+            context.InputParameters.Target = asEntity(dirtyAttributes, primaryId || undefined);
 
-                // Pre-image is available if you configured it; we simulate including the columns we "tracked"
-                if (hasDirty) {
-                    context.PreEntityImages.preimage = asEntity(preImageEntity, primaryId || undefined);
-                }
-                if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
-                    // Post image is the final state
-                    context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
-                }
-                break;
+            // Pre-image is available if you configured it; we simulate including the columns we "tracked"
+            if (hasDirty) {
+                context.PreEntityImages.preimage = asEntity(preImageEntity, primaryId || undefined);
             }
-
-            case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): {
-                // Delete.Target is an EntityReference
-                context.InputParameters.Target = asEntityRef();
-                // Pre-image is available pre-op (20)
-                if (stage === Config.PLUGIN_STAGES.PRE_OPERATION.value) {
-                    context.PreEntityImages.preimage = asEntity(fullEntity, primaryId || undefined);
-                }
-                // No post-image for delete (entity no longer exists)
-                break;
+            if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
+                // Post image is the final state
+                context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
             }
+            break;
+        }
 
-            default: {
-                // Unknown message -> safest fallback
-                context.InputParameters.Target = asEntity(dirtyAttributes, primaryId || undefined);
-                if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
-                    context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
-                }
+        case Config.PLUGIN_MESSAGES.DELETE.toLowerCase(): {
+            // Delete.Target is an EntityReference
+            context.InputParameters.Target = asEntityRef();
+            // Pre-image is available pre-op (20)
+            if (stage === Config.PLUGIN_STAGES.PRE_OPERATION.value) {
+                context.PreEntityImages.preimage = asEntity(fullEntity, primaryId || undefined);
             }
+            // No post-image for delete (entity no longer exists)
+            break;
+        }
+
+        default: {
+            // Unknown message -> safest fallback
+            context.InputParameters.Target = asEntity(dirtyAttributes, primaryId || undefined);
+            if (stage === Config.PLUGIN_STAGES.POST_OPERATION.value) {
+                context.PostEntityImages.postimage = asEntity(fullEntity, primaryId || undefined);
+            }
+        }
         }
 
         return context;
@@ -366,7 +384,9 @@ export class PluginContextTab extends BaseComponent {
 
         const attrs = PowerAppsApiService.getAllAttributes?.() || [];
         attrs.forEach(attr => {
-            if (typeof attr?.getName !== 'function' || typeof attr?.getValue !== 'function') return;
+            if (typeof attr?.getName !== 'function' || typeof attr?.getValue !== 'function') {
+                return;
+            }
 
             const ln = attr.getName();
             const curRaw = attr.getValue();
@@ -400,7 +420,7 @@ export class PluginContextTab extends BaseComponent {
         const entityName = context.PrimaryEntityName;
         const message = String(context.MessageName || 'Update');
         const messageLower = message.toLowerCase();
-        const primaryIdGuid = context.PrimaryEntityId ? `new Guid("${context.PrimaryEntityId}")` : "Guid.NewGuid()";
+        const primaryIdGuid = context.PrimaryEntityId ? `new Guid("${context.PrimaryEntityId}")` : 'Guid.NewGuid()';
 
         const target = context.InputParameters?.Target;
         const preImage = context.PreEntityImages?.preimage;
@@ -410,10 +430,9 @@ export class PluginContextTab extends BaseComponent {
         // For Delete, Target is an EntityReference
         if (messageLower === Config.PLUGIN_MESSAGES.DELETE.toLowerCase()) {
             targetCode = `    var targetRef = new EntityReference("${entityName}", fakedPluginContext.PrimaryEntityId);\n`;
-            targetCode += `    fakedPluginContext.InputParameters["Target"] = targetRef;\n`;
-        }
-        // For Create/Update, Target is an Entity
-        else if (target && target.Attributes && Object.keys(target.Attributes).length > 0) {
+            targetCode += '    fakedPluginContext.InputParameters["Target"] = targetRef;\n';
+        } else if (target && target.Attributes && Object.keys(target.Attributes).length > 0) {
+            // For Create/Update, Target is an Entity
             // For Create, NEVER include ID in the entity initialization
             if (messageLower === Config.PLUGIN_MESSAGES.CREATE.toLowerCase()) {
                 targetCode = `    var targetEntity = new Entity("${entityName}");\n`;
@@ -429,17 +448,17 @@ export class PluginContextTab extends BaseComponent {
                 // Replace entity["field"] with targetEntity["field"]
                 targetCode += `    ${assignment.replace('entity[', 'targetEntity[')}\n`;
             }
-            targetCode += `    fakedPluginContext.InputParameters["Target"] = targetEntity;\n`;
+            targetCode += '    fakedPluginContext.InputParameters["Target"] = targetEntity;\n';
         } else {
             targetCode = `    var targetEntity = new Entity("${entityName}", fakedPluginContext.PrimaryEntityId);\n`;
-            targetCode += `    fakedPluginContext.InputParameters["Target"] = targetEntity;\n`;
+            targetCode += '    fakedPluginContext.InputParameters["Target"] = targetEntity;\n';
         }
 
         // Build Pre-Image entity code
         let preImageCode = '';
         if (preImage && preImage.Attributes && Object.keys(preImage.Attributes).length > 0) {
             const preImageId = preImage.Id ? `new Guid("${preImage.Id}")` : 'fakedPluginContext.PrimaryEntityId';
-            preImageCode = `\n    // Pre-Image\n`;
+            preImageCode = '\n    // Pre-Image\n';
             preImageCode += `    var preImageEntity = new Entity("${entityName}", ${preImageId});\n`;
 
             const sortedKeys = Object.keys(preImage.Attributes).sort();
@@ -449,7 +468,7 @@ export class PluginContextTab extends BaseComponent {
                 // Replace entity["field"] with preImageEntity["field"]
                 preImageCode += `    ${assignment.replace('entity[', 'preImageEntity[')}\n`;
             }
-            preImageCode += `    fakedPluginContext.PreEntityImages.Add("preimage", preImageEntity);\n`;
+            preImageCode += '    fakedPluginContext.PreEntityImages.Add("preimage", preImageEntity);\n';
         }
 
         const testCode = `// Generated by Power-Toolkit for FakeXrmEasy
@@ -472,10 +491,10 @@ public void Should_Execute_${message}_Plugin_Successfully()
     // For Delete testing, initialize the entity in the fake context first
     var existingEntity = new Entity("${entityName}", ${primaryIdGuid});
 ${Object.keys(preImage.Attributes).sort().map(key => {
-            const value = preImage.Attributes[key];
-            const assignment = this._convertToCSharpValue(value, key);
-            return `    ${assignment.replace('entity[', 'existingEntity[')}`;
-        }).join('\n')}
+        const value = preImage.Attributes[key];
+        const assignment = this._convertToCSharpValue(value, key);
+        return `    ${assignment.replace('entity[', 'existingEntity[')}`;
+    }).join('\n')}
     fakedContext.Initialize(new[] { existingEntity });
 ` : ''}
     var fakedPluginContext = fakedContext.GetDefaultPluginContext();
@@ -506,34 +525,34 @@ ${targetCode}${preImageCode}
         DialogService.show('Generated C# Unit Test (FakeXrmEasy)', UIFactory.createCopyableCodeBlock(testCode.trim(), 'csharp'));
     }
 
-    /** 
-     * Convert a raw client attribute value into an SDK-ish object similar to server plugins. 
+    /**
+     * Convert a raw client attribute value into an SDK-ish object similar to server plugins.
      * @private
      */
     _normalizeValue(attr, current) {
         const t = typeof attr?.getAttributeType === 'function' ? attr.getAttributeType() : null;
 
         switch (t) {
-            case 'lookup':
-            case 'customer':
-            case 'owner':
-                return normalizeLookup(current);
-            case 'optionset':
-            case 'multiselectoptionset':
-                return normalizeOptionSet(current);
-            case 'boolean':
-                return !!current;
-            case 'datetime':
-                return normalizeDateTime(current);
-            case 'money':
-                return normalizeMoney(current);
-            case 'decimal':
-            case 'double':
-            case 'integer':
-            case 'bigint':
-                return normalizeNumber(current);
-            default:
-                return current; // text, memo, etc.
+        case 'lookup':
+        case 'customer':
+        case 'owner':
+            return normalizeLookup(current);
+        case 'optionset':
+        case 'multiselectoptionset':
+            return normalizeOptionSet(current);
+        case 'boolean':
+            return !!current;
+        case 'datetime':
+            return normalizeDateTime(current);
+        case 'money':
+            return normalizeMoney(current);
+        case 'decimal':
+        case 'double':
+        case 'integer':
+        case 'bigint':
+            return normalizeNumber(current);
+        default:
+            return current; // text, memo, etc.
         }
     }
 
@@ -571,7 +590,7 @@ ${targetCode}${preImageCode}
                         const resolved = await EntityContextResolver.resolve(entityName);
                         entitySet = resolved.entitySet;
                         this._entitySetCache.set(entityName, entitySet);
-                    } catch (e) {
+                    } catch (_e) {
                         entitySet = entityName + 's'; // Fallback
                     }
                 }
@@ -636,7 +655,7 @@ ${targetCode}${preImageCode}
 
                 const code = `// Generated by Power-Toolkit\n// Entity: ${entityName}\n// Mode: Delete\n\n// Execute the delete operation\nvar recordId = new Guid("${entityId}");\nservice.Delete("${entityName}", recordId);\nConsole.WriteLine($"Deleted {entityName} record with ID: {recordId}");`;
 
-                const usings = `// Required using statements:\n// using Microsoft.Xrm.Sdk;\n// using System;\n\n`;
+                const usings = '// Required using statements:\n// using Microsoft.Xrm.Sdk;\n// using System;\n\n';
                 const fullCode = usings + code;
 
                 DialogService.show('C# Organization Service Code (Delete)', UIFactory.createCopyableCodeBlock(fullCode, 'csharp'));
@@ -672,17 +691,17 @@ ${targetCode}${preImageCode}
             }
 
             // Add service call
-            code += `\n// Execute the operation\n`;
+            code += '\n// Execute the operation\n';
             if (message === Config.PLUGIN_MESSAGES.CREATE.toLowerCase()) {
-                code += `Guid newId = service.Create(entity);\nConsole.WriteLine($"Created record with ID: {newId}");`;
+                code += 'Guid newId = service.Create(entity);\nConsole.WriteLine($"Created record with ID: {newId}");';
             } else if (message === Config.PLUGIN_MESSAGES.UPDATE.toLowerCase()) {
-                code += `service.Update(entity);\nConsole.WriteLine("Record updated successfully");`;
+                code += 'service.Update(entity);\nConsole.WriteLine("Record updated successfully");';
             } else {
-                code += `// Use service.Create(entity) or service.Update(entity)`;
+                code += '// Use service.Create(entity) or service.Update(entity)';
             }
 
             // Add required using statements
-            const usings = `// Required using statements:\n// using Microsoft.Xrm.Sdk;\n// using Microsoft.Xrm.Sdk.Client;\n// using System;\n\n`;
+            const usings = '// Required using statements:\n// using Microsoft.Xrm.Sdk;\n// using Microsoft.Xrm.Sdk.Client;\n// using System;\n\n';
             const fullCode = usings + code;
 
             DialogService.show(`C# Organization Service Code (${ctx.MessageName})`, UIFactory.createCopyableCodeBlock(fullCode, 'csharp'));
@@ -698,7 +717,7 @@ ${targetCode}${preImageCode}
      * @returns {Promise<object>} Web API formatted object.
      * @private
      */
-    async _convertToWebApiFormat(attributes, entityName) {
+    async _convertToWebApiFormat(attributes, _entityName) {
         const webApiData = {};
 
         for (const [key, value] of Object.entries(attributes)) {
@@ -719,30 +738,25 @@ ${targetCode}${preImageCode}
                     }
                     const cleanId = String(value.Id || '').toLowerCase().replace(/[{}]/g, '');
                     webApiData[`${key}@odata.bind`] = `/${entitySet}(${cleanId})`;
-                } catch (e) {
+                } catch (_e) {
                     // Fallback if metadata not available
                     const cleanId = String(value.Id || '').toLowerCase().replace(/[{}]/g, '');
                     webApiData[`${key}@odata.bind`] = `/${value.LogicalName}s(${cleanId})`;
                 }
-            }
-            // Money
-            else if (value.__type === Config.DATAVERSE_TYPES.MONEY) {
+            } else if (value.__type === Config.DATAVERSE_TYPES.MONEY) {
+                // Money
                 webApiData[key] = value.Value;
-            }
-            // OptionSetValue
-            else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE) {
+            } else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE) {
+                // OptionSetValue
                 webApiData[key] = value.Value;
-            }
-            // OptionSetValueCollection (multi-select)
-            else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE_COLLECTION && Array.isArray(value.Values)) {
+            } else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE_COLLECTION && Array.isArray(value.Values)) {
+                // OptionSetValueCollection (multi-select)
                 webApiData[key] = value.Values;
-            }
-            // DateTime
-            else if (value.__type === Config.DATAVERSE_TYPES.DATE_TIME) {
+            } else if (value.__type === Config.DATAVERSE_TYPES.DATE_TIME) {
+                // DateTime
                 webApiData[key] = value.Iso;
-            }
-            // Primitive values (string, number, boolean)
-            else {
+            } else {
+                // Primitive values (string, number, boolean)
                 webApiData[key] = value;
             }
         }
@@ -768,39 +782,31 @@ ${targetCode}${preImageCode}
             const logicalName = value.LogicalName || 'entity';
             const name = value.Name ? ` // ${value.Name}` : '';
             return `entity["${fieldName}"] = new EntityReference("${logicalName}", new Guid("${cleanId}"));${name}`;
-        }
-        // Money
-        else if (value.__type === Config.DATAVERSE_TYPES.MONEY) {
+        } else if (value.__type === Config.DATAVERSE_TYPES.MONEY) {
+            // Money
             return `entity["${fieldName}"] = new Money(${value.Value}m);`;
-        }
-        // OptionSetValue
-        else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE) {
+        } else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE) {
+            // OptionSetValue
             return `entity["${fieldName}"] = new OptionSetValue(${value.Value});`;
-        }
-        // OptionSetValueCollection (multi-select)
-        else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE_COLLECTION && Array.isArray(value.Values)) {
+        } else if (value.__type === Config.DATAVERSE_TYPES.OPTION_SET_VALUE_COLLECTION && Array.isArray(value.Values)) {
+            // OptionSetValueCollection (multi-select)
             const values = value.Values.map(v => `    new OptionSetValue(${v})`).join(',\n');
             return `entity["${fieldName}"] = new OptionSetValueCollection\n{\n${values}\n};`;
-        }
-        // DateTime
-        else if (value.__type === Config.DATAVERSE_TYPES.DATE_TIME) {
+        } else if (value.__type === Config.DATAVERSE_TYPES.DATE_TIME) {
+            // DateTime
             return `entity["${fieldName}"] = DateTime.Parse("${value.Iso}");`;
-        }
-        // Boolean
-        else if (typeof value === 'boolean') {
+        } else if (typeof value === 'boolean') {
+            // Boolean
             return `entity["${fieldName}"] = ${value.toString()};`;
-        }
-        // Number
-        else if (typeof value === 'number') {
+        } else if (typeof value === 'number') {
+            // Number
             return `entity["${fieldName}"] = ${value};`;
-        }
-        // String
-        else if (typeof value === 'string') {
+        } else if (typeof value === 'string') {
+            // String
             const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
             return `entity["${fieldName}"] = "${escaped}";`;
-        }
-        // Unknown type
-        else {
+        } else {
+            // Unknown type
             return `entity["${fieldName}"] = ${JSON.stringify(value)}; // TODO: Review this value`;
         }
     }
@@ -811,7 +817,9 @@ ${targetCode}${preImageCode}
      * @private
      */
     _setSecondaryEnabled(enabled) {
-        if (!this.ui) return;
+        if (!this.ui) {
+            return;
+        }
         const d = !enabled;
         const display = enabled ? '' : 'none';
         if (this.ui.copyBtn) {

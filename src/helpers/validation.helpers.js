@@ -4,7 +4,6 @@
  * @description Provides validation functions for GUIDs, JSON, and other data types.
  */
 
-import { Config } from '../constants/index.js';
 import { ValidationService } from '../services/ValidationService.js';
 
 /**
@@ -67,48 +66,62 @@ export const ValidationHelpers = {
         const value = input.value;
 
         switch (type) {
-            case 'integer': {
-                if (value === null || value === '') return null;
-                return ValidationService.validateNumber(value, 'Input value');
+        case 'integer': {
+            if (value === null || value === '') {
+                return null;
             }
-            case 'decimal':
-            case 'money':
-            case 'double': {
-                if (value === null || value === '') return null;
-                return ValidationService.validateNumber(value, 'Input value');
+            return ValidationService.validateNumber(value, 'Input value');
+        }
+        case 'decimal':
+        case 'money':
+        case 'double': {
+            if (value === null || value === '') {
+                return null;
             }
-            case 'datetime': {
-                if (value === null || value === '') return null;
-                return ValidationService.validateDateFormat(value, 'Input value');
+            return ValidationService.validateNumber(value, 'Input value');
+        }
+        case 'datetime': {
+            if (value === null || value === '') {
+                return null;
             }
-            case 'optionset': {
-                if (value === 'null') return null;
-                const num = parseInt(value, 10);
-                return isNaN(num) ? null : num;
+            return ValidationService.validateDateFormat(value, 'Input value');
+        }
+        case 'optionset': {
+            if (value === 'null') {
+                return null;
             }
-            case 'boolean': {
-                if (value === 'null') return null;
-                return value === 'true';
+            const num = parseInt(value, 10);
+            return isNaN(num) ? null : num;
+        }
+        case 'boolean': {
+            if (value === 'null') {
+                return null;
             }
-            default:
-                return value;
+            return value === 'true';
+        }
+        default:
+            return value;
         }
     },
 
     /**
      * Attaches a keydown listener to an input that triggers an action on 'Enter'.
+     * Returns the handler function so it can be removed later for cleanup.
      * @param {HTMLInputElement} inputElement - The input element.
      * @param {Function} action - The function to execute.
-     * @returns {void}
+     * @returns {Function|null} The event handler function for later removal, or null if inputElement is invalid.
      */
     addEnterKeyListener(inputElement, action) {
         if (inputElement) {
-            inputElement.addEventListener('keydown', (e) => {
+            const handler = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     action();
                 }
-            });
+            };
+            inputElement.addEventListener('keydown', handler);
+            return handler;
         }
+        return null;
     }
 };

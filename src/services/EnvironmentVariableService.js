@@ -33,9 +33,13 @@ function _mapEnvVarTypeToOption(typeStr) {
  */
 function _ensurePrefixedSchema(schema, fallbackPrefix) {
     const s = String(schema || '').trim();
-    if (!s) return s;
+    if (!s) {
+        return s;
+    }
     const hasPrefix = s.includes('_') && /^[a-zA-Z0-9]+_/.test(s);
-    if (hasPrefix) return s;
+    if (hasPrefix) {
+        return s;
+    }
     const p = String(fallbackPrefix || '').trim();
     return p ? `${p}_${s}` : s;
 }
@@ -48,7 +52,9 @@ function _ensurePrefixedSchema(schema, fallbackPrefix) {
  * @returns {string} Normalized value
  */
 function _normalizeEnvVarValueByType(type, raw) {
-    if (raw == null || raw === '') return '';
+    if (raw === null || raw === undefined || raw === '') {
+        return '';
+    }
     const t = String(type || '').toLowerCase();
     const v = String(raw).trim();
 
@@ -75,9 +81,13 @@ function _normalizeEnvVarValueByType(type, raw) {
  * @returns {string} Type label
  */
 function _formatEnvVarTypeOption(rawValue, formatted) {
-    if (formatted) return formatted;
-    for (const [key, config] of Object.entries(Config.ENV_VAR_TYPES)) {
-        if (config.value === rawValue) return config.label;
+    if (formatted) {
+        return formatted;
+    }
+    for (const config of Object.values(Config.ENV_VAR_TYPES)) {
+        if (config.value === rawValue) {
+            return config.label;
+        }
     }
     return 'Unknown';
 }
@@ -105,7 +115,9 @@ export const EnvironmentVariableService = {
         _currentSolutionUniqueName = uniqueName;
         _currentPublisherPrefix = null;
 
-        if (!uniqueName) return;
+        if (!uniqueName) {
+            return;
+        }
 
         // Fetch solution to get publisher prefix
         const query = `?$select=uniquename&$filter=uniquename eq '${uniqueName}'&$expand=publisherid($select=customizationprefix)`;
@@ -169,7 +181,7 @@ export const EnvironmentVariableService = {
         const createPayload = {
             value: newValue,
             schemaname: definitionSchemaName,
-            "EnvironmentVariableDefinitionId@odata.bind": `/environmentvariabledefinitions(${definitionId})`
+            'EnvironmentVariableDefinitionId@odata.bind': `/environmentvariabledefinitions(${definitionId})`
         };
         return webApiFetch('POST', 'environmentvariablevalue', '', createPayload);
     },
@@ -212,9 +224,11 @@ export const EnvironmentVariableService = {
             displayname: input.displayName,
             schemaname: schema,
             description: input.description || '',
-            type: _mapEnvVarTypeToOption(input.type),
+            type: _mapEnvVarTypeToOption(input.type)
         };
-        if (defVal !== '') payloadDef.defaultvalue = defVal;
+        if (defVal !== '') {
+            payloadDef.defaultvalue = defVal;
+        }
 
         // Create definition
         const defResult = await createRecord('environmentvariabledefinition', payloadDef);
@@ -231,7 +245,7 @@ export const EnvironmentVariableService = {
             const valPayload = {
                 value: curVal,
                 schemaname: schema,
-                "EnvironmentVariableDefinitionId@odata.bind": `/environmentvariabledefinitions(${definitionId})`
+                'EnvironmentVariableDefinitionId@odata.bind': `/environmentvariabledefinitions(${definitionId})`
             };
             const valResult = await webApiFetch('POST', 'environmentvariablevalue', '', valPayload);
             valueId = valResult?.id || valResult?.environmentvariablevalueid || null;

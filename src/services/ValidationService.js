@@ -64,7 +64,7 @@ export const ValidationService = {
     validateJson(value, fieldName = 'value') {
         try {
             return JSON.parse(value);
-        } catch (e) {
+        } catch (_e) {
             throw new Error(Config.VALIDATION_ERRORS.invalidJson(fieldName));
         }
     },
@@ -76,7 +76,7 @@ export const ValidationService = {
      * @throws {Error} If the value is null, undefined, or empty string
      */
     validateRequired(value, paramName) {
-        if (value == null || value === '') {
+        if (value === null || value === undefined || value === '') {
             throw new Error(Config.VALIDATION_ERRORS.requiredParameter(paramName));
         }
     },

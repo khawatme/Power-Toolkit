@@ -9,10 +9,9 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { FILTER_OPERATORS, escapeHtml, formatXml, normalizeApiResponse, shouldShowOperatorValue, showColumnBrowser } from '../helpers/index.js';
+import { FILTER_OPERATORS, formatXml, normalizeApiResponse, shouldShowOperatorValue, showColumnBrowser } from '../helpers/index.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { MetadataBrowserDialog } from '../ui/MetadataBrowserDialog.js';
-import { DialogService } from '../services/DialogService.js';
 import { ResultPanel } from '../utils/ui/ResultPanel.js';
 import { BusyIndicator } from '../utils/ui/BusyIndicator.js';
 import { ErrorParser } from '../utils/parsers/ErrorParser.js';
@@ -58,8 +57,13 @@ export class FetchXmlTesterTab extends BaseComponent {
         /** @type {ResultPanel|null} */
         this.resultPanel = null;
 
-        this._onToolRefresh = null;
-        this._onRefresh = null;
+        // Event handler references for cleanup
+        /** @private {HTMLElement|null} */ this._rootElement = null;
+        /** @private {Function|null} */ this._handleDelegatedClickBound = null;
+        /** @private {Function|null} */ this._handleEntityInput = null;
+        /** @private {Function|null} */ this._handleRootKeydown = null;
+        /** @private {Function|null} */ this._onToolRefresh = null;
+        /** @private {Function|null} */ this._onRefresh = null;
     }
 
     /**
@@ -237,7 +241,9 @@ export class FetchXmlTesterTab extends BaseComponent {
                 this._displayResult();
             },
             getSortState: () => this.resultSortState,
-            setSortState: (s) => { this.resultSortState = s; }
+            setSortState: (s) => {
+                this.resultSortState = s;
+            }
         });
         this.resultPanel.renderShell(0, this.currentView, this.hideOdata);
 
@@ -252,14 +258,14 @@ export class FetchXmlTesterTab extends BaseComponent {
      */
     _cacheUiElements(element) {
         this.ui = {
-            templateSelect: element.querySelector("#fetch-template-select"),
-            xmlArea: element.querySelector("#fetch-xml-area"),
-            executeToolbar: element.querySelector("#fetch-execute-toolbar"),
-            builderTab: element.querySelector("#fetch-builder-tab"),
-            editorTab: element.querySelector("#fetch-editor-tab"),
-            builderContent: element.querySelector("#fetch-builder-content"),
-            editorContent: element.querySelector("#fetch-editor-content"),
-            joinsContainer: element.querySelector("#builder-joins-container"),
+            templateSelect: element.querySelector('#fetch-template-select'),
+            xmlArea: element.querySelector('#fetch-xml-area'),
+            executeToolbar: element.querySelector('#fetch-execute-toolbar'),
+            builderTab: element.querySelector('#fetch-builder-tab'),
+            editorTab: element.querySelector('#fetch-editor-tab'),
+            builderContent: element.querySelector('#fetch-builder-content'),
+            editorContent: element.querySelector('#fetch-editor-content'),
+            joinsContainer: element.querySelector('#builder-joins-container'),
             builderEntityInput: element.querySelector('#builder-entity'),
             executeBtn: element.querySelector('#fetch-execute-btn'),
             resultRoot: element.querySelector('#fetch-result-root')
@@ -272,15 +278,21 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _setupEventListeners(element) {
+        // Store root element reference for cleanup
+        this._rootElement = element;
+
         // Main delegated event listener for clicks
-        element.addEventListener('click', (e) => this._handleDelegatedClick(e));
+        this._handleDelegatedClickBound = (e) => this._handleDelegatedClick(e);
+        element.addEventListener('click', this._handleDelegatedClickBound);
 
         // Listener for typing in the primary table input
-        this.ui.builderEntityInput.addEventListener('input', () => {
+        this._handleEntityInput = () => {
             this.selectedEntityLogicalName = this.ui.builderEntityInput.value.trim();
-        });
+        };
+        this.ui.builderEntityInput.addEventListener('input', this._handleEntityInput);
 
-        element.addEventListener('keydown', (e) => {
+        // Keyboard shortcut handler (Ctrl+Enter to execute)
+        this._handleRootKeydown = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 const editorVisible = this.ui.editorContent && this.ui.editorContent.style.display !== 'none';
                 if (editorVisible && this.ui.executeBtn && !this.ui.executeBtn.disabled) {
@@ -288,7 +300,8 @@ export class FetchXmlTesterTab extends BaseComponent {
                     e.preventDefault();
                 }
             }
-        });
+        };
+        element.addEventListener('keydown', this._handleRootKeydown);
 
         // Listener for template selection
         this.ui.templateSelect.onchange = (e) => this._handleTemplateChange(e.target.value);
@@ -310,7 +323,9 @@ export class FetchXmlTesterTab extends BaseComponent {
      */
     async _handleDelegatedClick(e) {
         const target = e.target.closest('button, th[data-column]');
-        if (!target) return;
+        if (!target) {
+            return;
+        }
 
         const id = target.id;
         const classList = target.classList;
@@ -325,7 +340,9 @@ export class FetchXmlTesterTab extends BaseComponent {
             showColumnBrowser(
                 async () => {
                     const entityName = this.ui.builderEntityInput?.value?.trim();
-                    if (!entityName) throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    if (!entityName) {
+                        throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    }
                     await PowerAppsApiService.getEntityMetadata(entityName);
                     return entityName;
                 },
@@ -338,7 +355,9 @@ export class FetchXmlTesterTab extends BaseComponent {
             showColumnBrowser(
                 async () => {
                     const entityName = this.ui.builderEntityInput?.value?.trim();
-                    if (!entityName) throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    if (!entityName) {
+                        throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    }
                     await PowerAppsApiService.getEntityMetadata(entityName);
                     return entityName;
                 },
@@ -351,11 +370,15 @@ export class FetchXmlTesterTab extends BaseComponent {
             showColumnBrowser(
                 async () => {
                     const entityName = this.ui.builderEntityInput?.value?.trim();
-                    if (!entityName) throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    if (!entityName) {
+                        throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    }
                     await PowerAppsApiService.getEntityMetadata(entityName);
                     return entityName;
                 },
-                (attr) => { input.value = attr.LogicalName; }
+                (attr) => {
+                    input.value = attr.LogicalName;
+                }
             );
         } else if (classList.contains('browse-join-table')) {
             const joinGroup = target.closest('.link-entity-group');
@@ -380,18 +403,24 @@ export class FetchXmlTesterTab extends BaseComponent {
                     await PowerAppsApiService.getEntityMetadata(linkedEntityName);
                     return linkedEntityName;
                 },
-                (attr) => { input.value = attr.LogicalName; }
+                (attr) => {
+                    input.value = attr.LogicalName;
+                }
             );
         } else if (classList.contains('browse-join-to')) {
             const input = target.previousElementSibling;
             showColumnBrowser(
                 async () => {
                     const entityName = this.ui.builderEntityInput?.value?.trim();
-                    if (!entityName) throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    if (!entityName) {
+                        throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                    }
                     await PowerAppsApiService.getEntityMetadata(entityName);
                     return entityName;
                 },
-                (attr) => { input.value = attr.LogicalName; }
+                (attr) => {
+                    input.value = attr.LogicalName;
+                }
             );
         } else if (classList.contains('browse-join-attrs')) {
             const joinGroup = target.closest('.link-entity-group');
@@ -480,9 +509,11 @@ export class FetchXmlTesterTab extends BaseComponent {
         operatorSelect.onchange = () => {
             const shouldShow = shouldShowOperatorValue(operatorSelect.value);
             valueInput.style.display = shouldShow ? 'block' : 'none';
-            if (!shouldShow) valueInput.value = '';
+            if (!shouldShow) {
+                valueInput.value = '';
+            }
         };
-        this.ui.builderContent.querySelector("#builder-conditions-container").appendChild(conditionGroup);
+        this.ui.builderContent.querySelector('#builder-conditions-container').appendChild(conditionGroup);
     }
 
     /**
@@ -532,9 +563,9 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _buildFetchXmlFromInputs() {
-        const primaryEntity = this.ui.builderContent.querySelector("#builder-entity").value.trim();
+        const primaryEntity = this.ui.builderContent.querySelector('#builder-entity').value.trim();
         if (!primaryEntity) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, "warning");
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
             return;
         }
         const topCount = this.ui.builderContent.querySelector('#builder-top-count').value;
@@ -546,7 +577,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             .map(attr => `    <attribute name="${attr}" />`)
             .join('\n');
 
-        const primaryAttributesXml = getAttributesXml(this.ui.builderContent.querySelector("#builder-attributes").value);
+        const primaryAttributesXml = getAttributesXml(this.ui.builderContent.querySelector('#builder-attributes').value);
 
         const conditions = [];
         this.ui.builderContent.querySelectorAll('.pdt-condition-grid').forEach(row => {
@@ -577,33 +608,41 @@ export class FetchXmlTesterTab extends BaseComponent {
             const to = group.querySelector('[data-prop="to"]').value.trim();
             const linkType = group.querySelector('[data-prop="link-type"]').value;
             const alias = group.querySelector('[data-prop="alias"]').value.trim();
-            if (!name || !from || !to) return;
+            if (!name || !from || !to) {
+                return;
+            }
 
             const attributesXml = getAttributesXml(group.querySelector('[data-prop="attributes"]').value);
             linkEntitiesXml += `    <link-entity name="${name}" from="${from}" to="${to}" link-type="${linkType}" alias="${alias}">\n`;
             if (attributesXml) {
                 linkEntitiesXml += `${attributesXml}\n`;
             } else {
-                linkEntitiesXml += `        <all-attributes />\n`;
+                linkEntitiesXml += '        <all-attributes />\n';
             }
-            linkEntitiesXml += `    </link-entity>\n`;
+            linkEntitiesXml += '    </link-entity>\n';
         });
 
         let xml = `${fetchTag}\n  <entity name="${primaryEntity}">\n`;
         if (primaryAttributesXml) {
             xml += `${primaryAttributesXml}\n`;
         } else {
-            xml += `    <all-attributes />\n`;
+            xml += '    <all-attributes />\n';
         }
-        if (orderXml) xml += orderXml;
-        if (filterXml) xml += filterXml;
-        if (linkEntitiesXml) xml += linkEntitiesXml;
-        xml += `  </entity>\n</fetch>`;
+        if (orderXml) {
+            xml += orderXml;
+        }
+        if (filterXml) {
+            xml += filterXml;
+        }
+        if (linkEntitiesXml) {
+            xml += linkEntitiesXml;
+        }
+        xml += '  </entity>\n</fetch>';
 
         this.ui.xmlArea.value = xml;
         this._formatXml();
         this._switchBuilderView('editor');
-        NotificationService.show(Config.MESSAGES.FETCHXML.generated, "success");
+        NotificationService.show(Config.MESSAGES.FETCHXML.generated, 'success');
     }
 
     /**
@@ -624,7 +663,9 @@ export class FetchXmlTesterTab extends BaseComponent {
      */
     _formatXml() {
         const xmlStr = this.ui.xmlArea.value;
-        if (!xmlStr) return;
+        if (!xmlStr) {
+            return;
+        }
         try {
             this.ui.xmlArea.value = formatXml(xmlStr);
         } catch (e) {
@@ -653,7 +694,9 @@ export class FetchXmlTesterTab extends BaseComponent {
         // Busy UI
         if (this.ui.executeBtn) {
             this.ui.executeBtn.disabled = true;
-            if (this.ui.resultRoot) BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot, 'Executing…');
+            if (this.ui.resultRoot) {
+                BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot, 'Executing…');
+            }
         }
 
         try {
@@ -692,7 +735,9 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _displayResult() {
-        if (!this.resultPanel) return;
+        if (!this.resultPanel) {
+            return;
+        }
         const entities = Array.isArray(this.lastResult?.entities)
             ? this.lastResult.entities
             : (Array.isArray(this.lastResult) ? this.lastResult : (this.lastResult?.value || []));
@@ -724,20 +769,52 @@ export class FetchXmlTesterTab extends BaseComponent {
         this.lastResult = normalizeApiResponse(null);
         this.resultSortState = { column: null, direction: 'asc' };
 
-        try { this.resultPanel?.dispose?.(); } catch { /* noop */ }
-        if (this.ui.resultRoot) this.ui.resultRoot.textContent = '';
+        try {
+            this.resultPanel?.dispose?.();
+        } catch { /* noop */ }
+        if (this.ui.resultRoot) {
+            this.ui.resultRoot.textContent = '';
+        }
         this.resultPanel = new ResultPanel({
             root: this.ui.resultRoot,
-            onToggleView: (v) => { this.currentView = v; this._displayResult(); },
-            onToggleHide: (h) => { this.hideOdata = h; this._displayResult(); },
+            onToggleView: (v) => {
+                this.currentView = v; this._displayResult();
+            },
+            onToggleHide: (h) => {
+                this.hideOdata = h; this._displayResult();
+            },
             getSortState: () => this.resultSortState,
-            setSortState: (s) => { this.resultSortState = s; }
+            setSortState: (s) => {
+                this.resultSortState = s;
+            }
         });
         this.resultPanel.renderShell(0, this.currentView, this.hideOdata);
         this.resultPanel.renderContent({ data: [], view: this.currentView, hideOdata: this.hideOdata });
     }
 
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
     destroy() {
+        // Remove root element click handler
+        if (this._rootElement && this._handleDelegatedClickBound) {
+            this._rootElement.removeEventListener('click', this._handleDelegatedClickBound);
+            this._handleDelegatedClickBound = null;
+        }
+
+        // Remove entity input handler
+        if (this.ui.builderEntityInput && this._handleEntityInput) {
+            this.ui.builderEntityInput.removeEventListener('input', this._handleEntityInput);
+            this._handleEntityInput = null;
+        }
+
+        // Remove keyboard shortcut handler
+        if (this._rootElement && this._handleRootKeydown) {
+            this._rootElement.removeEventListener('keydown', this._handleRootKeydown);
+            this._handleRootKeydown = null;
+        }
+
+        // Remove document-level event handlers
         try {
             if (this._onToolRefresh) {
                 document.removeEventListener('pdt:tool-refresh', this._onToolRefresh);
@@ -749,7 +826,18 @@ export class FetchXmlTesterTab extends BaseComponent {
             }
         } catch { }
 
-        try { this.resultPanel?.dispose?.(); } catch { }
+        // Clean up template select handler
+        if (this.ui.templateSelect) {
+            this.ui.templateSelect.onchange = null;
+        }
+
+        // Clean up result panel
+        try {
+            this.resultPanel?.dispose?.();
+        } catch { }
         this.resultPanel = null;
+
+        // Clear root element reference
+        this._rootElement = null;
     }
 }

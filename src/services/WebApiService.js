@@ -123,7 +123,9 @@ export const WebApiService = {
 
         // Handle 204 No Content or empty responses
         const id = resp.headers.get('OData-EntityId')?.match(/\(([^)]+)\)/)?.[1];
-        if (id) return { id };
+        if (id) {
+            return { id };
+        }
 
         return {};
     },

@@ -24,18 +24,28 @@ export const ErrorParser = {
         const isNonEmptyStr = (v) => typeof v === 'string' && v.trim().length > 0;
 
         const tryParseJson = (raw) => {
-            if (raw == null || typeof raw !== 'string') return raw;
+            if (raw === null || raw === undefined || typeof raw !== 'string') {
+                return raw;
+            }
             const t = raw.trim();
-            if (!(t.startsWith('{') || t.startsWith('['))) return raw; // plain text
-            try { return JSON.parse(t); } catch { return raw; }
+            if (!(t.startsWith('{') || t.startsWith('['))) {
+                return raw;
+            } // plain text
+            try {
+                return JSON.parse(t);
+            } catch {
+                return raw;
+            }
         };
 
         const firstString = (...vals) => vals.find(isNonEmptyStr) || null;
 
         const get = (obj, pathArr) => {
             try {
-                return pathArr.reduce((acc, k) => (acc == null ? acc : acc[k]), obj);
-            } catch { return undefined; }
+                return pathArr.reduce((acc, k) => ((acc === null || acc === undefined) ? acc : acc[k]), obj);
+            } catch {
+                return undefined;
+            }
         };
 
         // Build a list of possible "payload" containers to probe
@@ -56,14 +66,18 @@ export const ErrorParser = {
 
             // the whole error object
             e
-        ].filter((v) => v != null);
+        ].filter((v) => (v !== null && v !== undefined));
 
         // correlation id
         const headers = e?.response?.headers || e?.headers || null;
         const getHeader = (name) => {
-            if (!headers) return null;
+            if (!headers) {
+                return null;
+            }
             if (typeof headers.get === 'function') {
-                try { return headers.get(name); } catch { /* ignore */ }
+                try {
+                    return headers.get(name);
+                } catch { /* ignore */ }
             }
             const key = Object.keys(headers).find(k => k.toLowerCase() === name.toLowerCase());
             return key ? headers[key] : null;
@@ -97,7 +111,9 @@ export const ErrorParser = {
                         get(p, ['error', 'message'])
                     );
 
-                if (isNonEmptyStr(odataV4)) { message = odataV4; break; }
+                if (isNonEmptyStr(odataV4)) {
+                    message = odataV4; break;
+                }
 
                 // Legacy OData v2/v3: { "odata.error": { "message": { "value": "..." }, innererror: {...} } }
                 const legacy =
@@ -106,7 +122,9 @@ export const ErrorParser = {
                         get(p, ['odata.error', 'innererror', 'message'])
                     );
 
-                if (isNonEmptyStr(legacy)) { message = legacy; break; }
+                if (isNonEmptyStr(legacy)) {
+                    message = legacy; break;
+                }
 
                 // Top-level Dataverse shape: { code, message }
                 const topLevel =
@@ -115,7 +133,9 @@ export const ErrorParser = {
                         p.Message
                     );
 
-                if (isNonEmptyStr(topLevel)) { message = topLevel; break; }
+                if (isNonEmptyStr(topLevel)) {
+                    message = topLevel; break;
+                }
 
                 // Nested common axios/fetch structures
                 const nestedAxios =
@@ -124,7 +144,9 @@ export const ErrorParser = {
                         get(p, ['data', 'message'])
                     );
 
-                if (isNonEmptyStr(nestedAxios)) { message = nestedAxios; break; }
+                if (isNonEmptyStr(nestedAxios)) {
+                    message = nestedAxios; break;
+                }
             }
         }
 
@@ -148,8 +170,12 @@ export const ErrorParser = {
             }
         }
 
-        if (!isNonEmptyStr(message)) message = 'Request failed.';
-        if (status) message = `(Status ${status}) ${message}`;
+        if (!isNonEmptyStr(message)) {
+            message = 'Request failed.';
+        }
+        if (status) {
+            message = `(Status ${status}) ${message}`;
+        }
 
         // If there is a raw string body and it adds info, append it
         const rawBody =

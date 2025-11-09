@@ -31,6 +31,11 @@ export class EnvironmentVariablesTab extends BaseComponent {
         this.allVars = [];
         /** @private */
         this.filterCards = debounce(this._filterCards, 250);
+
+        // Handler references for cleanup
+        /** @private {Function|null} */ this._addBtnHandler = null;
+        /** @private {Function|null} */ this._searchInputHandler = null;
+        /** @private {Function|null} */ this._listClickHandler = null;
     }
 
     /**
@@ -71,33 +76,50 @@ export class EnvironmentVariablesTab extends BaseComponent {
         this.ui.listContainer = element.querySelector('#env-var-list');
         this.ui.addBtn = element.querySelector('#env-var-add-btn');
 
-        this.ui.addBtn.addEventListener('click', () => this._openCreateDialog());
-        this.ui.searchInput.addEventListener('input', () => this.filterCards());
-
-        // Single delegated listener for all card buttons
-        this.ui.listContainer.addEventListener('click', async (e) => {
+        // Store handlers for cleanup
+        this._addBtnHandler = () => this._openCreateDialog();
+        this._searchInputHandler = () => this.filterCards();
+        this._listClickHandler = async (e) => {
             const button = /** @type {HTMLElement|null} */(e.target)?.closest('button');
-            if (!button) return;
+            if (!button) {
+                return;
+            }
 
             // Copy button inside code blocks
             if (button.matches('.copy-btn')) {
                 const codeBlock = button.closest('.copyable-code-block');
                 const codeEl = codeBlock?.querySelector('pre, code');
-                if (codeEl) copyToClipboard(codeEl.textContent);
+                if (codeEl) {
+                    copyToClipboard(codeEl.textContent);
+                }
                 return;
             }
 
             const card = button.closest('.env-var-card');
-            if (!card) return;
+            if (!card) {
+                return;
+            }
 
-            if (button.matches('.edit-btn')) this._switchToEditMode(card);
-            else if (button.matches('.cancel-btn')) this._switchToViewMode(card);
-            else if (button.matches('.save-btn')) await this._handleSaveClick(card);
-            else if (button.matches('.edit-default-btn')) this._switchToEditDefaultMode(card);
-            else if (button.matches('.cancel-default-btn')) this._switchDefaultToView(card);
-            else if (button.matches('.save-default-btn')) await this._handleSaveDefault(card);
-            else if (button.matches('.delete-btn')) await this._handleDelete(card);
-        });
+            if (button.matches('.edit-btn')) {
+                this._switchToEditMode(card);
+            } else if (button.matches('.cancel-btn')) {
+                this._switchToViewMode(card);
+            } else if (button.matches('.save-btn')) {
+                await this._handleSaveClick(card);
+            } else if (button.matches('.edit-default-btn')) {
+                this._switchToEditDefaultMode(card);
+            } else if (button.matches('.cancel-default-btn')) {
+                this._switchDefaultToView(card);
+            } else if (button.matches('.save-default-btn')) {
+                await this._handleSaveDefault(card);
+            } else if (button.matches('.delete-btn')) {
+                await this._handleDelete(card);
+            }
+        };
+
+        this.ui.addBtn.addEventListener('click', this._addBtnHandler);
+        this.ui.searchInput.addEventListener('input', this._searchInputHandler);
+        this.ui.listContainer.addEventListener('click', this._listClickHandler);
     }
 
     /** @private */
@@ -181,11 +203,14 @@ export class EnvironmentVariablesTab extends BaseComponent {
     _formatValue(value, isCopyable) {
         const valStr = String(value ?? '').trim();
         if (isJsonString(valStr)) {
-            try { JSON.parse(valStr); return UIFactory.createCopyableCodeBlock(valStr, 'json'); }
-            catch { /* no-op */ }
+            try {
+                JSON.parse(valStr); return UIFactory.createCopyableCodeBlock(valStr, 'json');
+            } catch { /* no-op */ }
         }
         const span = document.createElement('span');
-        if (isCopyable) { span.className = 'copyable'; span.title = 'Click to copy'; }
+        if (isCopyable) {
+            span.className = 'copyable'; span.title = 'Click to copy';
+        }
         span.textContent = value;
         return span;
     }
@@ -263,20 +288,26 @@ export class EnvironmentVariablesTab extends BaseComponent {
 
         textarea.disabled = true;
         const saveBtn = card.querySelector('.save-btn');
-        if (saveBtn) saveBtn.textContent = 'Saving...';
+        if (saveBtn) {
+            saveBtn.textContent = 'Saving...';
+        }
 
         try {
             const res = await DataService.setEnvironmentVariableValue(definitionId, valueId, raw, schemaName);
             if (!valueId) {
                 const newId = res?.id || res?.environmentvariablevalueid;
-                if (newId) card.dataset.valueId = newId;
+                if (newId) {
+                    card.dataset.valueId = newId;
+                }
             }
             NotificationService.show(Config.MESSAGES.ENV_VARS.saved, 'success');
             this._switchToViewMode(card, raw);
         } catch (e) {
             NotificationService.show(Config.MESSAGES.ENV_VARS.saveFailed(e.message), 'error');
             textarea.disabled = false;
-            if (saveBtn) saveBtn.textContent = 'Save';
+            if (saveBtn) {
+                saveBtn.textContent = 'Save';
+            }
         }
     }
 
@@ -344,11 +375,15 @@ export class EnvironmentVariablesTab extends BaseComponent {
         let newValue = (textarea.value || '').trim();
 
         // If valid JSON, store minified
-        try { newValue = JSON.stringify(JSON.parse(newValue)); } catch { /* no-op */ }
+        try {
+            newValue = JSON.stringify(JSON.parse(newValue));
+        } catch { /* no-op */ }
 
         textarea.disabled = true;
         const btn = card.querySelector('.save-default-btn');
-        if (btn) btn.textContent = 'Saving...';
+        if (btn) {
+            btn.textContent = 'Saving...';
+        }
 
         try {
             await DataService.setEnvironmentVariableDefault(definitionId, newValue);
@@ -357,7 +392,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         } catch (e) {
             NotificationService.show(Config.MESSAGES.ENV_VARS.saveFailed(e.message), 'error');
             textarea.disabled = false;
-            if (btn) btn.textContent = 'Save Default';
+            if (btn) {
+                btn.textContent = 'Save Default';
+            }
         }
     }
 
@@ -381,7 +418,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         `;
 
         const confirmed = await showConfirmDialog('Delete Environment Variable', contentEl);
-        if (!confirmed) return;
+        if (!confirmed) {
+            return;
+        }
 
         // Add visual feedback on the card
         const deleteBtn = card.querySelector('.delete-btn');
@@ -451,7 +490,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         // Restore previously chosen solution if saved
         try {
             const saved = sessionStorage.getItem('pdt:currentSolution');
-            if (saved) await DataService.setCurrentSolution(saved);
+            if (saved) {
+                await DataService.setCurrentSolution(saved);
+            }
         } catch { /* ignore */ }
 
         // Field refs
@@ -469,7 +510,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         // Pre-fill prefix & solution info
         try {
             const { uniqueName, publisherPrefix } = DataService.getCurrentSolution?.() || {};
-            if (publisherPrefix && !schemaEl.value) schemaEl.value = `${publisherPrefix}_`;
+            if (publisherPrefix && !schemaEl.value) {
+                schemaEl.value = `${publisherPrefix}_`;
+            }
             if (uniqueName) {
                 solnInfo.textContent = `Will be added to solution: ${uniqueName} (prefix: ${publisherPrefix || 'n/a'})`;
                 solnInfo.style.color = '';
@@ -514,7 +557,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         schemaEl.addEventListener('blur', () => {
             try {
                 const { publisherPrefix } = DataService.getCurrentSolution?.() || {};
-                if (!publisherPrefix) return;
+                if (!publisherPrefix) {
+                    return;
+                }
                 const hasPrefix = /^[a-zA-Z0-9]+_/.test(schemaEl.value);
                 if (!hasPrefix && schemaEl.value.trim().length) {
                     schemaEl.value = `${publisherPrefix}_${schemaEl.value.trim()}`;
@@ -560,7 +605,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 this.allVars.unshift(cardData);
                 this.ui.listContainer.prepend(card);
 
-                if (this.ui.searchInput) this.ui.searchInput.value = '';
+                if (this.ui.searchInput) {
+                    this.ui.searchInput.value = '';
+                }
                 this._filterCards();
             } catch (e) {
                 NotificationService.show(Config.MESSAGES.ENV_VARS.createFailed(e.message), 'error');
@@ -640,7 +687,7 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 <label class="grid-span-all" style="margin-bottom:6px">Choose a solution</label>
                 <select id="soln-select" class="pdt-select"></select>
             </div>`;
-        const dlg2 = DialogService.show(Config.DIALOG_TITLES.selectSolution, pick);
+        DialogService.show(Config.DIALOG_TITLES.selectSolution, pick);
 
         const dlgEl = pick.closest('.pdt-dialog');
         const footer = dlgEl?.querySelector('.pdt-dialog-footer');
@@ -695,10 +742,14 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
                 solnButton.textContent = 'Select solution…';
             }
-            if (p && !schemaEl.value) schemaEl.value = `${p}_`;
+            if (p && !schemaEl.value) {
+                schemaEl.value = `${p}_`;
+            }
 
             // Trigger validation if callback provided
-            if (revalidate) revalidate();
+            if (revalidate) {
+                revalidate();
+            }
 
             closeAndRestore();
         });
@@ -748,8 +799,12 @@ export class EnvironmentVariablesTab extends BaseComponent {
             const btn = document.createElement('button');
             btn.className = b.cls;
             btn.textContent = b.text;
-            if (b.title) btn.title = b.title;
-            if (b.disabled) btn.disabled = true;
+            if (b.title) {
+                btn.title = b.title;
+            }
+            if (b.disabled) {
+                btn.disabled = true;
+            }
             footer.appendChild(btn);
         });
     }
@@ -836,7 +891,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
      */
     _isCreateModelValid(m) {
         const hasBasics = !!m.name?.trim() && !!m.schema?.trim();
-        if (!hasBasics) return false;
+        if (!hasBasics) {
+            return false;
+        }
 
         // Ensure schema name is not just a prefix or prefix with underscore
         const schema = m.schema.trim();
@@ -853,15 +910,44 @@ export class EnvironmentVariablesTab extends BaseComponent {
         }
 
         const tryVal = (val) => {
-            if (!val) return true;
-            try {
-                if (m.type === 'Number') return Number.isFinite(Number(val));
-                if (m.type === 'Boolean') { const s = String(val).toLowerCase(); return (s === 'true' || s === 'false'); }
-                if (m.type === 'Json') { JSON.parse(val); return true; }
+            if (!val) {
                 return true;
-            } catch { return false; }
+            }
+            try {
+                if (m.type === 'Number') {
+                    return Number.isFinite(Number(val));
+                }
+                if (m.type === 'Boolean') {
+                    const s = String(val).toLowerCase(); return (s === 'true' || s === 'false');
+                }
+                if (m.type === 'Json') {
+                    JSON.parse(val); return true;
+                }
+                return true;
+            } catch {
+                return false;
+            }
         };
 
         return tryVal(m.defVal) && tryVal(m.curVal);
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this.ui.addBtn) {
+            this.ui.addBtn.removeEventListener('click', this._addBtnHandler);
+        }
+        if (this.ui.searchInput) {
+            this.ui.searchInput.removeEventListener('input', this._searchInputHandler);
+        }
+        // Cancel any pending debounced filter
+        if (this.filterCards?.cancel) {
+            this.filterCards.cancel();
+        }
+        if (this.ui.listContainer) {
+            this.ui.listContainer.removeEventListener('click', this._listClickHandler);
+        }
     }
 }

@@ -34,13 +34,16 @@ export class EventMonitorTab extends BaseComponent {
         super('eventMonitor', 'Event Monitor', ICONS.eventMonitor, true);
         this.isMonitoring = false;
         this.attachedHandlers = [];
+        this._statusResetTimeout = null;
     }
 
     /** @private */ _maxLogEntries = 500;
     /** @private */ _clearBtnHandler = null;
 
     /** @private */
-    _safeArray(v) { return Array.isArray(v) ? v : []; }
+    _safeArray(v) {
+        return Array.isArray(v) ? v : [];
+    }
 
     /**
      * Renders the component's HTML structure.
@@ -68,7 +71,9 @@ export class EventMonitorTab extends BaseComponent {
         const statusEl = element.querySelector('#monitoring-status');
 
         const logEvent = (className, message, context) => {
-            if (!logContainer) return;
+            if (!logContainer) {
+                return;
+            }
             try {
                 // Try to surface useful context without risking errors
                 const src = context?.getEventSource?.();
@@ -77,11 +82,15 @@ export class EventMonitorTab extends BaseComponent {
                 let extra = '';
                 // Save mode, when present (only on OnSave)
                 const saveMode = context?.getEventArgs?.()?.getSaveMode?.();
-                if (typeof saveMode === 'number') extra += ` [mode:${saveMode}]`;
-                if (typeof depth === 'number') extra += ` [depth:${depth}]`;
+                if (typeof saveMode === 'number') {
+                    extra += ` [mode:${saveMode}]`;
+                }
+                if (typeof depth === 'number') {
+                    extra += ` [depth:${depth}]`;
+                }
                 const fullMessage = attrName ? `${message}: ${attrName}${extra}` : `${message}${extra}`;
                 appendLogEntry(logContainer, className, fullMessage, this._maxLogEntries);
-            } catch (err) {
+            } catch (_err) {
                 appendLogEntry(logContainer, 'log-entry-warn', `${message} (context unavailable)`, this._maxLogEntries);
             }
         };
@@ -89,12 +98,21 @@ export class EventMonitorTab extends BaseComponent {
         // Clear button
         const clearBtn = element.querySelector('#clear-log-btn');
         this._clearBtnHandler = () => {
-            if (!logContainer) return;
+            if (!logContainer) {
+                return;
+            }
             clearContainer(logContainer);
             statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.cleared;
+            // Clear any existing timeout
+            if (this._statusResetTimeout) {
+                clearTimeout(this._statusResetTimeout);
+            }
             // Revert back to monitoring status after a brief moment
-            setTimeout(() => {
-                if (statusEl) statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.monitoring;
+            this._statusResetTimeout = setTimeout(() => {
+                if (statusEl) {
+                    statusEl.textContent = Config.MESSAGES.EVENT_MONITOR.monitoring;
+                }
+                this._statusResetTimeout = null;
             }, 2000);
         };
         clearBtn?.addEventListener('click', this._clearBtnHandler);
@@ -115,6 +133,11 @@ export class EventMonitorTab extends BaseComponent {
     destroy() {
         try {
             this._stopMonitoring();
+            // Clear any pending status reset timeout
+            if (this._statusResetTimeout) {
+                clearTimeout(this._statusResetTimeout);
+                this._statusResetTimeout = null;
+            }
             // Remove the clear handler if it was set (query from the current root if available)
             const root = document.querySelector('[data-component-id="eventMonitor"]') || document;
             const clearBtn = root.querySelector?.('#clear-log-btn');
@@ -134,14 +157,11 @@ export class EventMonitorTab extends BaseComponent {
         // This handles cases where the tab is switched without dispose being called
         this._stopMonitoring();
 
-        let handlersAdded = 0;
-
         try {
             const onLoadHandler = (ctx) => logFunction('log-entry-load', 'Form OnLoad', ctx);
             PowerAppsApiService.addOnLoad?.(onLoadHandler);
             this.attachedHandlers.push({ type: 'load', handler: onLoadHandler });
-            handlersAdded++;
-        } catch (e) {
+        } catch (_e) {
             // Silent - event handler attachment failure is not critical
         }
 
@@ -149,8 +169,7 @@ export class EventMonitorTab extends BaseComponent {
             const onSaveHandler = (ctx) => logFunction('log-entry-save', 'Form OnSave', ctx);
             PowerAppsApiService.addOnSave?.(onSaveHandler);
             this.attachedHandlers.push({ type: 'save', handler: onSaveHandler });
-            handlersAdded++;
-        } catch (e) {
+        } catch (_e) {
             // Silent - event handler attachment failure is not critical
         }
 
@@ -162,9 +181,8 @@ export class EventMonitorTab extends BaseComponent {
                     const onChangeHandler = (ctx) => logFunction('log-entry-change', 'Attribute OnChange', ctx);
                     attr.addOnChange(onChangeHandler);
                     this.attachedHandlers.push({ type: 'change', attr, handler: onChangeHandler });
-                    handlersAdded++;
                 }
-            } catch (e) {
+            } catch (_e) {
                 // Silent - individual attribute handler failures are not critical
             }
         });
@@ -183,12 +201,16 @@ export class EventMonitorTab extends BaseComponent {
         try {
             this.attachedHandlers.forEach(item => {
                 try {
-                    if (item.type === 'load') PowerAppsApiService.removeOnLoad?.(item.handler);
-                    else if (item.type === 'save') PowerAppsApiService.removeOnSave?.(item.handler);
-                    else if (item.type === 'change') item.attr?.removeOnChange?.(item.handler);
+                    if (item.type === 'load') {
+                        PowerAppsApiService.removeOnLoad?.(item.handler);
+                    } else if (item.type === 'save') {
+                        PowerAppsApiService.removeOnSave?.(item.handler);
+                    } else if (item.type === 'change') {
+                        item.attr?.removeOnChange?.(item.handler);
+                    }
                 } catch { }
             });
-        } catch (e) {
+        } catch (_e) {
             // Silent - cleanup errors are handled gracefully
         } finally {
             this.attachedHandlers = [];

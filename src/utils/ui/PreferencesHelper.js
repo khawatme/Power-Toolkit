@@ -19,24 +19,26 @@ export const PreferencesHelper = {
     load(key, defaultValue, type = 'string') {
         try {
             const saved = localStorage.getItem(key);
-            if (saved === null) return defaultValue;
+            if (saved === null) {
+                return defaultValue;
+            }
 
             switch (type) {
-                case 'boolean':
-                    return saved === 'true';
-                case 'number':
-                    const num = Number(saved);
-                    return isNaN(num) ? defaultValue : num;
-                case 'json':
-                    try {
-                        return JSON.parse(saved);
-                    } catch {
-                        return defaultValue;
-                    }
-                default:
-                    return saved;
+            case 'boolean':
+                return saved === 'true';
+            case 'number':
+                const num = Number(saved);
+                return isNaN(num) ? defaultValue : num;
+            case 'json':
+                try {
+                    return JSON.parse(saved);
+                } catch {
+                    return defaultValue;
+                }
+            default:
+                return saved;
             }
-        } catch (e) {
+        } catch (_e) {
             // localStorage access might be blocked or quota exceeded
             return defaultValue;
         }
@@ -61,7 +63,7 @@ export const PreferencesHelper = {
 
             localStorage.setItem(key, valueToStore);
             return true;
-        } catch (e) {
+        } catch (_e) {
             // localStorage access might be blocked or quota exceeded
             return false;
         }
@@ -76,7 +78,7 @@ export const PreferencesHelper = {
         try {
             localStorage.removeItem(key);
             return true;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     },
@@ -89,7 +91,7 @@ export const PreferencesHelper = {
     exists(key) {
         try {
             return localStorage.getItem(key) !== null;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }

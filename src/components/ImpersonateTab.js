@@ -25,6 +25,12 @@ export class ImpersonateTab extends BaseComponent {
         this.ui = {};
         this.lastSearchResults = []; // Cache for sorting
         this.sortState = { column: 'fullname', direction: 'asc' }; // Initial sort state
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._handleSearch = null;
+        /** @private {Function|null} */ this._enterKeyHandler = null;
+        /** @private {Function|null} */ this._handleResultsClick = null;
+        /** @private {Function|null} */ this._handleStatusClick = null;
     }
 
     /**
@@ -61,10 +67,9 @@ export class ImpersonateTab extends BaseComponent {
             resultsContainer: element.querySelector('#impersonate-results-container')
         };
 
-        this.ui.searchBtn.onclick = () => this._performSearch();
-        addEnterKeyListener(this.ui.searchInput, () => this._performSearch());
-
-        this.ui.resultsContainer.addEventListener('click', e => {
+        // Store bound event handlers for cleanup
+        this._handleSearch = () => this._performSearch();
+        this._handleResultsClick = (e) => {
             // Handle header clicks for sorting
             const header = e.target.closest('th[data-sort-key]');
             if (header) {
@@ -82,16 +87,38 @@ export class ImpersonateTab extends BaseComponent {
                 DataService.setImpersonation(userId, fullName);
                 this._updateStatus();
             }
-        });
-
-        this.ui.statusContainer.addEventListener('click', e => {
+        };
+        this._handleStatusClick = (e) => {
             if (e.target.id === 'impersonate-clear-btn') {
                 DataService.clearImpersonation();
                 this._updateStatus();
             }
-        });
+        };
+
+        this.ui.searchBtn.addEventListener('click', this._handleSearch);
+        this._enterKeyHandler = addEnterKeyListener(this.ui.searchInput, this._handleSearch);
+        this.ui.resultsContainer.addEventListener('click', this._handleResultsClick);
+        this.ui.statusContainer.addEventListener('click', this._handleStatusClick);
 
         this._updateStatus();
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this.ui.searchBtn && this._handleSearch) {
+            this.ui.searchBtn.removeEventListener('click', this._handleSearch);
+        }
+        if (this.ui.searchInput && this._enterKeyHandler) {
+            this.ui.searchInput.removeEventListener('keydown', this._enterKeyHandler);
+        }
+        if (this.ui.resultsContainer && this._handleResultsClick) {
+            this.ui.resultsContainer.removeEventListener('click', this._handleResultsClick);
+        }
+        if (this.ui.statusContainer && this._handleStatusClick) {
+            this.ui.statusContainer.removeEventListener('click', this._handleStatusClick);
+        }
     }
 
     /**
@@ -129,7 +156,7 @@ export class ImpersonateTab extends BaseComponent {
         this.ui.resultsContainer.innerHTML = `<p class="pdt-note">${Config.MESSAGES.IMPERSONATE.searching}</p>`;
 
         try {
-            let filterClause = "isdisabled eq false and azureactivedirectoryobjectid ne null";
+            let filterClause = 'isdisabled eq false and azureactivedirectoryobjectid ne null';
             if (searchTerm) {
                 const escapedTerm = escapeODataString(searchTerm);
                 filterClause += ` and contains(fullname,'${escapedTerm}')`;

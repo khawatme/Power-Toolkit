@@ -8,13 +8,22 @@
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { debounce, escapeHtml, filterODataProperties, getMetadataDisplayName, sortArrayByColumn } from '../helpers/index.js';
+import { debounce, escapeHtml, filterODataProperties, generateSortableTableHeaders, getMetadataDisplayName, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
 import { DialogService } from '../services/DialogService.js';
 import { Store } from '../core/Store.js';
 import { Config } from '../constants/index.js';
 
 const _debounce = debounce || ((fn, wait = 200) => {
-    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn.apply(null, args), wait); };
+    let t;
+    const debouncedFn = (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(null, args), wait);
+    };
+    debouncedFn.cancel = () => {
+        clearTimeout(t);
+        t = null;
+    };
+    return debouncedFn;
 });
 
 /**
@@ -27,6 +36,8 @@ const _debounce = debounce || ((fn, wait = 200) => {
  * @property {object|null} selectedEntity - The metadata for the currently selected entity.
  * @property {Array<object>} selectedEntityAttributes - The attribute definitions for the selected entity.
  * @property {Function|null} unsubscribe - The function to call to unsubscribe from store updates.
+ * @property {{column: string, direction: 'asc'|'desc'}} entitySortState - Current sort state for the entity table.
+ * @property {{column: string, direction: 'asc'|'desc'}} attributeSortState - Current sort state for the attribute table.
  */
 export class MetadataBrowserTab extends BaseComponent {
     /**
@@ -42,6 +53,20 @@ export class MetadataBrowserTab extends BaseComponent {
         /** @private */ this._loadToken = 0;
         /** @private */ this._attrLoadToken = 0;
         /** @private */ this._persistKey = 'pdt-metadata:lastEntity';
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._entitySearchHandler = null;
+        /** @private {Function|null} */ this._attributeSearchHandler = null;
+        /** @private {Function|null} */ this._entityListClickHandler = null;
+        /** @private {Function|null} */ this._entityListKeydownHandler = null;
+        /** @private {Function|null} */ this._attributeListClickHandler = null;
+        /** @private {Function|null} */ this._attributeListKeydownHandler = null;
+        /** @private {Function|null} */ this._resizerMousedownHandler = null;
+        /** @private {Function|null} */ this._handleEntitySort = null;
+        /** @private {Function|null} */ this._handleAttributeSort = null;
+        /** @private {Object|null} */ this._activeDragHandlers = null;
+        this.entitySortState = { column: '_displayName', direction: 'asc' };
+        this.attributeSortState = { column: '_displayName', direction: 'asc' };
     }
 
     /**
@@ -106,10 +131,29 @@ export class MetadataBrowserTab extends BaseComponent {
         // Initial data load.
         this._loadData();
 
-        this.ui.entitySearch.addEventListener('keyup', _debounce(() => this._filterEntityList(), 200));
-        this.ui.attributeSearch.addEventListener('keyup', _debounce(() => this._filterAttributeList(), 200));
+        // Store debounced handlers for cleanup
+        this._entitySearchHandler = _debounce(() => this._filterEntityList(), 200);
+        this._attributeSearchHandler = _debounce(() => this._filterAttributeList(), 200);
 
-        this.ui.entityList.addEventListener('click', (e) => {
+        this.ui.entitySearch.addEventListener('keyup', this._entitySearchHandler);
+        this.ui.attributeSearch.addEventListener('keyup', this._attributeSearchHandler);
+
+        // Helper to handle sorting (stored as instance property to avoid closure leak)
+        this._handleEntitySort = (header) => {
+            const sortKey = header.dataset.sortKey;
+            toggleSortState(this.entitySortState, sortKey);
+            this._filterEntityList();
+        };
+
+        // Store event handlers for cleanup
+        this._entityListClickHandler = (e) => {
+            // Handle header clicks for sorting
+            const header = e.target.closest('th[data-sort-key]');
+            if (header) {
+                this._handleEntitySort(header);
+                return;
+            }
+
             const row = e.target.closest('tr[data-logical-name]');
             if (row) {
                 const logicalName = row.dataset.logicalName;
@@ -122,9 +166,34 @@ export class MetadataBrowserTab extends BaseComponent {
                 this.ui.entityList.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
                 row.classList.add('active');
             }
-        });
+        };
 
-        this.ui.attributeList.addEventListener('click', (e) => {
+        this._entityListKeydownHandler = (e) => {
+            const header = e.target.closest('th[data-sort-key]');
+            if (header && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                this._handleEntitySort(header);
+            }
+        };
+
+        this.ui.entityList.addEventListener('click', this._entityListClickHandler);
+        this.ui.entityList.addEventListener('keydown', this._entityListKeydownHandler);
+
+        // Helper to handle sorting (stored as instance property to avoid closure leak)
+        this._handleAttributeSort = (header) => {
+            const sortKey = header.dataset.sortKey;
+            toggleSortState(this.attributeSortState, sortKey);
+            this._filterAttributeList();
+        };
+
+        this._attributeListClickHandler = (e) => {
+            // Handle header clicks for sorting
+            const header = e.target.closest('th[data-sort-key]');
+            if (header) {
+                this._handleAttributeSort(header);
+                return;
+            }
+
             const row = e.target.closest('tr[data-logical-name]');
             if (row) {
                 const attribute = this.selectedEntityAttributes.find(a => a.LogicalName === row.dataset.logicalName);
@@ -133,15 +202,119 @@ export class MetadataBrowserTab extends BaseComponent {
                     this._showMetadataDetailsDialog(`Column Details: ${title}`, attribute);
                 }
             }
-        });
+        };
+
+        this._attributeListKeydownHandler = (e) => {
+            const header = e.target.closest('th[data-sort-key]');
+            if (header && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                this._handleAttributeSort(header);
+            }
+        };
+
+        this.ui.attributeList.addEventListener('click', this._attributeListClickHandler);
+        this.ui.attributeList.addEventListener('keydown', this._attributeListKeydownHandler);
+
+        // Setup panel resizer
+        this._makePanelsResizable();
     }
 
     /**
-     * Lifecycle hook for cleaning up resources, specifically the store subscription, to prevent memory leaks.
+     * Sets up the resizable panels by attaching drag handlers to the resizer element.
+     * @private
+     */
+    _makePanelsResizable() {
+        if (!this.ui.resizer) {
+            return;
+        }
+
+        // Store resizer handler for cleanup
+        this._resizerMousedownHandler = (e) => {
+            e.preventDefault();
+
+            const startX = e.clientX;
+            const startWidth = this.ui.resizer.previousElementSibling.offsetWidth;
+
+            const handleDrag = (moveEvent) => {
+                const newWidth = startWidth + (moveEvent.clientX - startX);
+                if (newWidth > 200 && newWidth < (this.ui.container.offsetWidth - 200)) {
+                    this.ui.resizer.previousElementSibling.style.flexBasis = `${newWidth}px`;
+                }
+            };
+
+            const stopDrag = () => {
+                document.removeEventListener('mousemove', handleDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.body.style.cursor = '';
+                this._activeDragHandlers = null; // Clear reference after cleanup
+            };
+
+            // Store active drag handlers for potential mid-drag cleanup
+            this._activeDragHandlers = { handleDrag, stopDrag };
+
+            document.addEventListener('mousemove', handleDrag);
+            document.addEventListener('mouseup', stopDrag);
+            document.body.style.cursor = 'col-resize';
+        };
+
+        this.ui.resizer.addEventListener('mousedown', this._resizerMousedownHandler);
+    }
+
+    /**
+     * Lifecycle hook for cleaning up resources, including event listeners and store subscription, to prevent memory leaks.
      */
     destroy() {
+        // Unsubscribe from store
         if (this.unsubscribe) {
             this.unsubscribe();
+        }
+
+        // Remove search handlers
+        if (this.ui.entitySearch && this._entitySearchHandler) {
+            this.ui.entitySearch.removeEventListener('keyup', this._entitySearchHandler);
+            // Cancel any pending debounced entity search
+            if (this._entitySearchHandler.cancel) {
+                this._entitySearchHandler.cancel();
+            }
+        }
+        if (this.ui.attributeSearch && this._attributeSearchHandler) {
+            this.ui.attributeSearch.removeEventListener('keyup', this._attributeSearchHandler);
+            // Cancel any pending debounced attribute search
+            if (this._attributeSearchHandler.cancel) {
+                this._attributeSearchHandler.cancel();
+            }
+        }
+
+        // Remove list handlers
+        if (this.ui.entityList) {
+            if (this._entityListClickHandler) {
+                this.ui.entityList.removeEventListener('click', this._entityListClickHandler);
+            }
+            if (this._entityListKeydownHandler) {
+                this.ui.entityList.removeEventListener('keydown', this._entityListKeydownHandler);
+            }
+        }
+
+        if (this.ui.attributeList) {
+            if (this._attributeListClickHandler) {
+                this.ui.attributeList.removeEventListener('click', this._attributeListClickHandler);
+            }
+            if (this._attributeListKeydownHandler) {
+                this.ui.attributeList.removeEventListener('keydown', this._attributeListKeydownHandler);
+            }
+        }
+
+        // Remove resizer handler
+        if (this.ui.resizer && this._resizerMousedownHandler) {
+            this.ui.resizer.removeEventListener('mousedown', this._resizerMousedownHandler);
+        }
+
+        // Clean up active drag handlers if destroy is called during a drag operation
+        if (this._activeDragHandlers) {
+            document.removeEventListener('mousemove', this._activeDragHandlers.handleDrag);
+            document.removeEventListener('mouseup', this._activeDragHandlers.stopDrag);
+            document.body.style.cursor = ''; // Reset cursor
+            this._activeDragHandlers = null;
         }
     }
 
@@ -164,7 +337,7 @@ export class MetadataBrowserTab extends BaseComponent {
         if (impersonationInfo.isImpersonating && !warningDismissed) {
             const notification = document.createElement('div');
             notification.className = 'pdt-note';
-            notification.style.cssText = `display:flex;align-items:center;gap:15px;margin:0 10px 10px`;
+            notification.style.cssText = 'display:flex;align-items:center;gap:15px;margin:0 10px 10px';
             notification.innerHTML = `
       <span style="font-size:1.5em;">ℹ️</span>
       <div style="text-align:left;flex-grow:1;">
@@ -181,7 +354,9 @@ export class MetadataBrowserTab extends BaseComponent {
 
         try {
             const entities = await DataService.getEntityDefinitions();
-            if (myToken !== this._loadToken) return; // stale
+            if (myToken !== this._loadToken) {
+                return;
+            } // stale
             this.allEntities = entities || [];
             this._renderEntityList(this.allEntities);
 
@@ -194,45 +369,11 @@ export class MetadataBrowserTab extends BaseComponent {
                 row?.classList.add('active');
             }
         } catch (e) {
-            if (myToken !== this._loadToken) return;
+            if (myToken !== this._loadToken) {
+                return;
+            }
             this.ui.entityList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.METADATA_BROWSER.loadTablesFailed(escapeHtml(e.message || String(e)))}</div>`;
         }
-
-        this._makePanelsResizable(this.ui.resizer);
-    }
-
-    /**
-     * Attaches event listeners to the resizer element to handle dragging.
-     * @param {HTMLElement} resizer - The resizer element to make draggable.
-     * @private
-     */
-    _makePanelsResizable(resizer) {
-        const leftPanel = resizer.previousElementSibling;
-
-        resizer.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-
-            const startX = e.clientX;
-            const startWidth = leftPanel.offsetWidth;
-
-            const handleDrag = (moveEvent) => {
-                const newWidth = startWidth + (moveEvent.clientX - startX);
-                // Add constraints to prevent the panels from becoming too small
-                if (newWidth > 200 && newWidth < (this.ui.container.offsetWidth - 200)) {
-                    leftPanel.style.flexBasis = `${newWidth}px`;
-                }
-            };
-
-            const stopDrag = () => {
-                document.removeEventListener('mousemove', handleDrag);
-                document.removeEventListener('mouseup', stopDrag);
-                document.body.style.cursor = ''; // Reset the global cursor
-            };
-
-            document.addEventListener('mousemove', handleDrag);
-            document.addEventListener('mouseup', stopDrag);
-            document.body.style.cursor = 'col-resize'; // Show resize cursor everywhere while dragging
-        });
     }
 
     /**
@@ -244,7 +385,9 @@ export class MetadataBrowserTab extends BaseComponent {
         const myToken = ++this._attrLoadToken;
 
         this.selectedEntity = this.allEntities.find(e => e.LogicalName === logicalName) || null;
-        if (!this.selectedEntity) return;
+        if (!this.selectedEntity) {
+            return;
+        }
 
         // Persist selection
         sessionStorage.setItem(this._persistKey, logicalName);
@@ -255,11 +398,15 @@ export class MetadataBrowserTab extends BaseComponent {
 
         try {
             const attrs = await DataService.getAttributeDefinitions(logicalName);
-            if (myToken !== this._attrLoadToken) return; // stale
+            if (myToken !== this._attrLoadToken) {
+                return;
+            } // stale
             this.selectedEntityAttributes = attrs || [];
             this._renderAttributeList(this.selectedEntityAttributes);
         } catch (e) {
-            if (myToken !== this._attrLoadToken) return;
+            if (myToken !== this._attrLoadToken) {
+                return;
+            }
             this.ui.attributeList.innerHTML = `<div class="pdt-error">${Config.MESSAGES.METADATA_BROWSER.loadColumnsFailed(escapeHtml(e.message || String(e)))}</div>`;
         }
     }
@@ -271,13 +418,16 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _renderEntityList(entities) {
         const listContainer = this.ui.entityList;
-        const validEntities = entities.filter(item => item && item.LogicalName);
 
-        // Add a temporary _displayName property for sorting, then sort by it
-        validEntities.forEach(item => {
-            item._displayName = getMetadataDisplayName(item);
-        });
-        sortArrayByColumn(validEntities, '_displayName', 'asc');
+        // Create a shallow copy with computed _displayName to avoid mutating original objects
+        const validEntities = entities
+            .filter(item => item && item.LogicalName)
+            .map(item => ({
+                ...item,
+                _displayName: getMetadataDisplayName(item)
+            }));
+
+        sortArrayByColumn(validEntities, this.entitySortState.column, this.entitySortState.direction);
 
         const rows = validEntities.map(item => `
             <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details and load columns">
@@ -285,9 +435,15 @@ export class MetadataBrowserTab extends BaseComponent {
                 <td class="code-like">${item.LogicalName}</td>
             </tr>`).join('');
 
+        const headers = [
+            { key: '_displayName', label: 'Display Name' },
+            { key: 'LogicalName', label: 'Logical Name' }
+        ];
+        const headerHtml = generateSortableTableHeaders(headers, this.entitySortState);
+
         const tableHTML = `
             <table class="pdt-table">
-                <thead><tr><th>Display Name</th><th>Logical Name</th></tr></thead>
+                <thead>${headerHtml}</thead>
                 <tbody>${rows}</tbody>
             </table>`;
 
@@ -296,6 +452,7 @@ export class MetadataBrowserTab extends BaseComponent {
 
         if (existingTable) {
             // If a table already exists (e.g., from a search filter), just update its content.
+            existingTable.querySelector('thead').innerHTML = headerHtml;
             existingTable.querySelector('tbody').innerHTML = rows;
         } else if (loadingMessage) {
             // If the loading message is present, replace it with the new table.
@@ -312,13 +469,15 @@ export class MetadataBrowserTab extends BaseComponent {
      * @private
      */
     _renderAttributeList(attributes) {
-        const validAttributes = attributes.filter(item => item && item.LogicalName);
+        // Create a shallow copy with computed _displayName to avoid mutating original objects
+        const validAttributes = attributes
+            .filter(item => item && item.LogicalName)
+            .map(item => ({
+                ...item,
+                _displayName: getMetadataDisplayName(item)
+            }));
 
-        // Add a temporary _displayName property for sorting, then sort by it
-        validAttributes.forEach(item => {
-            item._displayName = getMetadataDisplayName(item);
-        });
-        sortArrayByColumn(validAttributes, '_displayName', 'asc');
+        sortArrayByColumn(validAttributes, this.attributeSortState.column, this.attributeSortState.direction);
 
         const rows = validAttributes.map(item => `
             <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details">
@@ -326,9 +485,17 @@ export class MetadataBrowserTab extends BaseComponent {
                 <td class="code-like">${item.LogicalName}</td>
                 <td>${item.AttributeType}</td>
             </tr>`).join('');
+
+        const headers = [
+            { key: '_displayName', label: 'Display Name' },
+            { key: 'LogicalName', label: 'Logical Name' },
+            { key: 'AttributeType', label: 'Type' }
+        ];
+        const headerHtml = generateSortableTableHeaders(headers, this.attributeSortState);
+
         this.ui.attributeList.innerHTML = `
             <table class="pdt-table">
-                <thead><tr><th>Display Name</th><th>Logical Name</th><th>Type</th></tr></thead>
+                <thead>${headerHtml}</thead>
                 <tbody>${rows}</tbody>
             </table>`;
     }
@@ -389,7 +556,7 @@ export class MetadataBrowserTab extends BaseComponent {
         });
 
         // Attach the live filter listener
-        searchInput.addEventListener('keyup', debounce(() => {
+        const filterHandler = debounce(() => {
             const term = searchInput.value.toLowerCase();
             for (let i = 0; i < grid.children.length; i += 2) {
                 const labelEl = grid.children[i];
@@ -399,8 +566,19 @@ export class MetadataBrowserTab extends BaseComponent {
                 labelEl.style.display = display;
                 valueEl.style.display = display;
             }
-        }, 200));
+        }, 200);
 
-        DialogService.show(title, content);
+        searchInput.addEventListener('keyup', filterHandler);
+
+        const dialog = DialogService.show(title, content);
+
+        // Override dialog close to cancel pending debounced filter
+        const originalClose = dialog.close;
+        dialog.close = () => {
+            if (filterHandler?.cancel) {
+                filterHandler.cancel();
+            }
+            originalClose();
+        };
     }
 }

@@ -89,9 +89,45 @@
     position: fixed;
     resize: both;
     top: 5vh;
-    transition: background-color 0.3s,color 0.3s,border-color 0.3s;
+
+    -webkit-transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    -moz-transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    -ms-transition: background-color 0.2s ease-out, color 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.25s ease-out;
+    -o-transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     width: 75vw;
     z-index: 10001;
+    will-change: transform, opacity;
+    contain: layout style;
+}
+
+.powerapps-dev-toolkit.pdt-minimized {
+    height: auto !important;
+    min-height: auto;
+    min-width: 120px !important;
+    resize: horizontal;
+    box-shadow: 0 8px 25px var(--pro-shadow);
+    border-color: var(--pro-accent);
+    will-change: auto;
+    contain: layout style;
+}
+
+.powerapps-dev-toolkit.pdt-minimized .pdt-main-body,
+.powerapps-dev-toolkit.pdt-minimized .pdt-footer {
+    opacity: 0;
+    -webkit-transform: scaleY(0);
+    -moz-transform: scaleY(0);
+    -ms-transform: scaleY(0);
+    -o-transform: scaleY(0);
+    transform: scaleY(0);
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .pdt-header {
@@ -103,6 +139,32 @@
     justify-content: space-between;
     padding: 12px 10px 12px 20px;
     user-select: none;
+    -webkit-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    -moz-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    -ms-transition: all 0.2s ease-out; /* Fallback for IE */
+    -o-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.powerapps-dev-toolkit.pdt-minimized .pdt-header {
+    background: linear-gradient(90deg, var(--pro-bg-light) 0%, rgba(0,120,212,0.05) 100%);
+    border-bottom: 1px solid var(--pro-accent);
+    min-width: 0;
+    padding: 8px 6px 8px 12px;
+}
+
+.powerapps-dev-toolkit.pdt-minimized .pdt-header h1 {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex-shrink: 1;
+    font-size: 16px;
+}
+
+.powerapps-dev-toolkit.pdt-minimized .pdt-header-controls {
+    flex-shrink: 0;
+    gap: 2px;
 }
 
 .pdt-header h1 {
@@ -127,6 +189,10 @@
     display: flex;
     flex-grow: 1;
     overflow: hidden;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: top;
 }
 
 .pdt-content {
@@ -160,6 +226,10 @@
     font-size: 12px;
     justify-content: space-between;
     padding: 8px 20px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: bottom;
 }
 
 /**
@@ -253,13 +323,17 @@
     justify-content: center;
     line-height: 1;
     padding: 0;
-    transition: background-color 0.2s,color 0.2s;
+    transition: background-color 0.1s ease-out,color 0.1s ease-out;
     width: 36px;
 }
 
 .pdt-icon-btn:hover {
     background: var(--pro-hover-bg);
     color: var(--pro-text-primary);
+}
+
+.pdt-icon-btn:active {
+    transform: scale(0.95);
 }
 
 .pdt-icon-btn:disabled {
@@ -768,7 +842,7 @@ input[type="datetime-local"].pdt-input {
     gap: 10px;
     justify-content: center;
     margin-top: 15px;
-    width: 100%; /* Add this line */
+    width: 100%;
 }
 
 /* --- Cards --- */

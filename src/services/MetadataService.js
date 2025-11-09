@@ -25,8 +25,12 @@ const _metadataCache = new Map();
  * @returns {object}
  */
 function _normalizeObjectKeys(obj) {
-    if (typeof obj !== 'object' || obj === null) return obj;
-    if (Array.isArray(obj)) return obj.map(_normalizeObjectKeys);
+    if (typeof obj !== 'object' || obj === null) {
+        return obj;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(_normalizeObjectKeys);
+    }
     return Object.entries(obj).reduce((acc, [key, value]) => {
         const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
         acc[pascalKey] = _normalizeObjectKeys(value);
@@ -60,8 +64,12 @@ export const MetadataService = {
      * @returns {Promise<void>}
      */
     async loadEntityMetadata(webApiFetch, impersonatedUserId = null) {
-        if (_isMetadataLoaded) return;
-        if (_metadataPromise) return _metadataPromise;
+        if (_isMetadataLoaded) {
+            return;
+        }
+        if (_metadataPromise) {
+            return _metadataPromise;
+        }
 
         _metadataPromise = (async () => {
             try {
@@ -129,7 +137,9 @@ export const MetadataService = {
         return _fetch('entityDefinitions', async () => {
             try {
                 const response = await webApiFetch('GET', 'EntityDefinitions');
-                if (!response || !response.value) return [];
+                if (!response || !response.value) {
+                    return [];
+                }
                 const allDefinitions = response.value;
 
                 if (!impersonatedUserId) {
@@ -197,7 +207,9 @@ export const MetadataService = {
     async getEntityBySetName(webApiFetch, impersonatedUserId, entitySetName) {
         await this.loadEntityMetadata(webApiFetch, impersonatedUserId);
         const logical = _entityBySetNameCache.get(entitySetName);
-        if (logical) return { LogicalName: logical, EntitySetName: entitySetName };
+        if (logical) {
+            return { LogicalName: logical, EntitySetName: entitySetName };
+        }
 
         // Not in cache - try fetching all definitions
         const defs = await this.getEntityDefinitions(webApiFetch, impersonatedUserId, true);
@@ -213,12 +225,16 @@ export const MetadataService = {
      * @returns {Promise<{LogicalName:string, EntitySetName:string}|null>}
      */
     async getEntityByAny(webApiFetch, impersonatedUserId, nameOrSet) {
-        if (!nameOrSet) return null;
+        if (!nameOrSet) {
+            return null;
+        }
 
         // Try as entity set name first
         try {
             const bySet = await this.getEntityBySetName(webApiFetch, impersonatedUserId, nameOrSet);
-            if (bySet) return bySet;
+            if (bySet) {
+                return bySet;
+            }
         } catch (_) { /* ignore */ }
 
         // Try all definitions
@@ -227,7 +243,9 @@ export const MetadataService = {
             const hit = defs.find(e =>
                 e?.LogicalName === nameOrSet || e?.EntitySetName === nameOrSet
             );
-            if (hit) return { LogicalName: hit.LogicalName, EntitySetName: hit.EntitySetName };
+            if (hit) {
+                return { LogicalName: hit.LogicalName, EntitySetName: hit.EntitySetName };
+            }
         }
 
         return null;
@@ -246,7 +264,9 @@ export const MetadataService = {
         defs.forEach(d => {
             const ln = d.LogicalName;
             const t = (d.AttributeTypeName?.Value || d.AttributeType || '').toLowerCase();
-            if (!ln) return;
+            if (!ln) {
+                return;
+            }
 
             if (t.includes('lookup')) {
                 map.set(ln, { type: 'lookup', targets: d.Targets || d.Target || [] });

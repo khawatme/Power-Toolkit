@@ -29,6 +29,20 @@ export class SettingsTab extends BaseComponent {
         this.draggedItem = null;
         // Bind and throttle the dragover handler for performance
         this.throttledDragOver = throttle(this._handleDragOver.bind(this), 100);
+
+        // DOM element references for cleanup
+        /** @private {HTMLElement|null} */ this._listElement = null;
+        /** @private {HTMLElement|null} */ this._exportBtn = null;
+        /** @private {HTMLElement|null} */ this._importBtn = null;
+        /** @private {HTMLElement|null} */ this._resetBtn = null;
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._handleVisibilityChangeBound = null;
+        /** @private {Function|null} */ this._handleDragStartBound = null;
+        /** @private {Function|null} */ this._handleDragEndBound = null;
+        /** @private {Function|null} */ this._handleExport = null;
+        /** @private {Function|null} */ this._handleImport = null;
+        /** @private {Function|null} */ this._handleReset = null;
     }
 
     /**
@@ -57,15 +71,52 @@ export class SettingsTab extends BaseComponent {
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
-        const list = element.querySelector('#tab-settings-list');
-        list.addEventListener('change', e => this._handleVisibilityChange(e));
-        list.addEventListener('dragstart', e => this._handleDragStart(e));
-        list.addEventListener('dragend', e => this._handleDragEnd(e));
-        list.addEventListener('dragover', this.throttledDragOver);
+        this._listElement = element.querySelector('#tab-settings-list');
+        this._exportBtn = element.querySelector('#pdt-export-settings');
+        this._importBtn = element.querySelector('#pdt-import-settings');
+        this._resetBtn = element.querySelector('#pdt-reset-settings');
 
-        element.querySelector('#pdt-export-settings').onclick = () => this._exportSettings();
-        element.querySelector('#pdt-import-settings').onclick = () => this._importSettings();
-        element.querySelector('#pdt-reset-settings').onclick = () => this._resetAllSettings();
+        // Store bound event handlers for cleanup
+        this._handleVisibilityChangeBound = (e) => this._handleVisibilityChange(e);
+        this._handleDragStartBound = (e) => this._handleDragStart(e);
+        this._handleDragEndBound = (e) => this._handleDragEnd(e);
+        this._handleExport = () => this._exportSettings();
+        this._handleImport = () => this._importSettings();
+        this._handleReset = () => this._resetAllSettings();
+
+        this._listElement.addEventListener('change', this._handleVisibilityChangeBound);
+        this._listElement.addEventListener('dragstart', this._handleDragStartBound);
+        this._listElement.addEventListener('dragend', this._handleDragEndBound);
+        this._listElement.addEventListener('dragover', this.throttledDragOver);
+
+        this._exportBtn.onclick = this._handleExport;
+        this._importBtn.onclick = this._handleImport;
+        this._resetBtn.onclick = this._handleReset;
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this._listElement) {
+            this._listElement.removeEventListener('change', this._handleVisibilityChangeBound);
+            this._listElement.removeEventListener('dragstart', this._handleDragStartBound);
+            this._listElement.removeEventListener('dragend', this._handleDragEndBound);
+            this._listElement.removeEventListener('dragover', this.throttledDragOver);
+        }
+        // Cancel any pending throttled dragover
+        if (this.throttledDragOver?.cancel) {
+            this.throttledDragOver.cancel();
+        }
+        if (this._exportBtn) {
+            this._exportBtn.onclick = null;
+        }
+        if (this._importBtn) {
+            this._importBtn.onclick = null;
+        }
+        if (this._resetBtn) {
+            this._resetBtn.onclick = null;
+        }
     }
 
     /**
@@ -108,7 +159,9 @@ export class SettingsTab extends BaseComponent {
      * @private
      */
     _handleVisibilityChange(e) {
-        if (!e.target.classList.contains('tab-visibility-toggle')) return;
+        if (!e.target.classList.contains('tab-visibility-toggle')) {
+            return;
+        }
 
         const tabId = e.target.closest('li').dataset.tabId;
         const newSettings = Store.getState().tabSettings.map(setting =>
@@ -155,7 +208,7 @@ export class SettingsTab extends BaseComponent {
         const list = e.currentTarget;
         const afterElement = this._getDragAfterElement(list, e.clientY);
         if (this.draggedItem) {
-            if (afterElement == null) {
+            if (afterElement === null || afterElement === undefined) {
                 list.appendChild(this.draggedItem);
             } else {
                 list.insertBefore(this.draggedItem, afterElement);
@@ -222,13 +275,19 @@ export class SettingsTab extends BaseComponent {
             accept: '.json',
             onChange: async (e) => {
                 const file = e.target.files[0];
-                if (!file) return;
+                if (!file) {
+                    return;
+                }
 
                 try {
                     const imported = await readJsonFile(file);
-                    let newState = {};
-                    if (imported.tabSettings) newState.tabSettings = imported.tabSettings;
-                    if (imported.theme) newState.theme = imported.theme;
+                    const newState = {};
+                    if (imported.tabSettings) {
+                        newState.tabSettings = imported.tabSettings;
+                    }
+                    if (imported.theme) {
+                        newState.theme = imported.theme;
+                    }
 
                     if (Object.keys(newState).length > 0) {
                         Store.setState(newState);

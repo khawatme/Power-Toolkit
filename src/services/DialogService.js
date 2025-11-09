@@ -73,7 +73,9 @@ export const DialogService = {
         };
 
         const handleEscKey = (e) => {
-            if (e.key === 'Escape') close();
+            if (e.key === 'Escape') {
+                close();
+            }
         };
 
         // Add ESC key support for accessibility
@@ -82,7 +84,9 @@ export const DialogService = {
         closeButton.onclick = close;
         cancelButton.onclick = close;
         dialogOverlay.onclick = (e) => {
-            if (e.target === dialogOverlay) close();
+            if (e.target === dialogOverlay) {
+                close();
+            }
         };
 
         if (callback && okButton) {

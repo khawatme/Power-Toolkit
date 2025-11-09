@@ -14,7 +14,9 @@ export const AutomationService = {
      * @returns {Promise<Array<object>>} Business rule definitions
      */
     async getBusinessRulesForEntity(executeFetchXml, entityName) {
-        if (!entityName) return [];
+        if (!entityName) {
+            return [];
+        }
 
         const entityMetadata = await PowerAppsApiService.getEntityMetadata(entityName);
 
@@ -46,7 +48,9 @@ export const AutomationService = {
         const headers = { 'Prefer': 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"' };
         const response = await executeFetchXml('workflows', fetchXml, headers);
 
-        if (!response.entities || response.entities.length === 0) return [];
+        if (!response.entities || response.entities.length === 0) {
+            return [];
+        }
 
         // Separate definitions (type=1) from activations (type=2)
         const definitions = response.entities.filter(rule => rule.type === 1);

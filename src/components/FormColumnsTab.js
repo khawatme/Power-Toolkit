@@ -8,7 +8,7 @@
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, generateSortableTableHeaders, isSystemProperty, parseInputValue, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
+import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, isSystemProperty, parseInputValue } from '../helpers/index.js';
 import { DialogService } from '../services/DialogService.js';
 import { FormControlFactory } from '../ui/FormControlFactory.js';
 import { NotificationService } from '../services/NotificationService.js';
@@ -153,17 +153,41 @@ export class FormColumnsTab extends BaseComponent {
         try {
             const w = this.ui?.tableWrapper;
             if (w) {
-                if (this._onClick) w.removeEventListener('click', this._onClick);
-                if (this._onMove) w.removeEventListener('mousemove', this._onMove);
-                if (this._onLeave) w.removeEventListener('mouseleave', this._onLeave);
-                if (this._onScroll) w.removeEventListener('scroll', this._onScroll);
+                if (this._onClick) {
+                    w.removeEventListener('click', this._onClick);
+                }
+                if (this._onMove) {
+                    w.removeEventListener('mousemove', this._onMove);
+                }
+                if (this._onLeave) {
+                    w.removeEventListener('mouseleave', this._onLeave);
+                }
+                if (this._onScroll) {
+                    w.removeEventListener('scroll', this._onScroll);
+                }
+            }
+            // Cancel any pending debounced scroll
+            if (this._onScroll?.cancel) {
+                this._onScroll.cancel();
             }
             const s = this.ui?.searchInput;
-            if (s && this._onSearch) s.removeEventListener('input', this._onSearch);
-            if (this.ui?.odataToggle && this._onOdata) this.ui.odataToggle.removeEventListener('change', this._onOdata);
-            if (this.ui?.unusedColsToggle && this._onUnused) this.ui.unusedColsToggle.removeEventListener('change', this._onUnused);
+            if (s && this._onSearch) {
+                s.removeEventListener('input', this._onSearch);
+            }
+            // Cancel any pending debounced render
+            if (this._onSearch?.cancel) {
+                this._onSearch.cancel();
+            }
+            if (this.ui?.odataToggle && this._onOdata) {
+                this.ui.odataToggle.removeEventListener('change', this._onOdata);
+            }
+            if (this.ui?.unusedColsToggle && this._onUnused) {
+                this.ui.unusedColsToggle.removeEventListener('change', this._onUnused);
+            }
             const vs = this.ui?.viewSwitcher;
-            if (vs && this._onSwitch) vs.removeEventListener('click', this._onSwitch);
+            if (vs && this._onSwitch) {
+                vs.removeEventListener('click', this._onSwitch);
+            }
         } catch { }
     }
 
@@ -188,9 +212,15 @@ export class FormColumnsTab extends BaseComponent {
     }
 
     _normalizeColumnsResult(res) {
-        if (Array.isArray(res)) return res;
-        if (Array.isArray(res?.value)) return res.value;
-        if (Array.isArray(res?.columns)) return res.columns;
+        if (Array.isArray(res)) {
+            return res;
+        }
+        if (Array.isArray(res?.value)) {
+            return res.value;
+        }
+        if (Array.isArray(res?.columns)) {
+            return res.columns;
+        }
 
         // Plain object from Web API (single record): turn into array
         if (res && typeof res === 'object') {
@@ -220,7 +250,9 @@ export class FormColumnsTab extends BaseComponent {
     _updateRowUI(logicalName) {
         const row = this.tableBody?.querySelector(`tr[data-logical-name="${logicalName}"]`);
         const colData = this.allColumns.find(c => c.logicalName === logicalName);
-        if (!row || !colData?.attribute) return;
+        if (!row || !colData?.attribute) {
+            return;
+        }
 
         const newValue = formatDisplayValue(colData.attribute.getValue(), colData.attribute);
         const isDirty = colData.attribute.getIsDirty();
@@ -230,8 +262,12 @@ export class FormColumnsTab extends BaseComponent {
 
         const valueCell = row.cells?.[2];
         const dirtyCell = row.cells?.[4];
-        if (valueCell) { valueCell.textContent = newValue; valueCell.title = newValue; }
-        if (dirtyCell) { dirtyCell.innerHTML = isDirty ? '<span title="Modified since last save">🟡</span>' : ''; }
+        if (valueCell) {
+            valueCell.textContent = newValue; valueCell.title = newValue;
+        }
+        if (dirtyCell) {
+            dirtyCell.innerHTML = isDirty ? '<span title="Modified since last save">🟡</span>' : '';
+        }
     }
 
     /**
@@ -239,7 +275,9 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _attachLiveHandlers() {
-        if (this.viewMode !== 'form' || !this.tableBody) return;
+        if (this.viewMode !== 'form' || !this.tableBody) {
+            return;
+        }
 
         this.liveHandlers = this.allColumns
             .filter(col => col.attribute)
@@ -268,7 +306,7 @@ export class FormColumnsTab extends BaseComponent {
 
         DialogService.show(`Edit: ${logicalName}`, contentHtml, (contentDiv) => {
             try {
-                const input = contentDiv.querySelector("#pdt-prompt-input, select");
+                const input = contentDiv.querySelector('#pdt-prompt-input, select');
                 const newValue = parseInputValue(input, type);
 
                 attribute.setValue(newValue);
@@ -288,7 +326,9 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _renderTableRows() {
-        if (!this.tableBody) return;
+        if (!this.tableBody) {
+            return;
+        }
 
         const scrollLeft = this.ui.tableWrapper.scrollLeft;
         const filters = {
@@ -303,7 +343,7 @@ export class FormColumnsTab extends BaseComponent {
                 String(c.logicalName || '').toLowerCase().includes(filters.search);
 
             if (this.viewMode === 'all') {
-                const isSystem = c?.isSystem != null ? Boolean(c.isSystem) : isSystemProperty(c.logicalName);
+                const isSystem = c?.isSystem !== null ? Boolean(c.isSystem) : isSystemProperty(c.logicalName);
                 const onForm = Boolean(c?.onForm);
                 const systemMatch = filters.hideSystem ? !isSystem : true;
                 const unusedMatch = filters.showUnusedOnly ? !onForm : true;
@@ -320,7 +360,9 @@ export class FormColumnsTab extends BaseComponent {
 
         // Remove any existing "no results" message
         const existingNote = this.ui.tableWrapper.querySelector('.pdt-note');
-        if (existingNote) existingNote.remove();
+        if (existingNote) {
+            existingNote.remove();
+        }
 
         if (this.currentColumns.length === 0) {
             const note = document.createElement('p');
@@ -346,7 +388,9 @@ export class FormColumnsTab extends BaseComponent {
      */
     _handleViewSwitch(event) {
         const button = event.target.closest('button[data-view]');
-        if (!button || button.dataset.view === this.viewMode) return;
+        if (!button || button.dataset.view === this.viewMode) {
+            return;
+        }
         this.viewMode = button.dataset.view;
         this._updateViewState();
         this._loadAndRenderTable();
@@ -364,8 +408,12 @@ export class FormColumnsTab extends BaseComponent {
         this.ui.viewSwitcher.querySelector(`button[data-view="${this.viewMode}"]`)?.classList.add('active');
 
         if (isRecordView && !this._hasEnteredRecordView) {
-            if (this.ui.odataToggle) this.ui.odataToggle.checked = false;
-            if (this.ui.unusedColsToggle) this.ui.unusedColsToggle.checked = false;
+            if (this.ui.odataToggle) {
+                this.ui.odataToggle.checked = false;
+            }
+            if (this.ui.unusedColsToggle) {
+                this.ui.unusedColsToggle.checked = false;
+            }
             this._hasEnteredRecordView = true;
         }
     }
@@ -377,19 +425,29 @@ export class FormColumnsTab extends BaseComponent {
      */
     _handleTableClick(event) {
         const header = event.target.closest('th[data-column]');
-        if (header) { this._sortTable(header.dataset.column); return; }
+        if (header) {
+            this._sortTable(header.dataset.column); return;
+        }
 
         const row = event.target.closest('tr');
         const cell = event.target.closest('td');
-        if (!row || !cell) return;
+        if (!row || !cell) {
+            return;
+        }
 
         const logicalName = row.dataset.logicalName;
         const columnData = this.allColumns.find(c => c.logicalName === logicalName);
-        if (columnData?.type === 'lookup' && columnData.attribute) { this._showLookupDetails(columnData); return; }
-        if (cell.classList.contains('editable-cell') && columnData) { this._showAttributeEditor(columnData); return; }
+        if (columnData?.type === 'lookup' && columnData.attribute) {
+            this._showLookupDetails(columnData); return;
+        }
+        if (cell.classList.contains('editable-cell') && columnData) {
+            this._showAttributeEditor(columnData); return;
+        }
         if (cell.classList.contains('copyable-cell')) {
             const txt = (cell.getAttribute('data-full') || cell.textContent || '').trim();
-            if (!txt) return;
+            if (!txt) {
+                return;
+            }
             const preview = txt.length > 120 ? txt.slice(0, 117) + '…' : txt;
             copyToClipboard(txt, `Copied: ${preview}`);
         }
@@ -402,7 +460,9 @@ export class FormColumnsTab extends BaseComponent {
      */
     _showLookupDetails(columnData) {
         const lookupValue = columnData.attribute.getValue();
-        if (!lookupValue?.length) { NotificationService.show(Config.MESSAGES.FORM_COLUMNS.lookupEmpty, 'info'); return; }
+        if (!lookupValue?.length) {
+            NotificationService.show(Config.MESSAGES.FORM_COLUMNS.lookupEmpty, 'info'); return;
+        }
         const item = lookupValue[0];
         const contentHtml = `<div class="info-grid"><strong>Record Name:</strong><span class="copyable">${escapeHtml(item.name)}</span><strong>Record ID:</strong><span class="copyable">${escapeHtml(item.id)}</span><strong>Table:</strong><span class="copyable">${escapeHtml(item.entityType)}</span></div>`;
         DialogService.show(`Lookup: ${escapeHtml(columnData.displayName)}`, contentHtml);
@@ -416,18 +476,26 @@ export class FormColumnsTab extends BaseComponent {
      */
     _handleMouseMove(event) {
         const row = event.target.closest('tr');
-        if (row === this.currentlyHoveredRow) return;
+        if (row === this.currentlyHoveredRow) {
+            return;
+        }
 
         this._handleMouseOut(); // Clear previous highlight
-        if (!row) return;
+        if (!row) {
+            return;
+        }
 
         this.currentlyHoveredRow = row;
         const logicalName = row.dataset.logicalName;
-        if (!logicalName) return;
+        if (!logicalName) {
+            return;
+        }
 
         const columnData = this.allColumns.find(c => c.logicalName === logicalName);
         const controls = columnData?.attribute?.controls.get();
-        if (!controls?.length) return;
+        if (!controls?.length) {
+            return;
+        }
 
         const ctrlName = controls[0].getName();
         const controlElement =
@@ -450,7 +518,9 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _handleMouseOut() {
-        if (this.highlightedElement) { this.highlightedElement.classList.remove('pdt-highlight-border'); this.highlightedElement = null; }
+        if (this.highlightedElement) {
+            this.highlightedElement.classList.remove('pdt-highlight-border'); this.highlightedElement = null;
+        }
         this.currentlyHoveredRow = null;
     }
 
@@ -461,9 +531,11 @@ export class FormColumnsTab extends BaseComponent {
     _detachLiveHandlers() {
         try {
             this.liveHandlers.forEach(({ attribute, handler }) => {
-                if (attribute && typeof attribute.removeOnChange === 'function') { attribute.removeOnChange(handler); }
+                if (attribute && typeof attribute.removeOnChange === 'function') {
+                    attribute.removeOnChange(handler);
+                }
             });
-        } catch (error) {
+        } catch (_error) {
             // Silent - listener cleanup errors are handled gracefully
         } finally {
             this.liveHandlers = [];
@@ -504,7 +576,9 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _renderNextBatch() {
-        if (this.renderIndex >= this.currentColumns.length) return;
+        if (this.renderIndex >= this.currentColumns.length) {
+            return;
+        }
         const batch = this.currentColumns.slice(this.renderIndex, this.renderIndex + this.renderBatchSize);
         const rowsHtml = batch.map(c => this._createRowHtml(c)).join('');
         this.tableBody.insertAdjacentHTML('beforeend', rowsHtml);
@@ -517,7 +591,9 @@ export class FormColumnsTab extends BaseComponent {
      */
     _handleScroll() {
         const el = this.ui.tableWrapper;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) { this._renderNextBatch(); }
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+            this._renderNextBatch();
+        }
     }
 
     /**
@@ -529,7 +605,7 @@ export class FormColumnsTab extends BaseComponent {
     _createRowHtml(column) {
         const display = (column.displayName ?? column.logicalName ?? '');
         const fullVal =
-            column.value == null
+            (column.value === null || column.value === undefined)
                 ? ''
                 : (typeof column.attribute?.getValue === 'function'
                     ? formatDisplayValue(column.attribute.getValue(), column.attribute)
@@ -580,7 +656,9 @@ export class FormColumnsTab extends BaseComponent {
             this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
         } else {
             this.sortState.column = column;
-            if (!isInitialSort) this.sortState.direction = 'asc';
+            if (!isInitialSort) {
+                this.sortState.direction = 'asc';
+            }
         }
         const direction = this.sortState.direction === 'asc' ? 1 : -1;
         this.currentColumns.sort((a, b) => {
@@ -610,7 +688,9 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     _updateHeaderSortClasses(headerRow) {
-        if (!headerRow) return;
+        if (!headerRow) {
+            return;
+        }
         headerRow.querySelectorAll('th').forEach(th => {
             th.classList.remove('sort-asc', 'sort-desc');
             if (th.dataset.column === this.sortState.column) {

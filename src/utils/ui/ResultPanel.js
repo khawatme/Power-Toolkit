@@ -29,6 +29,18 @@ export class ResultPanel {
         this.getSortState = getSortState;
         this.setSortState = setSortState;
         this._coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+        // DOM element references for cleanup
+        /** @private {HTMLElement|null} */ this._viewTableBtn = null;
+        /** @private {HTMLElement|null} */ this._viewJsonBtn = null;
+        /** @private {HTMLElement|null} */ this._hideCheckbox = null;
+        /** @private {HTMLElement|null} */ this._contentHost = null;
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._handleViewTable = null;
+        /** @private {Function|null} */ this._handleViewJson = null;
+        /** @private {Function|null} */ this._handleHideChange = null;
+        /** @private {Function|null} */ this._handleContentClick = null;
     }
 
     /**
@@ -59,11 +71,27 @@ export class ResultPanel {
             <div id="rp-content" class="pdt-result-wrapper"></div>
         `;
 
-        this.root.querySelector('#rp-view-table')?.addEventListener('click', () => this.onToggleView('table'));
-        this.root.querySelector('#rp-view-json')?.addEventListener('click', () => this.onToggleView('json'));
-        this.root.querySelector('#rp-hide')?.addEventListener('change', (e) => {
-            this.onToggleHide(!!e.target.checked);
-        });
+        // Clean up old listeners before adding new ones
+        this._removeToolbarListeners();
+
+        // Store element references and add listeners
+        this._viewTableBtn = this.root.querySelector('#rp-view-table');
+        this._viewJsonBtn = this.root.querySelector('#rp-view-json');
+        this._hideCheckbox = this.root.querySelector('#rp-hide');
+
+        this._handleViewTable = () => this.onToggleView('table');
+        this._handleViewJson = () => this.onToggleView('json');
+        this._handleHideChange = (e) => this.onToggleHide(!!e.target.checked);
+
+        if (this._viewTableBtn) {
+            this._viewTableBtn.addEventListener('click', this._handleViewTable);
+        }
+        if (this._viewJsonBtn) {
+            this._viewJsonBtn.addEventListener('click', this._handleViewJson);
+        }
+        if (this._hideCheckbox) {
+            this._hideCheckbox.addEventListener('change', this._handleHideChange);
+        }
     }
 
     /**
@@ -104,7 +132,9 @@ export class ResultPanel {
                 const bv = b?.[sort.column];
                 const aBlank = (av === null || av === undefined || av === '');
                 const bBlank = (bv === null || bv === undefined || bv === '');
-                if (aBlank !== bBlank) return aBlank ? 1 * dir : -1 * dir;
+                if (aBlank !== bBlank) {
+                    return aBlank ? 1 * dir : -1 * dir;
+                }
                 return cmp(String(av ?? ''), String(bv ?? '')) * dir;
             });
         }
@@ -118,10 +148,10 @@ export class ResultPanel {
         const bodyHtml = rows.map(rec => `
             <tr>
                 ${headers.map(h => {
-            const v = rec[h];
-            const text = (v === null || v === undefined) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
-            return `<td>${escapeHtml(text)}</td>`;
-        }).join('')}
+        const v = rec[h];
+        const text = (v === null || v === undefined) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+        return `<td>${escapeHtml(text)}</td>`;
+    }).join('')}
             </tr>
         `).join('');
 
@@ -132,9 +162,17 @@ export class ResultPanel {
             </table>
         `;
 
-        host.addEventListener('click', (e) => {
+        // Remove old content click listener before adding new one
+        if (this._contentHost && this._handleContentClick) {
+            this._contentHost.removeEventListener('click', this._handleContentClick);
+        }
+
+        this._contentHost = host;
+        this._handleContentClick = (e) => {
             const th = e.target.closest('th[data-column]');
-            if (!th) return;
+            if (!th) {
+                return;
+            }
             const col = th.getAttribute('data-column');
             const state = this.getSortState();
             if (state.column === col) {
@@ -145,7 +183,53 @@ export class ResultPanel {
             }
             this.setSortState(state);
             this.renderContent({ data, view, hideOdata });
-        }, { once: true });
+        };
+
+        host.addEventListener('click', this._handleContentClick);
+    }
+
+    /**
+     * Removes toolbar event listeners to prevent memory leaks.
+     * Early exit optimization to avoid unnecessary work if handlers don't exist.
+     * @private
+     */
+    _removeToolbarListeners() {
+        // Early exit if no handlers have been set up yet
+        if (!this._handleViewTable && !this._handleViewJson && !this._handleHideChange) {
+            return;
+        }
+
+        if (this._viewTableBtn && this._handleViewTable) {
+            this._viewTableBtn.removeEventListener('click', this._handleViewTable);
+        }
+        if (this._viewJsonBtn && this._handleViewJson) {
+            this._viewJsonBtn.removeEventListener('click', this._handleViewJson);
+        }
+        if (this._hideCheckbox && this._handleHideChange) {
+            this._hideCheckbox.removeEventListener('change', this._handleHideChange);
+        }
+    }
+
+    /**
+     * Cleans up all event listeners to prevent memory leaks.
+     * Call this when the ResultPanel is no longer needed.
+     */
+    destroy() {
+        this._removeToolbarListeners();
+
+        if (this._contentHost && this._handleContentClick) {
+            this._contentHost.removeEventListener('click', this._handleContentClick);
+        }
+
+        // Clear references
+        this._viewTableBtn = null;
+        this._viewJsonBtn = null;
+        this._hideCheckbox = null;
+        this._contentHost = null;
+        this._handleViewTable = null;
+        this._handleViewJson = null;
+        this._handleHideChange = null;
+        this._handleContentClick = null;
     }
 
     /**
@@ -156,11 +240,15 @@ export class ResultPanel {
      * @private
      */
     _stripOData(data) {
-        if (Array.isArray(data)) return data.map(d => this._stripOData(d));
+        if (Array.isArray(data)) {
+            return data.map(d => this._stripOData(d));
+        }
         if (data && typeof data === 'object') {
             const out = {};
             for (const k of Object.keys(data)) {
-                if (!isOdataProperty(k)) out[k] = this._stripOData(data[k]);
+                if (!isOdataProperty(k)) {
+                    out[k] = this._stripOData(data[k]);
+                }
             }
             return out;
         }

@@ -22,8 +22,12 @@ export const FormattingHelpers = {
      * @returns {string} A user-friendly string representation of the value.
      */
     formatDisplayValue(value, attribute, controlType) {
-        if (value === null) return "null";
-        if (value === undefined) return "undefined";
+        if (value === null) {
+            return 'null';
+        }
+        if (value === undefined) {
+            return 'undefined';
+        }
 
         if (controlType && controlType.includes('subgrid')) {
             return String(value);
@@ -44,7 +48,9 @@ export const FormattingHelpers = {
         }
 
         if (Array.isArray(value)) {
-            if (value.length === 0) return "[Empty Array]";
+            if (value.length === 0) {
+                return '[Empty Array]';
+            }
             return `[${value.length} items]`;
         }
         if (value instanceof Date) {
@@ -61,9 +67,15 @@ export const FormattingHelpers = {
      * @returns {string} A formatted preview string suitable for display in UI.
      */
     formatValuePreview(value, maxLength = 200) {
-        if (value == null) return '';
-        if (typeof value === 'string') return value;
-        if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+        if (value === null || value === undefined) {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
         try {
             const json = JSON.stringify(value);
             return json.length > maxLength ? json.slice(0, maxLength - 1) + '…' : json;
@@ -91,7 +103,9 @@ export const FormattingHelpers = {
     formatJsonIfValid(value) {
         const val = String(value ?? '').trim();
         const isJson = (val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'));
-        if (!isJson) return value ?? '';
+        if (!isJson) {
+            return value ?? '';
+        }
         try {
             return JSON.stringify(JSON.parse(val), null, 2);
         } catch {
@@ -182,7 +196,9 @@ export const FormattingHelpers = {
      * ]);
      */
     createInfoGrid(rows) {
-        if (!rows || !Array.isArray(rows) || rows.length === 0) return '';
+        if (!rows || !Array.isArray(rows) || rows.length === 0) {
+            return '';
+        }
 
         // Import escapeHtml dynamically to avoid circular dependency
         const escapeHtml = (str) => {

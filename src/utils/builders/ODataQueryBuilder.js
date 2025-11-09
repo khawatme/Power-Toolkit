@@ -36,37 +36,59 @@ export class ODataQueryBuilder {
             const { attr, op } = f;
             const raw = (f.value ?? '').trim();
 
-            if (!attr || !op) continue;
-            if (op.includes('null')) { filterParts.push(`${attr} ${op}`); continue; }
+            if (!attr || !op) {
+                continue;
+            }
+            if (op.includes('null')) {
+                filterParts.push(`${attr} ${op}`); continue;
+            }
 
             const meta = attrMap?.get(attr);
             const type = meta?.type || this._guess(raw);
 
             if (['contains', 'startswith', 'endswith', 'not contains'].includes(op)) {
-                if (type !== 'string') continue;
+                if (type !== 'string') {
+                    continue;
+                }
                 const fn = (op === 'not contains') ? 'contains' : op;
                 const expr = `${fn}(${attr},${esc(raw)})`;
                 filterParts.push(op === 'not contains' ? `not ${expr}` : expr);
                 continue;
             }
 
-            if (type === 'boolean') { filterParts.push(`${attr} ${op} ${raw.toLowerCase()}`); continue; }
-            if (type === 'number') { filterParts.push(`${attr} ${op} ${Number(raw)}`); continue; }
-            if (type === 'date') { filterParts.push(`${attr} ${op} ${esc(new Date(raw).toISOString())}`); continue; }
+            if (type === 'boolean') {
+                filterParts.push(`${attr} ${op} ${raw.toLowerCase()}`); continue;
+            }
+            if (type === 'number') {
+                filterParts.push(`${attr} ${op} ${Number(raw)}`); continue;
+            }
+            if (type === 'date') {
+                filterParts.push(`${attr} ${op} ${esc(new Date(raw).toISOString())}`); continue;
+            }
             if (type === 'optionset') {
                 filterParts.push(`${attr} ${op} ${isNaN(Number(raw)) ? esc(raw) : Number(raw)}`);
                 continue;
             }
-            if (type === 'lookup') { filterParts.push(`_${attr}_value ${op} ${raw}`); continue; }
+            if (type === 'lookup') {
+                filterParts.push(`_${attr}_value ${op} ${raw}`); continue;
+            }
 
             filterParts.push(`${attr} ${op} ${esc(raw)}`);
         }
 
         const params = [];
-        if (selectParts.length) params.push(`$select=${selectParts.join(',')}`);
-        if (filterParts.length) params.push(`$filter=${filterParts.join(' and ')}`);
-        if (top) params.push(`$top=${top}`);
-        if (orderAttr) params.push(`$orderby=${orderAttr} ${orderDir}`);
+        if (selectParts.length) {
+            params.push(`$select=${selectParts.join(',')}`);
+        }
+        if (filterParts.length) {
+            params.push(`$filter=${filterParts.join(' and ')}`);
+        }
+        if (top) {
+            params.push(`$top=${top}`);
+        }
+        if (orderAttr) {
+            params.push(`$orderby=${orderAttr} ${orderDir}`);
+        }
 
         return params.length ? `?${params.join('&')}` : '';
     }
@@ -79,10 +101,18 @@ export class ODataQueryBuilder {
      * @private
      */
     static _guess(v) {
-        if (/^(true|false)$/i.test(v)) return 'boolean';
-        if (isValidGuid(v)) return 'lookup';
-        if (!Number.isNaN(Number(v))) return 'number';
-        if (!Number.isNaN(Date.parse(v))) return 'date';
+        if (/^(true|false)$/i.test(v)) {
+            return 'boolean';
+        }
+        if (isValidGuid(v)) {
+            return 'lookup';
+        }
+        if (!Number.isNaN(Number(v))) {
+            return 'number';
+        }
+        if (!Number.isNaN(Date.parse(v))) {
+            return 'date';
+        }
         return 'string';
     }
 }

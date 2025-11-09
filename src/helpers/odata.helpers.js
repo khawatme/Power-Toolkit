@@ -37,7 +37,7 @@ export const ODataHelpers = {
         { text: 'Greater Than', fetch: 'gt', odata: 'gt' },
         { text: 'Greater or Equal', fetch: 'ge', odata: 'ge' },
         { text: 'Less Than', fetch: 'lt', odata: 'lt' },
-        { text: 'Less or Equal', fetch: 'le', odata: 'le' },
+        { text: 'Less or Equal', fetch: 'le', odata: 'le' }
     ],
 
     /**
@@ -47,7 +47,9 @@ export const ODataHelpers = {
      * @returns {string} The escaped string safe for OData queries.
      */
     escapeODataString(str) {
-        if (!str) return '';
+        if (!str) {
+            return '';
+        }
         // Double single quotes for OData (standard escaping)
         return String(str).replace(/'/g, "''");
     },
@@ -96,7 +98,9 @@ export const ODataHelpers = {
      * @returns {boolean} True if value input should be shown, false otherwise.
      */
     shouldShowOperatorValue(operator) {
-        if (!operator) return true;
+        if (!operator) {
+            return true;
+        }
         const op = String(operator).toLowerCase().trim();
         return op !== 'null' && op !== 'not-null' && op !== 'eq null' && op !== 'ne null';
     },
@@ -108,7 +112,9 @@ export const ODataHelpers = {
      * @returns {string} OData filter query parameter (e.g., "&$filter=contains(name, 'test')") or empty string.
      */
     buildODataFilterClauses(filters) {
-        if (!filters || typeof filters !== 'object') return '';
+        if (!filters || typeof filters !== 'object') {
+            return '';
+        }
 
         const clauses = [];
         for (const [key, value] of Object.entries(filters)) {
@@ -127,10 +133,18 @@ export const ODataHelpers = {
      * @returns {{entities: Array}} Normalized response with entities array.
      */
     normalizeApiResponse(response) {
-        if (response == null) return { entities: [] };
-        if (Array.isArray(response)) return { entities: response };
-        if (Array.isArray(response?.value)) return { entities: response.value };
-        if (Array.isArray(response?.entities)) return response;
+        if (response === null || response === undefined) {
+            return { entities: [] };
+        }
+        if (Array.isArray(response)) {
+            return { entities: response };
+        }
+        if (Array.isArray(response?.value)) {
+            return { entities: response.value };
+        }
+        if (Array.isArray(response?.entities)) {
+            return response;
+        }
         return { entities: [response] };
     },
 
@@ -141,16 +155,24 @@ export const ODataHelpers = {
      * @returns {Array<[string, *]>} An array of [key, value] tuples for display-worthy properties.
      */
     filterODataProperties(obj) {
-        if (!obj || typeof obj !== 'object') return [];
+        if (!obj || typeof obj !== 'object') {
+            return [];
+        }
 
         return Object.entries(obj)
             .filter(([key, value]) => {
                 // Exclude null values
-                if (value === null) return false;
+                if (value === null) {
+                    return false;
+                }
                 // Exclude object/array values (typically nested metadata)
-                if (typeof value === 'object') return false;
+                if (typeof value === 'object') {
+                    return false;
+                }
                 // Exclude OData metadata properties
-                if (key.startsWith('@odata')) return false;
+                if (key.startsWith('@odata')) {
+                    return false;
+                }
                 return true;
             })
             .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));

@@ -25,12 +25,12 @@ export * from './messages.js';
 /**
  * Unified configuration object that provides all application constants.
  * This object aggregates constants from individual modules for convenient access.
- * 
+ *
  * For tree-shaking optimization, you can use named imports:
  * @example
  * // Optimized (tree-shakeable)
  * import { TOOL_VERSION, MESSAGES } from '../constants';
- * 
+ *
  * // Also supported (convenience)
  * import { Config } from '../constants';
  * console.log(Config.TOOL_VERSION);
@@ -71,6 +71,7 @@ export const Config = {
     XML_INDENT: UI.XML_INDENT,
     DIALOG_CLASSES: UI.DIALOG_CLASSES,
     DIALOG_TITLES: UI.DIALOG_TITLES,
+    MINIMIZE_SERVICE: UI.MINIMIZE_SERVICE,
     NOTIFICATION_CONTAINER_ID: UI.NOTIFICATION_CONTAINER_ID,
     NOTIFICATION_COLORS: UI.NOTIFICATION_COLORS,
     NOTIFICATION_TIMINGS: UI.NOTIFICATION_TIMINGS,

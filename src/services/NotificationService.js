@@ -77,7 +77,7 @@ export const NotificationService = {
             padding: hasLineBreaks ? '16px 24px' : '12px 20px',
             borderRadius: '8px',
             color: 'white',
-            fontFamily: `"Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif`,
+            fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif',
             fontSize: '14px',
             lineHeight: '1.5',
             boxShadow: '0 4px 15px rgba(0,0,0,0.4)',
@@ -92,6 +92,23 @@ export const NotificationService = {
             whiteSpace: 'normal',
             wordBreak: 'break-word'
         });
+
+        // Store timeout IDs for cleanup
+        let fadeOutTimeout = null;
+        let removeTimeout = null;
+
+        // Helper to clean up and remove notification
+        const cleanupAndRemove = () => {
+            if (fadeOutTimeout) {
+                clearTimeout(fadeOutTimeout);
+            }
+            if (removeTimeout) {
+                clearTimeout(removeTimeout);
+            }
+            notification.style.opacity = '0';
+            notification.style.transform = 'translateY(20px)';
+            setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+        };
 
         // Add close button for errors
         if (isError) {
@@ -112,9 +129,7 @@ export const NotificationService = {
             closeBtn.addEventListener('mouseleave', () => closeBtn.style.opacity = '0.7');
             closeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                notification.style.opacity = '0';
-                notification.style.transform = 'translateY(20px)';
-                setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+                cleanupAndRemove();
             });
 
             notification.style.position = 'relative';
@@ -123,9 +138,7 @@ export const NotificationService = {
 
             // Click to dismiss
             notification.addEventListener('click', () => {
-                notification.style.opacity = '0';
-                notification.style.transform = 'translateY(20px)';
-                setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+                cleanupAndRemove();
             });
             notification.setAttribute('title', 'Click to dismiss');
         }
@@ -138,11 +151,11 @@ export const NotificationService = {
             notification.style.transform = 'translateY(0)';
         }, Config.NOTIFICATION_TIMINGS.fadeIn);
 
-        // Animate out and remove
-        setTimeout(() => {
+        // Animate out and remove after duration
+        fadeOutTimeout = setTimeout(() => {
             notification.style.opacity = '0';
             notification.style.transform = 'translateY(20px)';
-            setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+            removeTimeout = setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
         }, adjustedDuration);
     }
 };
