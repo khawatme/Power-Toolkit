@@ -38,6 +38,10 @@ export class UserContextTab extends BaseComponent {
         this.unsubscribe = null;
         /** @type {Record<string, HTMLElement>} cached UI references */
         this.ui = {};
+
+        // Event handler references for cleanup
+        /** @private {Function|null} */ this._handleClick = null;
+        /** @private {Function|null} */ this._handleKeydown = null;
         /** @type {AbortController|null} inflight loader */
         this._inflight = null;
     }
@@ -68,7 +72,7 @@ export class UserContextTab extends BaseComponent {
         });
 
         // Copy-on-click (delegated)
-        element.addEventListener('click', (e) => {
+        this._handleClick = (e) => {
             const target = /** @type {HTMLElement|null} */ (e.target && e.target.closest('.copyable'));
             if (target) {
                 const text = (target.textContent || '').trim();
@@ -77,18 +81,24 @@ export class UserContextTab extends BaseComponent {
                     e.stopPropagation();
                 }
             }
-        });
+        };
+        element.addEventListener('click', this._handleClick);
 
         // Keyboard: allow Enter/Space to copy when focused
-        element.addEventListener('keydown', (e) => {
+        this._handleKeydown = (e) => {
             const el = /** @type {HTMLElement|null} */ (e.target);
-            if (!el || !el.classList?.contains('copyable')) return;
+            if (!el || !el.classList?.contains('copyable')) {
+                return;
+            }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 const text = (el.textContent || '').trim();
-                if (text) copyToClipboard(text, `Copied: ${text}`);
+                if (text) {
+                    copyToClipboard(text, `Copied: ${text}`);
+                }
             }
-        });
+        };
+        element.addEventListener('keydown', this._handleKeydown);
 
         this._loadData();
     }
@@ -97,10 +107,29 @@ export class UserContextTab extends BaseComponent {
      * Unsubscribes and aborts inflight requests to prevent leaks when destroyed.
      */
     destroy() {
-        if (this.unsubscribe) this.unsubscribe();
-        if (this._inflight) this._inflight.abort();
+        // Remove event listeners
+        if (this.ui.container && this._handleClick) {
+            this.ui.container.removeEventListener('click', this._handleClick);
+        }
+        if (this.ui.container && this._handleKeydown) {
+            this.ui.container.removeEventListener('keydown', this._handleKeydown);
+        }
+
+        // Unsubscribe from store
+        if (this.unsubscribe) {
+            this.unsubscribe();
+        }
+
+        // Abort inflight requests
+        if (this._inflight) {
+            this._inflight.abort();
+        }
+
+        // Clear references
         this.unsubscribe = null;
         this._inflight = null;
+        this._handleClick = null;
+        this._handleKeydown = null;
     }
 
     /**
@@ -110,7 +139,9 @@ export class UserContextTab extends BaseComponent {
      */
     async _loadData() {
         // Abort any in-progress load
-        if (this._inflight) this._inflight.abort();
+        if (this._inflight) {
+            this._inflight.abort();
+        }
         this._inflight = new AbortController();
         const { signal } = this._inflight;
 
@@ -120,10 +151,14 @@ export class UserContextTab extends BaseComponent {
             /** @type {EnhancedUserContext} */
             // DataService may ignore `signal` if unsupported; passing is harmless
             const context = await DataService.getEnhancedUserContext(true, { signal });
-            if (signal.aborted) return;
+            if (signal.aborted) {
+                return;
+            }
             this._renderCards(context);
         } catch (e) {
-            if (e?.name === 'AbortError') return;
+            if (e?.name === 'AbortError') {
+                return;
+            }
             this.ui.container.innerHTML = `<div class="pdt-error">${Config.MESSAGES.USER_CONTEXT.loadFailed(escapeHtml(e.message || String(e)))}</div>`;
         } finally {
             this._inflight = null;

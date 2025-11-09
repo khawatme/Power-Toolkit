@@ -130,7 +130,9 @@ export const DataService = {
      * @param {boolean} [addRequired=false]
      */
     async addSolutionComponent(solutionUniqueName, componentId, componentType, addRequired = false) {
-        if (!solutionUniqueName) return;
+        if (!solutionUniqueName) {
+            return;
+        }
         const payload = {
             ComponentId: componentId,
             ComponentType: componentType,
@@ -399,7 +401,7 @@ export const DataService = {
      * @param {boolean} [bypassCache=false]
      * @returns {Promise<EnvironmentVariable[]>}
      */
-    getEnvironmentVariables(bypassCache = false) {
+    getEnvironmentVariables(_bypassCache = false) {
         return EnvironmentVariableService.getEnvironmentVariables(this.retrieveMultipleRecords.bind(this));
     },
 
@@ -448,7 +450,7 @@ export const DataService = {
      * @param {boolean} [bypassCache=false]
      * @returns {Promise<object|null>}
      */
-    getFormEventHandlersForEntity(entityName, bypassCache = false) {
+    getFormEventHandlersForEntity(entityName, _bypassCache = false) {
         return FormInspectionService.getFormEventHandlersForEntity(
             this.retrieveMultipleRecords.bind(this),
             this.retrieveRecord.bind(this),
@@ -461,7 +463,7 @@ export const DataService = {
      * @param {boolean} [bypassCache=false]
      * @returns {Promise<FormColumn[]>}
      */
-    getAllRecordColumns(bypassCache = false) {
+    getAllRecordColumns(_bypassCache = false) {
         return FormInspectionService.getAllRecordColumns(
             this.retrieveRecord.bind(this),
             this.getFormColumns.bind(this),

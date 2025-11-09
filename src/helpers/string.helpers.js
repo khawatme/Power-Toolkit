@@ -53,22 +53,44 @@ export const StringHelpers = {
             const csharpRegex = new RegExp(`(\\[[^\\]]+\\])|(\\/\\*[\\s\\S]*?\\*\\\/|\\\/\\\/[^\\r\\n]*)|(@"[^"]*"|"(?:\\\\.|[^"\\\\])*")|\\b(${csharpKeywords})\\b|\\b(true|false|null)\\b|(\\b-?\\d+\\.?\\d*\\b)`, 'g');
 
             return escaped.replace(csharpRegex, (match, attribute, comment, string, keyword, constant, number) => {
-                if (attribute) return `<span class="csharp-attribute">${attribute}</span>`;
-                if (comment) return `<span class="json-comment">${comment}</span>`;
-                if (string) return `<span class="json-string">${string}</span>`;
-                if (keyword) return `<span class="json-key">${keyword}</span>`;
-                if (constant) return `<span class="json-boolean">${constant}</span>`;
-                if (number) return `<span class="json-number">${number}</span>`;
+                if (attribute) {
+                    return `<span class="csharp-attribute">${attribute}</span>`;
+                }
+                if (comment) {
+                    return `<span class="json-comment">${comment}</span>`;
+                }
+                if (string) {
+                    return `<span class="json-string">${string}</span>`;
+                }
+                if (keyword) {
+                    return `<span class="json-key">${keyword}</span>`;
+                }
+                if (constant) {
+                    return `<span class="json-boolean">${constant}</span>`;
+                }
+                if (number) {
+                    return `<span class="json-number">${number}</span>`;
+                }
                 return match;
             });
         } else { // Default to JavaScript
             return escaped.replace(/(^\s*\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*)|("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")|(\b(function|var|let|const|if|else|return|try|catch|new|typeof|arguments|this)\b)|(\b(true|false|null|undefined)\b)|(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
                 (match, comment, string, keyword, constant, number) => {
-                    if (comment) return `<span class="json-comment">${comment}</span>`;
-                    if (string) return `<span class="json-string">${string}</span>`;
-                    if (keyword) return `<span class="json-key">${keyword}</span>`;
-                    if (constant) return `<span class="json-boolean">${constant}</span>`;
-                    if (number) return `<span class="json-number">${number}</span>`;
+                    if (comment) {
+                        return `<span class="json-comment">${comment}</span>`;
+                    }
+                    if (string) {
+                        return `<span class="json-string">${string}</span>`;
+                    }
+                    if (keyword) {
+                        return `<span class="json-key">${keyword}</span>`;
+                    }
+                    if (constant) {
+                        return `<span class="json-boolean">${constant}</span>`;
+                    }
+                    if (number) {
+                        return `<span class="json-number">${number}</span>`;
+                    }
                     return match;
                 }
             );
@@ -85,12 +107,16 @@ export const StringHelpers = {
             let formatted = '', indent = '';
             const tab = Config.XML_INDENT || '  '; // 2 spaces
             xmlStr.split(/>\s*</).forEach(node => {
-                if (node.match(/^\/\w/)) indent = indent.substring(tab.length);
+                if (node.match(/^\/\w/)) {
+                    indent = indent.substring(tab.length);
+                }
                 formatted += `${indent}<${node}>\r\n`;
-                if (node.match(/^<?\w[^>]*[^\/]$/)) indent += tab;
+                if (node.match(/^<?\w[^>]*[^\/]$/)) {
+                    indent += tab;
+                }
             });
             return formatted.substring(1, formatted.length - 3);
-        } catch (e) {
+        } catch (_e) {
             // Silent - XML formatting is best-effort, return original if it fails
             return xmlStr;
         }
@@ -102,20 +128,22 @@ export const StringHelpers = {
      * @returns {string} An HTML string with syntax highlighting applied.
      */
     highlightTraceMessage(message) {
-        if (!message) return '';
+        if (!message) {
+            return '';
+        }
 
         let highlighted = this.escapeHtml(message);
 
         // Highlight strings in quotes
-        highlighted = highlighted.replace(/"([^"]*)"/g, `"<span class="trace-string">$1</span>"`);
+        highlighted = highlighted.replace(/"([^"]*)"/g, '"<span class="trace-string">$1</span>"');
         // Highlight GUIDs
-        highlighted = highlighted.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, `<span class="trace-guid">$&</span>`);
+        highlighted = highlighted.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<span class="trace-guid">$&</span>');
         // Highlight keywords (like 'Exception:', 'Error Code:')
-        highlighted = highlighted.replace(/(Exception:|Error Code:|Message:|--)/g, `<span class="trace-keyword">$&</span>`);
+        highlighted = highlighted.replace(/(Exception:|Error Code:|Message:|--)/g, '<span class="trace-keyword">$&</span>');
         // Highlight numbers (standalone)
-        highlighted = highlighted.replace(/\b\d+\b/g, `<span class="trace-number">$&</span>`);
+        highlighted = highlighted.replace(/\b\d+\b/g, '<span class="trace-number">$&</span>');
         // Highlight specific error messages
-        highlighted = highlighted.replace(/at Microsoft.Xrm.Sdk.ServiceProxy/g, `<span class="trace-error-msg">$&</span>`);
+        highlighted = highlighted.replace(/at Microsoft.Xrm.Sdk.ServiceProxy/g, '<span class="trace-error-msg">$&</span>');
 
         return highlighted;
     },
@@ -164,7 +192,9 @@ export const StringHelpers = {
      * // Returns: '12345678-1234-1234-1234-123456789abc'
      */
     extractGuidFromString(text) {
-        if (!text || typeof text !== 'string') return null;
+        if (!text || typeof text !== 'string') {
+            return null;
+        }
         const match = text.match(this.GUID_REGEX);
         return match ? match[0] : null;
     }

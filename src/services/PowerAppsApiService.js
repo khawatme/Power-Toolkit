@@ -28,7 +28,7 @@ function _getCorrectXrmContext() {
             if (window.frames[i].Xrm && window.frames[i].Xrm.Page && window.frames[i].Xrm.Page.data) {
                 return window.frames[i].Xrm;
             }
-        } catch (e) {
+        } catch (_e) {
             // Ignore potential cross-origin errors
         }
     }
@@ -51,7 +51,7 @@ export const PowerAppsApiService = {
         try {
             const x = _getCorrectXrmContext();
             return !!(x && x.Page && x.Page.data && x.Page.ui && x.Page.ui.getFormType() > 0);
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     },
@@ -67,7 +67,9 @@ export const PowerAppsApiService = {
      * @returns {string|null} The form's GUID, or null if not on a form.
      */
     getFormId: () => {
-        if (!PowerAppsApiService.isFormContextAvailable) return Config.POWERAPPS_API_DEFAULTS.formId;
+        if (!PowerAppsApiService.isFormContextAvailable) {
+            return Config.POWERAPPS_API_DEFAULTS.formId;
+        }
         const formId = _getCorrectXrmContext().Page.ui.form?.getId();
         return formId ? normalizeGuid(formId) : Config.POWERAPPS_API_DEFAULTS.formId;
     },
@@ -83,7 +85,9 @@ export const PowerAppsApiService = {
      * @returns {string} The record's GUID, or an empty string if on a new record form.
      */
     getEntityId: () => {
-        if (!PowerAppsApiService.isFormContextAvailable) return Config.POWERAPPS_API_DEFAULTS.entityId;
+        if (!PowerAppsApiService.isFormContextAvailable) {
+            return Config.POWERAPPS_API_DEFAULTS.entityId;
+        }
         const entityId = _getCorrectXrmContext().Page.data.entity.getId();
         return entityId ? normalizeGuid(entityId) : Config.POWERAPPS_API_DEFAULTS.entityId;
     },

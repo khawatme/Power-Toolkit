@@ -55,7 +55,7 @@ export class InspectorTab extends BaseComponent {
      */
     async render() {
         const container = document.createElement('div');
-        container.innerHTML = `<div class="section-title">Form Inspector</div>`;
+        container.innerHTML = '<div class="section-title">Form Inspector</div>';
 
         try {
             this.hierarchy = await DataService.getFormHierarchy(true);
@@ -77,10 +77,12 @@ export class InspectorTab extends BaseComponent {
 
     /**
      * Attaches event listeners after the component is rendered.
-     * @param {HTMLElement} element - The root element of the component.
+     * @param {HTMLElement} _element - The root element of the component.
      */
-    postRender(element) {
-        if (!this.ui.treeView) return;
+    postRender(_element) {
+        if (!this.ui.treeView) {
+            return;
+        }
 
         const throttledMove = throttle?.(e => this._handleMouseMove(e), 50)
             || ((e) => this._handleMouseMove(e));
@@ -91,10 +93,14 @@ export class InspectorTab extends BaseComponent {
 
         this._copyHandler = (e) => {
             const copyEl = e.target.closest('.copyable');
-            if (!copyEl) return;
+            if (!copyEl) {
+                return;
+            }
 
             const txt = (copyEl.textContent || '').trim();
-            if (!txt) return;
+            if (!txt) {
+                return;
+            }
 
             const preview = txt.length > 120 ? txt.slice(0, 117) + '…' : txt;
 
@@ -165,21 +171,23 @@ export class InspectorTab extends BaseComponent {
         if (parentNode && nodeContent && parentNode.contains(nodeContent)) {
             // --- LAZY RENDERING LOGIC ---
             // If expanding for the first time, render its children.
-            if (parentNode.classList.contains("collapsed") && parentNode.dataset.rendered === "false") {
+            if (parentNode.classList.contains('collapsed') && parentNode.dataset.rendered === 'false') {
                 const logicalName = nodeContent.dataset.logicalName;
                 const nodeData = findNodeInTree(this.hierarchy, 'logicalName', logicalName);
                 const childList = parentNode.querySelector('.tree-child');
                 if (nodeData && childList) {
                     this._renderTree(childList, nodeData.children ?? []);
-                    parentNode.dataset.rendered = "true";
+                    parentNode.dataset.rendered = 'true';
                 }
             }
             // --- END LAZY RENDERING LOGIC ---
 
-            parentNode.classList.toggle("collapsed");
-            parentNode.classList.toggle("expanded");
+            parentNode.classList.toggle('collapsed');
+            parentNode.classList.toggle('expanded');
             const content = parentNode.querySelector('.tree-node-content');
-            if (content) content.setAttribute('aria-expanded', String(parentNode.classList.contains('expanded')));
+            if (content) {
+                content.setAttribute('aria-expanded', String(parentNode.classList.contains('expanded')));
+            }
         }
     }
 
@@ -191,18 +199,26 @@ export class InspectorTab extends BaseComponent {
      */
     _handleMouseMove(event) {
         const nodeContent = event.target.closest('.tree-node-content');
-        if (nodeContent === this.currentlyHoveredNode) return;
+        if (nodeContent === this.currentlyHoveredNode) {
+            return;
+        }
 
         this._handleMouseOut();
-        if (!nodeContent) return;
+        if (!nodeContent) {
+            return;
+        }
 
         this.currentlyHoveredNode = nodeContent;
         const logicalName = nodeContent.dataset.logicalName;
-        if (!logicalName) return;
+        if (!logicalName) {
+            return;
+        }
 
         // Find the node data in our hierarchy to get the Xrm.Attribute object.
         const nodeData = findNodeInTree(this.hierarchy, 'logicalName', logicalName);
-        if (!nodeData || !nodeData.editableAttr) return;
+        if (!nodeData || !nodeData.editableAttr) {
+            return;
+        }
 
         // Get all controls associated with this attribute on the form.
         const controls = nodeData.editableAttr.controls?.get?.() || [];
@@ -210,7 +226,7 @@ export class InspectorTab extends BaseComponent {
             const control = controls[0];
             const controlName = control.getName();
 
-            let controlElement =
+            const controlElement =
                 document.querySelector(`div[data-control-name="${controlName}"]`)
                 || document.querySelector(`[data-lp-id*="${controlName}"]`)
                 || document.querySelector(`[aria-label="${controlName}"]`);
@@ -245,11 +261,11 @@ export class InspectorTab extends BaseComponent {
         (nodes ?? []).forEach(node => {
             const li = this._createTreeNode(node);
             if (node.children?.length > 0) {
-                li.classList.add("tree-parent", "collapsed");
-                li.dataset.rendered = "false";
+                li.classList.add('tree-parent', 'collapsed');
+                li.dataset.rendered = 'false';
 
-                const childList = document.createElement("ul");
-                childList.className = "tree-child";
+                const childList = document.createElement('ul');
+                childList.className = 'tree-child';
                 childList.setAttribute('role', 'group');
                 li.appendChild(childList);
             }
@@ -264,28 +280,28 @@ export class InspectorTab extends BaseComponent {
      * @private
      */
     _createTreeNode(node) {
-        const listItem = document.createElement("li");
-        listItem.className = "tree-item";
+        const listItem = document.createElement('li');
+        listItem.className = 'tree-item';
 
         const valueStr = formatDisplayValue(node.value, node.editableAttr, node.controlType);
         const isEditable = !!node.editableAttr && !node.controlType?.includes('subgrid');
 
         const valueHtml = node.value !== undefined
-            ? `<div class="item-value ${isEditable ? "editable" : ""}" title="${escapeHtml(valueStr)}">
+            ? `<div class="item-value ${isEditable ? 'editable' : ''}" title="${escapeHtml(valueStr)}">
                 ${isEditable ? `<span class="edit-icon">${ICONS.edit}</span>` : ''}
                 ${escapeHtml(valueStr)}
               </div>`
-            : "";
+            : '';
 
         listItem.innerHTML = `
     <div class="tree-node-content"
-         data-logical-name="${escapeHtml(node.logicalName || "")}"
+         data-logical-name="${escapeHtml(node.logicalName || '')}"
          role="treeitem"
          tabindex="0"
          aria-expanded="false">
       <div class="item-details">
         <span class="item-label">${escapeHtml(node.label)}</span>
-        <span class="item-logical-name copyable" title="Click to copy">${escapeHtml(node.logicalName || "")}</span>
+        <span class="item-logical-name copyable" title="Click to copy">${escapeHtml(node.logicalName || '')}</span>
       </div>
       ${valueHtml}
     </div>`;
@@ -305,7 +321,7 @@ export class InspectorTab extends BaseComponent {
         const currentValue = attr.getValue();
 
         // Handle lookups as a special info-only dialog
-        if (attrType === "lookup" && currentValue?.[0]) {
+        if (attrType === 'lookup' && currentValue?.[0]) {
             const item = currentValue[0];
             const contentHtml = `<div class="info-grid">
                     <strong>Record Name:</strong><span class="copyable">${escapeHtml(item.name)}</span>
@@ -322,7 +338,7 @@ export class InspectorTab extends BaseComponent {
         const contentHtml = `<p>Enter new value for <strong>${escapeHtml(label)}</strong>.</p>${inputHtml}`;
 
         DialogService.show(`Edit: ${escapeHtml(label)}`, contentHtml, (contentDiv) => {
-            const input = contentDiv.querySelector("#pdt-prompt-input, select");
+            const input = contentDiv.querySelector('#pdt-prompt-input, select');
             try {
                 const newValue = parseInputValue(input, attrType);
                 attr.setValue(newValue);

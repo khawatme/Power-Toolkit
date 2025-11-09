@@ -22,6 +22,7 @@ import { Config } from '../constants/index.js';
  * @property {TabSetting[]} tabSettings - The ordered list of tab configurations.
  * @property {object} dimensions - The saved dimensions (width/height) of the main dialog.
  * @property {string|null} impersonationUserId - The GUID of the currently impersonated user, if any.
+ * @property {boolean} isMinimized - Whether the dialog is currently in minimized state.
  */
 
 // --- Private state and listeners ---
@@ -33,8 +34,9 @@ const _listeners = new Set();
  * To make a new piece of state persist, simply add its key to this array.
  * @private
  * @type {string[]}
+ * @note Currently unused but kept for future persistence features
  */
-const PERSISTABLE_STATE_KEYS = ['theme', 'tabSettings', 'dimensions'];
+// const PERSISTABLE_STATE_KEYS = ['theme', 'tabSettings', 'dimensions', 'isMinimized'];
 
 /**
  * Defines the default configuration for all available tabs.
@@ -60,7 +62,7 @@ function getDefaultTabSettings() {
         { id: 'settings', visible: true, formOnly: false },
         { id: 'help', visible: true, formOnly: false },
         { id: 'coffee', visible: true, formOnly: false },
-        { id: 'about', visible: true, formOnly: false },
+        { id: 'about', visible: true, formOnly: false }
     ];
 }
 
@@ -82,7 +84,7 @@ export const Store = {
             try {
                 const savedSettings = JSON.parse(savedSettingsRaw);
                 const defaultMap = new Map(defaultSettings.map(s => [s.id, s]));
-                let relevantSettings = savedSettings.filter(s => defaultMap.has(s.id));
+                const relevantSettings = savedSettings.filter(s => defaultMap.has(s.id));
                 const relevantIds = new Set(relevantSettings.map(s => s.id));
                 defaultSettings.forEach(def => {
                     if (!relevantIds.has(def.id)) {
@@ -90,7 +92,7 @@ export const Store = {
                     }
                 });
                 finalSettings = relevantSettings;
-            } catch (e) {
+            } catch (_e) {
                 // Settings parse error is handled gracefully by falling back to defaults
             }
         }
@@ -100,6 +102,7 @@ export const Store = {
             tabSettings: finalSettings,
             dimensions: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.dimensions) || '{}'),
             impersonationUserId: null,
+            isMinimized: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.isMinimized) || 'false')
         };
     },
 
@@ -132,6 +135,9 @@ export const Store = {
         if (newState.dimensions !== undefined) {
             localStorage.setItem(Config.STORAGE_KEYS.dimensions, JSON.stringify(newState.dimensions));
         }
+        if (newState.isMinimized !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.isMinimized, JSON.stringify(newState.isMinimized));
+        }
 
         _listeners.forEach(listener => listener(_state, oldState));
     },
@@ -154,13 +160,15 @@ export const Store = {
         const defaultState = {
             theme: 'dark',
             tabSettings: defaultSettings,
-            dimensions: {}
+            dimensions: {},
+            isMinimized: false
         };
 
         // Clear all persisted items from localStorage explicitly.
         localStorage.removeItem('pdt-tab-settings');
         localStorage.removeItem('pdt-theme');
         localStorage.removeItem('pdt-dimensions');
+        localStorage.removeItem('pdt-is-minimized');
 
         // Use setState with the full default state to ensure all listeners are properly notified.
         this.setState(defaultState);

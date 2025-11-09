@@ -80,7 +80,7 @@ export class AutomationTab extends BaseComponent {
             brListContainer: element.querySelector('#br-list-container'),
             eventsContainer: element.querySelector('#events-container'),
             entityInput: element.querySelector('#br-entity-input'),
-            browseBtn: element.querySelector('#br-browse-entity-btn'),
+            browseBtn: element.querySelector('#br-browse-entity-btn')
         };
 
         this._initialize();
@@ -149,7 +149,9 @@ export class AutomationTab extends BaseComponent {
 
     /** @private */
     _setLoadingUI(isLoading) {
-        if (!this.ui) return;
+        if (!this.ui) {
+            return;
+        }
         this.ui.entityInput.disabled = !!isLoading;
         this.ui.browseBtn.disabled = !!isLoading;
     }
@@ -185,7 +187,9 @@ export class AutomationTab extends BaseComponent {
         const rules = this.rules;
 
         rules.sort((a, b) => {
-            if (!!b.isActive - !!a.isActive) return (!!b.isActive - !!a.isActive);
+            if (!!b.isActive - !!a.isActive) {
+                return (!!b.isActive - !!a.isActive);
+            }
             return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
         });
 
@@ -233,7 +237,9 @@ export class AutomationTab extends BaseComponent {
      */
     _toggleRuleDetails(header) {
         const detailsPanel = header.nextElementSibling;
-        if (!detailsPanel || !detailsPanel.classList.contains('pdt-br-details')) return;
+        if (!detailsPanel || !detailsPanel.classList.contains('pdt-br-details')) {
+            return;
+        }
 
         // Close any other open panels (single-open accordion)
         this.ui.brListContainer.querySelectorAll('.pdt-br-details').forEach(p => {
@@ -254,17 +260,21 @@ export class AutomationTab extends BaseComponent {
                 try {
                     const xmlDoc = new DOMParser().parseFromString(rule.clientData, 'text/xml');
                     const parserError = xmlDoc.querySelector('parsererror');
-                    if (parserError) throw new Error('Invalid rule XML.');
+                    if (parserError) {
+                        throw new Error('Invalid rule XML.');
+                    }
                     const clientCode = xmlDoc.querySelector('clientcode')?.textContent || 'No <clientcode> found in rule payload.';
                     let formatted = clientCode;
-                    try { formatted = js_beautify(clientCode, { indent_size: 2, space_in_empty_paren: true }); } catch { }
+                    try {
+                        formatted = js_beautify(clientCode, { indent_size: 2, space_in_empty_paren: true });
+                    } catch { }
                     detailsPanel.appendChild(UIFactory.createCopyableCodeBlock(formatted, 'javascript'));
                 } catch (err) {
                     const msg = escapeHtml(err?.message || String(err));
                     detailsPanel.innerHTML = `<p class="pdt-note">Unable to parse rule logic. ${msg}</p>`;
                 }
             } else {
-                detailsPanel.innerHTML = `<p class="pdt-note">This rule has no client logic payload.</p>`;
+                detailsPanel.innerHTML = '<p class="pdt-note">This rule has no client logic payload.</p>';
             }
         }
 
@@ -344,22 +354,32 @@ export class AutomationTab extends BaseComponent {
      * @private
      */
     async _refreshBusinessRules(showLoading = true) {
-        if (!this.selectedEntity) return;
+        if (!this.selectedEntity) {
+            return;
+        }
         const myToken = ++this._loadToken;
         if (showLoading) {
             this.ui.brListContainer.innerHTML = `<p class="pdt-note">${Config.MESSAGES.AUTOMATION.refreshingRules(this.selectedEntity)}</p>`;
         }
         this._setLoadingUI(true);
         try {
-            try { DataService.clearCache(`businessRules_${this.selectedEntity}`); } catch { }
+            try {
+                DataService.clearCache(`businessRules_${this.selectedEntity}`);
+            } catch { }
             this.rules = await DataService.getBusinessRulesForEntity(this.selectedEntity);
-            if (myToken !== this._loadToken) return;
+            if (myToken !== this._loadToken) {
+                return;
+            }
             this._renderBusinessRules();
         } catch (e) {
-            if (myToken !== this._loadToken) return;
+            if (myToken !== this._loadToken) {
+                return;
+            }
             this.ui.brListContainer.innerHTML = `<div class="pdt-error">${Config.MESSAGES.AUTOMATION.refreshFailed(escapeHtml(e.message || String(e)))}</div>`;
         } finally {
-            if (myToken === this._loadToken) this._setLoadingUI(false);
+            if (myToken === this._loadToken) {
+                this._setLoadingUI(false);
+            }
         }
     }
 
@@ -387,13 +407,17 @@ export class AutomationTab extends BaseComponent {
                 DataService.getFormEventHandlersForEntity(entityDef.LogicalName)
             ]);
 
-            if (myToken !== this._loadToken) return;
+            if (myToken !== this._loadToken) {
+                return;
+            }
 
             this.rules = rules;
             this._renderBusinessRules();
             this._renderFormEvents(this.ui.eventsContainer, events);
         } catch (error) {
-            if (myToken !== this._loadToken) return;
+            if (myToken !== this._loadToken) {
+                return;
+            }
             const errorMsg = error.message || String(error);
             NotificationService.show(`Failed to load automations: ${errorMsg}`, 'error');
 
@@ -402,7 +426,9 @@ export class AutomationTab extends BaseComponent {
             this._renderBusinessRules();
             this._renderFormEvents(this.ui.eventsContainer, null);
         } finally {
-            if (myToken === this._loadToken) this._setLoadingUI(false);
+            if (myToken === this._loadToken) {
+                this._setLoadingUI(false);
+            }
         }
     }
 
@@ -419,7 +445,9 @@ export class AutomationTab extends BaseComponent {
         }
 
         const renderHandlers = (handlerList) => {
-            if (!handlerList || handlerList.length === 0) return '<p class="pdt-note">No handlers configured.</p>';
+            if (!handlerList || handlerList.length === 0) {
+                return '<p class="pdt-note">No handlers configured.</p>';
+            }
             return `<ul class="pdt-list">${handlerList.map(h => {
                 const fn = escapeHtml(h.function ?? '');
                 const lib = escapeHtml(h.library ?? '');

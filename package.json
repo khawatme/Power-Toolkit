@@ -1,6 +1,6 @@
 {
     "name": "power-toolkit",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "A comprehensive, client-side toolkit for Power Apps Model-Driven App developers.",
     "private": true,
     "author": "Mohammed Khawatme",

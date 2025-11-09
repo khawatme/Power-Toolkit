@@ -17,7 +17,9 @@ export class EntityContextResolver {
      */
     static async resolve(input) {
         const def = await DataService.getEntityByAny(input);
-        if (!def) throw new Error(`Could not resolve entity for '${input}'.`);
+        if (!def) {
+            throw new Error(`Could not resolve entity for '${input}'.`);
+        }
         return { entitySet: def.EntitySetName, logicalName: def.LogicalName };
     }
 

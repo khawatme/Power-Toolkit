@@ -79,17 +79,25 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li>Environment Variables: Edit and save Current Values directly in addition to Default Values</li>
-                        <li>Environment Variables: Enhanced search to include display names and types</li>
-                        <li>Form Columns: Option set values now display as "Label (Value)" format for better clarity</li>
-                        <li>Form Columns: Edit icons now always visible for better discoverability</li>
-                        <li>Plugin Context: Progressive disclosure - secondary buttons appear only after generating context</li>
-                        <li>Plugin Context: Helpful message when trying to generate Update context without changes</li>
-                        <li>User Context: Security roles now display with their Role IDs for easy reference</li>
-                        <li>User Context: Streamlined layout with improved information architecture</li>
-                        <li>Result Tables: Fixed horizontal scrollbar visibility for better navigation</li>
-                        <li>About Tab: Modern card-based design with better organization</li>
+                        <li>Minimize/Restore: Minimize button added to header, double-click header or press Ctrl/Cmd+M to minimize.</li>
+                        <li>Metadata Browser: Click column headers to sort tables by Display Name or Logical Name.</li>
+                        <li>Performance: Improved memory management and faster tab switching.</li>
                     </ul>
+                    <details class="pdt-changelog-details">
+                        <summary>Previous Release (2.0.0)</summary>
+                        <ul class="pdt-changelog-list">
+                            <li>Environment Variables: Edit and save Current Values directly in addition to Default Values.</li>
+                            <li>Environment Variables: Enhanced search to include display names and types.</li>
+                            <li>Form Columns: Option set values now display as "Label (Value)" format for better clarity.</li>
+                            <li>Form Columns: Edit icons now always visible for better discoverability.</li>
+                            <li>Plugin Context: Progressive disclosure - secondary buttons appear only after generating context.</li>
+                            <li>Plugin Context: Helpful message when trying to generate Update context without changes.</li>
+                            <li>User Context: Security roles now display with their Role IDs for easy reference.</li>
+                            <li>User Context: Streamlined layout with improved information architecture.</li>
+                            <li>Result Tables: Fixed horizontal scrollbar visibility for better navigation.</li>
+                            <li>About Tab: Modern card-based design with better organization.</li>
+                        </ul>
+                    </details>
                 </div>
             </section>
 

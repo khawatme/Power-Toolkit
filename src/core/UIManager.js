@@ -14,6 +14,7 @@ import { ComponentRegistry } from './ComponentRegistry.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
+import { MinimizeService } from '../services/MinimizeService.js';
 import { copyToClipboard, debounce, escapeHtml } from '../helpers/index.js';
 
 /**
@@ -22,11 +23,13 @@ import { copyToClipboard, debounce, escapeHtml } from '../helpers/index.js';
  * @property {HTMLElement|null} dialog - A reference to the main dialog element.
  * @property {string|null} activeTabId - The ID of the currently visible tab.
  * @property {Map<string, HTMLElement>} renderedTabs - A cache for rendered tab content to avoid re-rendering.
+ * @property {Function|null} _globalClickHandler - Global click handler for copyable elements.
  */
 export const UIManager = {
     dialog: null,
     activeTabId: null,
     renderedTabs: new Map(), // Cache for rendered tab content to avoid re-rendering
+    _globalClickHandler: null, // Global click event handler for cleanup
 
     /**
      * Shows or hides the impersonation status indicator in the main dialog header.
@@ -34,7 +37,9 @@ export const UIManager = {
      * @returns {void}
      */
     showImpersonationIndicator(userName) {
-        if (!this.dialog) return;
+        if (!this.dialog) {
+            return;
+        }
         const indicator = this.dialog.querySelector('#pdt-impersonation-indicator');
         if (userName) {
             indicator.innerHTML = `<span class="pdt-badge" style="padding: 5px; border-radius: 5px; background-color: var(--pro-warn); color: #000;">👤 Impersonating: ${escapeHtml(userName)}</span>`;
@@ -55,6 +60,7 @@ export const UIManager = {
             if (JSON.stringify(newState.tabSettings) !== JSON.stringify(oldState.tabSettings)) {
                 this.updateNavTabs();
             }
+            // Minimize state changes are handled internally by MinimizeService
         });
     },
 
@@ -85,6 +91,7 @@ export const UIManager = {
                     <button class="pdt-icon-btn pdt-god-mode-btn" title="Activate God Mode">${ICONS.gmode}</button>
                     <button class="pdt-icon-btn pdt-refresh-btn" title="Refresh Tool & Clear Cache">${ICONS.refresh}</button>
                     <button class="pdt-icon-btn pdt-theme-toggle" title="Toggle Theme">${ICONS.theme}</button>
+                    <button class="pdt-icon-btn pdt-minimize-btn" title="Minimize">${ICONS.minimize}</button>
                     <button class="pdt-icon-btn pdt-close-btn" title="Close">&times;</button>
                 </div>
             </div>
@@ -101,6 +108,7 @@ export const UIManager = {
 
         this._makeDraggableAndResizable();
         this._attachEventListeners();
+        MinimizeService.init(this.dialog);
         this.updateNavTabs();
     },
 
@@ -112,7 +120,9 @@ export const UIManager = {
     updateNavTabs() {
         const tabsContainer = this.dialog.querySelector('.pdt-nav-tabs');
         const contentArea = this.dialog.querySelector('.pdt-content');
-        if (!tabsContainer || !contentArea) return; // Guard clause
+        if (!tabsContainer || !contentArea) {
+            return;
+        } // Guard clause
 
         const previouslyActiveTabId = this.activeTabId;
         tabsContainer.textContent = '';
@@ -132,9 +142,13 @@ export const UIManager = {
 
         tabSettings.forEach(setting => {
             const component = ComponentRegistry.get(setting.id);
-            if (!setting.visible || !component) return;
+            if (!setting.visible || !component) {
+                return;
+            }
             // This is the core logic that now runs every time
-            if (component.isFormOnly && !PowerAppsApiService.isFormContextAvailable) return;
+            if (component.isFormOnly && !PowerAppsApiService.isFormContextAvailable) {
+                return;
+            }
 
             firstVisibleTabId = firstVisibleTabId || component.id;
             if (component.id === previouslyActiveTabId) {
@@ -191,9 +205,13 @@ export const UIManager = {
      * @private
      */
     async _showTab(componentId) {
-        if (!componentId || !this.dialog) return;
+        if (!componentId || !this.dialog) {
+            return;
+        }
         const component = ComponentRegistry.get(componentId);
-        if (!component) return;
+        if (!component) {
+            return;
+        }
 
         if (this.activeTabId && this.renderedTabs.has(this.activeTabId)) {
             this.renderedTabs.get(this.activeTabId).style.display = 'none';
@@ -237,13 +255,13 @@ export const UIManager = {
             refresh: this.dialog.querySelector('.pdt-refresh-btn'),
             godMode: this.dialog.querySelector('.pdt-god-mode-btn'),
             reset: this.dialog.querySelector('.pdt-reset-form-btn')
+            // Note: minimize button handled by MinimizeService
         };
 
-        // This is the critical change. The close button now performs a full cleanup.
         controls.close.onclick = () => this._handleClose();
-
         controls.theme.onclick = () => this._handleThemeToggle();
         controls.refresh.onclick = () => this.refreshActiveTab();
+        // Minimize button event listener is handled by MinimizeService.init()
 
         if (!PowerAppsApiService.isFormContextAvailable) {
             controls.godMode.disabled = true;
@@ -253,7 +271,8 @@ export const UIManager = {
             controls.reset.onclick = () => this._handleResetForm();
         }
 
-        document.addEventListener('click', (e) => {
+        // Store global click handler for cleanup
+        this._globalClickHandler = (e) => {
             if (!e.target.closest(`.powerapps-dev-toolkit, #${Config.DIALOG_OVERLAY_ID}`)) {
                 return;
             }
@@ -261,7 +280,8 @@ export const UIManager = {
             if (copyable) {
                 copyToClipboard(copyable.textContent, `Copied: ${copyable.textContent}`);
             }
-        });
+        };
+        document.addEventListener('click', this._globalClickHandler);
     },
 
     /**
@@ -274,10 +294,10 @@ export const UIManager = {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
 
-        let width = savedDims.width ? parseInt(savedDims.width, 10) : vw * 0.75;
-        let height = savedDims.height ? parseInt(savedDims.height, 10) : vh * 0.85;
-        let top = savedDims.top ? parseInt(savedDims.top, 10) : vh * 0.05;
-        let left = savedDims.left ? parseInt(savedDims.left, 10) : vw * 0.125;
+        const width = savedDims.width ? parseInt(savedDims.width, 10) : vw * 0.75;
+        const height = savedDims.height ? parseInt(savedDims.height, 10) : vh * 0.85;
+        const top = savedDims.top ? parseInt(savedDims.top, 10) : vh * 0.05;
+        const left = savedDims.left ? parseInt(savedDims.left, 10) : vw * 0.125;
 
         this.dialog.style.width = Math.min(width, vw - 20) + 'px';
         this.dialog.style.height = Math.min(height, vh - 20) + 'px';
@@ -325,10 +345,13 @@ export const UIManager = {
                     width: this.dialog.style.width,
                     height: this.dialog.style.height,
                     top: this.dialog.style.top,
-                    left: this.dialog.style.left,
+                    left: this.dialog.style.left
                 }
             });
         }, 500);
+
+        // Store reference for cleanup
+        this._saveDimensions = saveDimensions;
 
         const closeDragElement = () => {
             document.onmouseup = null;
@@ -338,13 +361,22 @@ export const UIManager = {
         };
 
         header.onmousedown = (e) => {
-            if (e.target.closest('.pdt-header-controls')) return;
+            if (e.target.closest('.pdt-header-controls')) {
+                return;
+            }
             e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
             document.body.style.cursor = 'move';
             document.onmouseup = closeDragElement;
             document.onmousemove = elementDrag;
+        };
+
+        header.ondblclick = (e) => {
+            if (e.target.closest('.pdt-header-controls')) {
+                return;
+            }
+            MinimizeService.toggle();
         };
 
         const resizeObserver = new ResizeObserver(saveDimensions);
@@ -377,10 +409,14 @@ export const UIManager = {
         let unlocked = 0, required = 0;
         PowerAppsApiService.getAllControls().forEach(c => {
             try {
-                if (c.getDisabled()) { c.setDisabled(false); unlocked++; }
+                if (c.getDisabled()) {
+                    c.setDisabled(false); unlocked++;
+                }
                 const a = c.getAttribute();
-                if (a?.getRequiredLevel() === 'required') { a.setRequiredLevel('none'); required++; }
-            } catch (e) { /* Safely ignore */ }
+                if (a?.getRequiredLevel() === 'required') {
+                    a.setRequiredLevel('none'); required++;
+                }
+            } catch (_e) { /* Safely ignore */ }
         });
         NotificationService.show(Config.MESSAGES.UI_MANAGER.godModeSuccess(unlocked, required), 'success');
     },
@@ -419,47 +455,104 @@ export const UIManager = {
      * @private
      */
     _handleClose() {
-        // Immediately save the final dimensions to the store before closing.
-        // This ensures the last position is always remembered, even without a drag/resize.
-        if (this.dialog) {
-            Store.setState({
-                dimensions: {
-                    width: this.dialog.style.width,
-                    height: this.dialog.style.height,
-                    top: this.dialog.style.top,
-                    left: this.dialog.style.left,
+        try {
+            // Immediately save the final dimensions to the store before closing.
+            // This ensures the last position is always remembered, even without a drag/resize.
+            if (this.dialog) {
+                try {
+                    Store.setState({
+                        dimensions: {
+                            width: this.dialog.style.width,
+                            height: this.dialog.style.height,
+                            top: this.dialog.style.top,
+                            left: this.dialog.style.left
+                        }
+                    });
+                } catch (_err) {
+                    // Silently handle state saving errors
+                }
+            }
+
+            // Hide dialog immediately for better UX
+            if (this.dialog) {
+                this.dialog.style.display = 'none';
+            }
+
+            // Cancel any pending debounced dimension save
+            if (this._saveDimensions?.cancel) {
+                this._saveDimensions.cancel();
+            }
+
+            // Use requestAnimationFrame to defer cleanup and prevent race conditions with Power Apps SDK
+            requestAnimationFrame(() => {
+                try {
+                    // Clean up all component event listeners
+                    const components = ComponentRegistry.getAll();
+                    components.forEach(c => {
+                        try {
+                            c.destroy();
+                        } catch (_err) {
+                            // Silently handle per-component cleanup errors
+                        }
+                    });
+
+                    // Clean up MinimizeService
+                    try {
+                        MinimizeService.destroy();
+                    } catch (_err) {
+                        // Silently handle MinimizeService cleanup errors
+                    }
+
+                    // Remove global click listener
+                    if (this._globalClickHandler) {
+                        try {
+                            document.removeEventListener('click', this._globalClickHandler);
+                        } catch (_err) {
+                            // Silently handle event listener removal errors
+                        }
+                        this._globalClickHandler = null;
+                    }
+
+                    // Remove the main UI dialog from the page.
+                    if (this.dialog && this.dialog.parentNode) {
+                        try {
+                            this.dialog.remove();
+                        } catch (_err) {
+                            // Silently handle DOM removal errors
+                        }
+                        this.dialog = null;
+                    }
+
+                    // Reset all internal state for a clean re-initialization.
+                    this.renderedTabs.clear();
+                    this.activeTabId = null;
+
+                    try {
+                        DataService.clearCache();
+                    } catch (_err) {
+                        // Silently handle cache clearing errors
+                    }
+
+                    // Reset the global flag to allow the tool to be launched again.
+                    delete window[Config.MAIN.windowInitializedFlag];
+
+                    // Find and remove the injected script tag using the correct ID to allow for re-injection.
+                    const scriptTag = document.getElementById('power-toolkit-script-module');
+                    if (scriptTag && scriptTag.parentNode) {
+                        try {
+                            scriptTag.remove();
+                        } catch (_err) {
+                            // Silently handle script tag removal errors
+                        }
+                    }
+                } catch (_cleanupError) {
+                    // Final catch-all for any unexpected errors during deferred cleanup
+                    // This prevents any errors from propagating to Power Apps SDK
                 }
             });
-        }
-
-        // Perform a robust cleanup of all active components. This is wrapped in a
-        // try...catch to ensure that if one component's destroy() method fails,
-        // it does not prevent the others from being cleaned up.
-        try {
-            const components = ComponentRegistry.getAll();
-            components.forEach(c => c.destroy());
-        } catch (error) {
-            // Non-critical cleanup errors handled gracefully
-        }
-
-        // Remove the main UI dialog from the page.
-        if (this.dialog) {
-            this.dialog.remove();
-            this.dialog = null;
-        }
-
-        // Reset all internal state for a clean re-initialization.
-        this.renderedTabs.clear();
-        this.activeTabId = null;
-        DataService.clearCache();
-
-        // Reset the global flag to allow the tool to be launched again.
-        window[Config.MAIN.windowInitializedFlag] = false;
-
-        // Find and remove the injected script tag using the correct ID to allow for re-injection.
-        const scriptTag = document.getElementById('power-toolkit-script-module');
-        if (scriptTag) {
-            scriptTag.remove();
+        } catch (_error) {
+            // Catch any synchronous errors to prevent them from propagating to Power Apps SDK
+            // The toolkit is closing anyway, so we silently handle these errors
         }
     }
 };

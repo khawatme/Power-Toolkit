@@ -1,7 +1,6 @@
-# Power-Toolkit for Power Apps & Dataverse
+# Power-Toolkit for Power Apps & Dynamics 365
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
 
 **Power-Toolkit** is a comprehensive, client-side developer tool designed to accelerate the development and debugging of Power Apps Model-Driven Apps. Built as a browser extension, it provides a suite of powerful features to inspect, debug, and manipulate form data, metadata, and server-side processes in real-time, directly within your browser.
 
@@ -153,6 +152,10 @@ import { UIFactory } from '../ui/UIFactory.js';
 export class MyCustomTab extends BaseComponent {
     constructor() {
         super('mycustomtab'); // Unique tab ID
+
+        // Handler references for cleanup (IMPORTANT: Prevents memory leaks)
+        /** @private {Function|null} Handler for execute button */ this._executeHandler = null;
+        /** @private {Function|null} Handler for input keydown */ this._inputKeydownHandler = null;
     }
 
     /**
@@ -187,20 +190,24 @@ export class MyCustomTab extends BaseComponent {
 
     /**
      * Attach event listeners after render
+     * IMPORTANT: Store handlers as instance properties for cleanup in destroy()
      */
     attachEventListeners() {
         const executeBtn = this.getElement('#my-execute-btn');
         const inputField = this.getElement('#my-input');
         
-        executeBtn?.addEventListener('click', () => this._handleExecute());
-        
-        // Add Enter key support
-        inputField?.addEventListener('keydown', (e) => {
+        // Store handlers for cleanup
+        this._executeHandler = () => this._handleExecute();
+        this._inputKeydownHandler = (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 this._handleExecute();
             }
-        });
+        };
+        
+        // Attach listeners
+        executeBtn?.addEventListener('click', this._executeHandler);
+        inputField?.addEventListener('keydown', this._inputKeydownHandler);
     }
 
     /**
@@ -248,6 +255,22 @@ export class MyCustomTab extends BaseComponent {
             // Reset button state
             executeBtn.disabled = false;
             executeBtn.textContent = 'Execute';
+        }
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners
+     * CRITICAL: Always implement this to prevent memory leaks
+     */
+    destroy() {
+        const executeBtn = this.getElement('#my-execute-btn');
+        const inputField = this.getElement('#my-input');
+        
+        if (executeBtn) {
+            executeBtn.removeEventListener('click', this._executeHandler);
+        }
+        if (inputField) {
+            inputField.removeEventListener('keydown', this._inputKeydownHandler);
         }
     }
 }
@@ -325,25 +348,72 @@ If you need custom styles, add them to `src/assets/style.css`:
 
 ### Best Practices for Tab Development
 
-#### 1. Follow the BaseComponent Pattern
+#### 1. **Memory Leak Prevention (CRITICAL)**
+**Always implement proper cleanup to prevent memory leaks!**
+
+```javascript
+// ✅ CORRECT Pattern
+constructor() {
+    super('mytab');
+    // Initialize ALL handler properties to null
+    /** @private {Function|null} */ this._myHandler = null;
+}
+
+attachEventListeners() {
+    // Store handler as instance property
+    this._myHandler = () => { /* handler code */ };
+    element.addEventListener('click', this._myHandler);
+}
+
+destroy() {
+    // Remove listener using stored reference
+    if (element) {
+        element.removeEventListener('click', this._myHandler);
+    }
+}
+
+// ❌ WRONG - Memory leak!
+attachEventListeners() {
+    // Anonymous function - can't be removed later
+    element.addEventListener('click', () => { /* handler code */ });
+}
+```
+
+**Key Rules:**
+- ✅ Always store event handlers as instance properties
+- ✅ Always implement `destroy()` method
+- ✅ Remove ALL event listeners in `destroy()`
+- ✅ Initialize handler properties in constructor with JSDoc
+- ✅ Use instance properties, avoid closures that capture scope
+- ❌ Never use anonymous functions with addEventListener
+- ❌ Never use inline onclick assignments
+
+#### 2. Follow the BaseComponent Pattern
 - Extend `BaseComponent` for automatic lifecycle management
 - Use `render()` for HTML generation
 - Use `attachEventListeners()` for event binding
+- Use `destroy()` for cleanup (memory leak prevention)
 - Use `getElement(selector)` helper for DOM queries
 
-#### 2. Use Existing Services
+#### 3. Use Existing Services
 - **DataService:** All Dataverse CRUD operations
 - **NotificationService:** User notifications (success/error/info/warn)
 - **MetadataService:** Entity and attribute metadata
 - **PowerAppsApiService:** Xrm.Page and context operations
 
-#### 3. Error Handling
+#### 4. Lifecycle Management
+- **Constructor:** Initialize all handler properties to `null` with JSDoc
+- **render():** Return HTML string or create DOM elements
+- **attachEventListeners():** Store handlers as instance properties, then attach
+- **destroy():** Remove ALL event listeners and clear references
+
+#### 5. Error Handling
 - Always wrap async operations in try-catch
 - Use `NotificationService` for user-facing errors
 - Provide helpful error messages
 - Reset UI state in `finally` blocks
 
-#### 4. UI Consistency
+#### 6. UI Consistency
 - Use existing CSS classes from `style.css`:
   - `.pdt-section` for main containers
   - `.pdt-card` for content cards
@@ -353,13 +423,13 @@ If you need custom styles, add them to `src/assets/style.css`:
 - Follow the established color scheme (use CSS custom properties)
 - Use `UIFactory` for common UI elements (code blocks, info grids, etc.)
 
-#### 5. Accessibility
+#### 7. Accessibility
 - Use semantic HTML
 - Add ARIA labels where appropriate
 - Ensure keyboard navigation works
 - Test with screen readers
 
-#### 6. Performance
+#### 8. Performance
 - Debounce expensive operations (use `PerformanceHelpers.debounce()`)
 - Cache results when appropriate
 - Use pagination for large datasets
@@ -384,19 +454,157 @@ const isValid = isValidGuid(recordId);
 const displayText = formatDisplayValue(attribute.getValue(), attribute);
 ```
 
+### Memory Leak Prevention Patterns
+
+Power-Toolkit follows strict memory management patterns. Here are common patterns:
+
+#### Pattern 1: Simple Event Handlers
+```javascript
+constructor() {
+    super('mytab');
+    /** @private {Function|null} */ this._clickHandler = null;
+}
+
+attachEventListeners() {
+    this._clickHandler = () => { /* code */ };
+    button.addEventListener('click', this._clickHandler);
+}
+
+destroy() {
+    if (button) {
+        button.removeEventListener('click', this._clickHandler);
+    }
+}
+```
+
+#### Pattern 2: Delegated Event Handlers
+```javascript
+constructor() {
+    super('mytab');
+    /** @private {Function|null} */ this._delegatedHandler = null;
+    /** @private {HTMLElement|null} */ this._container = null;
+}
+
+attachEventListeners() {
+    this._container = this.getElement('#container');
+    this._delegatedHandler = (e) => {
+        const target = e.target.closest('.my-item');
+        if (target) { /* handle */ }
+    };
+    this._container.addEventListener('click', this._delegatedHandler);
+}
+
+destroy() {
+    if (this._container) {
+        this._container.removeEventListener('click', this._delegatedHandler);
+    }
+}
+```
+
+#### Pattern 3: Debounced Handlers
+```javascript
+import { debounce } from '../helpers/index.js';
+
+constructor() {
+    super('mytab');
+    /** @private {Function|null} */ this._debouncedSearch = null;
+}
+
+attachEventListeners() {
+    this._debouncedSearch = debounce(() => {
+        // Search logic
+    }, 250);
+    searchInput.addEventListener('input', this._debouncedSearch);
+}
+
+destroy() {
+    if (searchInput) {
+        searchInput.removeEventListener('input', this._debouncedSearch);
+    }
+}
+```
+
+#### Pattern 4: Document-Level Events
+```javascript
+constructor() {
+    super('mytab');
+    /** @private {Function|null} */ this._globalHandler = null;
+}
+
+attachEventListeners() {
+    this._globalHandler = (e) => { /* code */ };
+    document.addEventListener('pdt:refresh', this._globalHandler);
+}
+
+destroy() {
+    // IMPORTANT: Remove document-level listeners!
+    document.removeEventListener('pdt:refresh', this._globalHandler);
+}
+```
+
+#### Pattern 5: Multiple Inputs with Same Handler
+```javascript
+constructor() {
+    super('mytab');
+    /** @private {Function|null} */ this._inputHandler = null;
+}
+
+attachEventListeners() {
+    this._inputHandler = () => this._updatePreview();
+    
+    [input1, input2, input3].forEach(input => {
+        input?.addEventListener('input', this._inputHandler);
+    });
+}
+
+destroy() {
+    [input1, input2, input3].forEach(input => {
+        if (input) {
+            input.removeEventListener('input', this._inputHandler);
+        }
+    });
+}
+```
+
+**Common Mistakes to Avoid:**
+```javascript
+// ❌ WRONG: Closure captures scope - memory leak
+postRender() {
+    const data = this.getData();
+    button.addEventListener('click', () => {
+        console.log(data); // Captures 'data' and 'this'
+    });
+}
+
+// ✅ CORRECT: Use instance property
+constructor() {
+    /** @private {Function|null} */ this._buttonHandler = null;
+}
+postRender() {
+    this._buttonHandler = () => {
+        console.log(this.getData()); // No closure leak
+    };
+    button.addEventListener('click', this._buttonHandler);
+}
+```
+
 ### Testing Checklist
 
 Before submitting your tab:
 
+- [ ] `destroy()` method implemented with all event listener cleanup
+- [ ] All handlers stored as instance properties (no anonymous functions)
+- [ ] Handler properties initialized in constructor
 - [ ] Tab renders correctly
 - [ ] All buttons and inputs work as expected
 - [ ] Error handling displays appropriate messages
 - [ ] Loading states provide visual feedback
 - [ ] Results display correctly (table/JSON views if applicable)
 - [ ] Dark and light themes both look good
-- [ ] No console errors
+- [ ] No console errors or memory leaks
 - [ ] Code follows existing patterns and style
 - [ ] Comments and JSDoc added for public methods
+- [ ] Tested tab switching multiple times (verify no memory leaks)
 
 ---
 

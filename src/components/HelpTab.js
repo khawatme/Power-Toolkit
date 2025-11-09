@@ -18,6 +18,12 @@ export class HelpTab extends BaseComponent {
      */
     constructor() {
         super('help', 'Help / Guide', ICONS.help);
+
+        // Handler references for cleanup
+        /** @private {HTMLElement|null} */ this._searchInput = null;
+        /** @private {HTMLElement|null} */ this._cardContainer = null;
+        /** @private {Function|null} */ this._searchHandler = null;
+        /** @private {Function|null} */ this._cardClickHandler = null;
     }
 
     /**
@@ -40,8 +46,8 @@ export class HelpTab extends BaseComponent {
      * @param {HTMLElement} element - The root element of the component.
      */
     postRender(element) {
-        const searchInput = element.querySelector('#help-search');
-        const cardContainer = element.querySelector('#help-card-container');
+        this._searchInput = element.querySelector('#help-search');
+        this._cardContainer = element.querySelector('#help-card-container');
         const helpContent = this._getHelpContent();
 
         // Dynamically create and append help cards from the content object
@@ -54,25 +60,28 @@ export class HelpTab extends BaseComponent {
                 <h4>${item.title}</h4>
                 <p>${item.summary}</p>
                 <div class="help-card-details"><p>${item.content}</p></div>`;
-            cardContainer.appendChild(card);
+            this._cardContainer.appendChild(card);
         }
 
-        // Attach a debounced search listener for performance
-        searchInput.addEventListener('keyup', debounce(() => {
-            const term = searchInput.value.toLowerCase().trim();
-            cardContainer.querySelectorAll('.help-card').forEach(card => {
+        // Store handlers for cleanup
+        this._searchHandler = debounce(() => {
+            const term = this._searchInput.value.toLowerCase().trim();
+            this._cardContainer.querySelectorAll('.help-card').forEach(card => {
                 const cardText = card.textContent.toLowerCase();
                 card.style.display = cardText.includes(term) ? 'block' : 'none';
             });
-        }, 250));
+        }, 250);
 
-        // Use event delegation for the accordion click handler
-        cardContainer.addEventListener('click', (e) => {
+        this._cardClickHandler = (e) => {
             const card = e.target.closest('.help-card');
             if (card) {
-                this._toggleAccordion(card, cardContainer);
+                this._toggleAccordion(card, this._cardContainer);
             }
-        });
+        };
+
+        // Attach listeners
+        this._searchInput.addEventListener('keyup', this._searchHandler);
+        this._cardContainer.addEventListener('click', this._cardClickHandler);
     }
 
     /**
@@ -83,20 +92,23 @@ export class HelpTab extends BaseComponent {
      */
     _toggleAccordion(card, container) {
         const details = card.querySelector('.help-card-details');
-        const isExpanded = card.classList.contains('expanded');
 
         // Collapse all other expanded cards first (excluding the clicked one)
         container.querySelectorAll('.help-card.expanded').forEach(openCard => {
             if (openCard !== card) {
                 openCard.classList.remove('expanded');
                 const openDetails = openCard.querySelector('.help-card-details');
-                if (openDetails) toggleElementHeight(openDetails);
+                if (openDetails) {
+                    toggleElementHeight(openDetails);
+                }
             }
         });
 
         // Toggle the clicked card
         card.classList.toggle('expanded');
-        if (details) toggleElementHeight(details);
+        if (details) {
+            toggleElementHeight(details);
+        }
     }
 
     /**
@@ -131,7 +143,7 @@ export class HelpTab extends BaseComponent {
             automation: {
                 title: 'Form Automation',
                 summary: 'View, manage, and inspect Business Rules and JavaScript event handlers.',
-                content: "This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer."
+                content: 'This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer.'
             },
             eventMonitor: {
                 title: 'Event Monitor',
@@ -199,5 +211,21 @@ export class HelpTab extends BaseComponent {
                 content: 'This section shows the current version of the Power-Toolkit, the author\'s name, and links to connect with them.'
             }
         };
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this._searchInput) {
+            this._searchInput.removeEventListener('keyup', this._searchHandler);
+        }
+        // Cancel any pending debounced search
+        if (this._searchHandler?.cancel) {
+            this._searchHandler.cancel();
+        }
+        if (this._cardContainer) {
+            this._cardContainer.removeEventListener('click', this._cardClickHandler);
+        }
     }
 }

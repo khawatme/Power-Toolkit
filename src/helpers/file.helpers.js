@@ -73,9 +73,15 @@ export const FileHelpers = {
     createFileInputElement(options = {}) {
         const input = document.createElement('input');
         input.type = 'file';
-        if (options.accept) input.accept = options.accept;
-        if (options.multiple) input.multiple = true;
-        if (options.onChange) input.onchange = options.onChange;
+        if (options.accept) {
+            input.accept = options.accept;
+        }
+        if (options.multiple) {
+            input.multiple = true;
+        }
+        if (options.onChange) {
+            input.onchange = options.onChange;
+        }
         return input;
     },
 

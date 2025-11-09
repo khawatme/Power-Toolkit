@@ -35,7 +35,9 @@ export const UIHelpers = {
      * @param {HTMLElement} element - The element to toggle.
      */
     toggleElementHeight(element) {
-        if (!element) return;
+        if (!element) {
+            return;
+        }
         const isOpen = element.style.maxHeight && element.style.maxHeight !== '0px';
         element.style.maxHeight = isOpen ? '0px' : `${element.scrollHeight}px`;
     },
@@ -48,10 +50,14 @@ export const UIHelpers = {
      * @returns {boolean} - True if expanded, false if collapsed.
      */
     toggleAccordionCategory(categoryElement, headerSelector = '.codehub-category-header') {
-        if (!categoryElement) return false;
+        if (!categoryElement) {
+            return false;
+        }
         const isExpanded = categoryElement.classList.toggle('expanded');
         const header = categoryElement.querySelector(headerSelector);
-        if (header) header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        if (header) {
+            header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        }
         return isExpanded;
     },
 
@@ -64,12 +70,19 @@ export const UIHelpers = {
      * @param {string} headerSelector - CSS selector for headers within categories (default: '.codehub-category-header').
      */
     setAllAccordionCategories(container, categorySelector, expand, headerSelector = '.codehub-category-header') {
-        if (!container) return;
+        if (!container) {
+            return;
+        }
         container.querySelectorAll(categorySelector).forEach(cat => {
-            if (expand) cat.classList.add('expanded');
-            else cat.classList.remove('expanded');
+            if (expand) {
+                cat.classList.add('expanded');
+            } else {
+                cat.classList.remove('expanded');
+            }
             const header = cat.querySelector(headerSelector);
-            if (header) header.setAttribute('aria-expanded', expand ? 'true' : 'false');
+            if (header) {
+                header.setAttribute('aria-expanded', expand ? 'true' : 'false');
+            }
         });
     },
 
@@ -81,11 +94,15 @@ export const UIHelpers = {
      * @param {string} detailsSelector - CSS selector for the expandable content within each item.
      */
     collapseAllAccordionItems(container, itemSelector, detailsSelector) {
-        if (!container) return;
+        if (!container) {
+            return;
+        }
         container.querySelectorAll(`${itemSelector}.expanded`).forEach(item => {
             item.classList.remove('expanded');
             const details = item.querySelector(detailsSelector);
-            if (details) details.style.maxHeight = '0px';
+            if (details) {
+                details.style.maxHeight = '0px';
+            }
         });
     },
 
@@ -108,7 +125,9 @@ export const UIHelpers = {
      * @returns {Array<object>} The sorted array (same reference as input).
      */
     sortArrayByColumn(array, column, direction = 'asc') {
-        if (!Array.isArray(array) || array.length === 0) return array;
+        if (!Array.isArray(array) || array.length === 0) {
+            return array;
+        }
 
         const multiplier = direction === 'asc' ? 1 : -1;
         array.sort((a, b) => {
@@ -116,9 +135,15 @@ export const UIHelpers = {
             const valB = b[column];
 
             // Handle null/undefined values
-            if (valA == null && valB == null) return 0;
-            if (valA == null) return 1 * multiplier;
-            if (valB == null) return -1 * multiplier;
+            if ((valA === null || valA === undefined) && (valB === null || valB === undefined)) {
+                return 0;
+            }
+            if (valA === null || valA === undefined) {
+                return 1 * multiplier;
+            }
+            if (valB === null || valB === undefined) {
+                return -1 * multiplier;
+            }
 
             // Use localeCompare for string comparison
             return String(valA).localeCompare(String(valB), undefined, { sensitivity: 'base' }) * multiplier;
@@ -153,7 +178,9 @@ export const UIHelpers = {
      * @returns {string} HTML string for table header row.
      */
     generateSortableTableHeaders(headers, sortState) {
-        if (!Array.isArray(headers)) return '';
+        if (!Array.isArray(headers)) {
+            return '';
+        }
 
         // Import escapeHtml dynamically to avoid circular dependency
         const escapeHtml = (str) => {
@@ -169,7 +196,7 @@ export const UIHelpers = {
                 ? (sortState.direction === 'asc' ? 'ascending' : 'descending')
                 : 'none';
 
-            return `<th class="${sortClass}" data-sort-key="${escapeHtml(header.key)}" aria-sort="${ariaSort}">${escapeHtml(header.label)}</th>`;
+            return `<th class="${sortClass}" data-sort-key="${escapeHtml(header.key)}" aria-sort="${ariaSort}" tabindex="0" role="button" aria-label="Sort by ${escapeHtml(header.label)}">${escapeHtml(header.label)}</th>`;
         }).join('');
 
         return `<tr>${headerCells}</tr>`;

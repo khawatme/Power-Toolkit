@@ -37,6 +37,13 @@ export class CodeHubTab extends BaseComponent {
         /** @type {{container?:HTMLElement, search?:HTMLInputElement}} */
         this.ui = {};
         this.filterSnippets = debounce(this._filterSnippets, 200);
+
+        // Handler references for cleanup
+        /** @private {Function|null} */ this._searchInputHandler = null;
+        /** @private {Function|null} */ this._clearButtonHandler = null;
+        /** @private {Function|null} */ this._accordionClickHandler = null;
+        /** @private {Function|null} */ this._accordionKeydownHandler = null;
+        /** @private {HTMLElement|null} */ this._clearButton = null;
     }
 
     /** @returns {Promise<HTMLElement>} */
@@ -73,32 +80,39 @@ export class CodeHubTab extends BaseComponent {
     postRender(element) {
         this.ui.container = element;
         this.ui.search = element.querySelector('#codehub-search');
+        this._clearButton = element.querySelector('#codehub-clear');
 
-        // Search
-        this.ui.search.addEventListener('input', () => this.filterSnippets());
-
-        // Clear
-        element.querySelector('#codehub-clear').addEventListener('click', () => {
+        // Store handlers for cleanup
+        this._searchInputHandler = () => this.filterSnippets();
+        this._clearButtonHandler = () => {
             this.ui.search.value = '';
             this.filterSnippets();
             // Collapse all when search is cleared
             setAllAccordionCategories(this.ui.container, '.codehub-category', false);
-        });
-
-        // Accordion (mouse & keyboard)
-        element.addEventListener('click', (e) => {
+        };
+        this._accordionClickHandler = (e) => {
             const header = e.target.closest('.codehub-category-header');
-            if (!header) return;
+            if (!header) {
+                return;
+            }
             toggleAccordionCategory(header.parentElement);
-        });
-        element.addEventListener('keydown', (e) => {
+        };
+        this._accordionKeydownHandler = (e) => {
             const header = e.target.closest('.codehub-category-header');
-            if (!header) return;
+            if (!header) {
+                return;
+            }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 toggleAccordionCategory(header.parentElement);
             }
-        });
+        };
+
+        // Attach listeners
+        this.ui.search.addEventListener('input', this._searchInputHandler);
+        this._clearButton.addEventListener('click', this._clearButtonHandler);
+        element.addEventListener('click', this._accordionClickHandler);
+        element.addEventListener('keydown', this._accordionKeydownHandler);
     }
 
     /** @returns {DocumentFragment} */
@@ -182,7 +196,9 @@ export class CodeHubTab extends BaseComponent {
             cat.querySelectorAll('.codehub-snippet').forEach(sn => {
                 const match = !term || (sn.dataset.searchText || '').includes(term);
                 sn.style.display = match ? '' : 'none';
-                if (match) visibleCount++;
+                if (match) {
+                    visibleCount++;
+                }
             });
             cat.style.display = visibleCount ? '' : 'none';
             // Auto-expand when searching and there are matches
@@ -197,5 +213,25 @@ export class CodeHubTab extends BaseComponent {
             }
         });
     };
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this.ui.search) {
+            this.ui.search.removeEventListener('input', this._searchInputHandler);
+        }
+        // Cancel any pending debounced filter
+        if (this.filterSnippets?.cancel) {
+            this.filterSnippets.cancel();
+        }
+        if (this._clearButton) {
+            this._clearButton.removeEventListener('click', this._clearButtonHandler);
+        }
+        if (this.ui.container) {
+            this.ui.container.removeEventListener('click', this._accordionClickHandler);
+            this.ui.container.removeEventListener('keydown', this._accordionKeydownHandler);
+        }
+    }
 }
 

@@ -45,6 +45,23 @@ export class WebApiExplorerTab extends BaseComponent {
         this.resultSortState = { column: null, direction: 'asc' };
         /** @private @type {ResultPanel|null} */
         this.resultPanel = null;
+
+        // Handler references for cleanup
+        /** @private {HTMLElement|null} */ this._rootElement = null;
+        /** @private {Function|null} */ this._getEntityInputHandler = null;
+        /** @private {Function|null} */ this._postPatchEntityInputHandler = null;
+        /** @private {Function|null} */ this._deleteEntityInputHandler = null;
+        /** @private {Function|null} */ this._rootKeydownHandler = null;
+        /** @private {Function|null} */ this._methodSelectHandler = null;
+        /** @private {Function|null} */ this._formatJsonHandler = null;
+        /** @private {Function|null} */ this._pickEntityHandler = null;
+        /** @private {Function|null} */ this._browseGetSelectHandler = null;
+        /** @private {Function|null} */ this._browseGetOrderByHandler = null;
+        /** @private {Function|null} */ this._addConditionHandler = null;
+        /** @private {Function|null} */ this._executeHandler = null;
+        /** @private {Function|null} */ this._copyUrlHandler = null;
+        /** @private {Function|null} */ this._livePreviewRefreshHandler = null;
+        /** @private {Function|null} */ this._externalRefreshHandler = null;
     }
 
     /**
@@ -169,6 +186,8 @@ export class WebApiExplorerTab extends BaseComponent {
      * @param {HTMLElement} root
      */
     postRender(root) {
+        this._rootElement = root;
+
         this.ui = {
             methodSelect: root.querySelector('#api-method-select'),
             preview: root.querySelector('#api-preview'),
@@ -219,31 +238,38 @@ export class WebApiExplorerTab extends BaseComponent {
                 this._displayResult();
             },
             getSortState: () => this.resultSortState,
-            setSortState: (s) => { this.resultSortState = s; }
+            setSortState: (s) => {
+                this.resultSortState = s;
+            }
         });
 
-        this.ui.getEntityInput?.addEventListener('input', () => {
+        // Store handlers for cleanup
+        this._getEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
             this.clearResults();
-        });
-        this.ui.postPatchEntityInput?.addEventListener('input', () => {
+        };
+        this._postPatchEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
             this.clearResults();
-        });
-        this.ui.deleteEntityInput?.addEventListener('input', () => {
+        };
+        this._deleteEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
             this.clearResults();
-        });
-
-        root.addEventListener('keydown', (e) => {
+        };
+        this._rootKeydownHandler = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 this.ui.executeBtn?.click();
                 e.preventDefault();
             }
-        });
+        };
+
+        this.ui.getEntityInput?.addEventListener('input', this._getEntityInputHandler);
+        this.ui.postPatchEntityInput?.addEventListener('input', this._postPatchEntityInputHandler);
+        this.ui.deleteEntityInput?.addEventListener('input', this._deleteEntityInputHandler);
+        root.addEventListener('keydown', this._rootKeydownHandler);
 
         // Bind interactions
         this._bindMethodSwitch();
@@ -280,11 +306,12 @@ export class WebApiExplorerTab extends BaseComponent {
 
     /** Method switch → update view + preview. */
     _bindMethodSwitch() {
-        this.ui.methodSelect.addEventListener('change', () => {
+        this._methodSelectHandler = () => {
             this._updateMethodView();
             this.clearResults();
             this._updatePreview();
-        });
+        };
+        this.ui.methodSelect.addEventListener('change', this._methodSelectHandler);
     }
 
     /**
@@ -294,21 +321,26 @@ export class WebApiExplorerTab extends BaseComponent {
      */
     _bindPayloadHelpers() {
         const btn = this.ui.formatJsonBtn;
-        if (!btn) return;
+        if (!btn) {
+            return;
+        }
 
-        btn.addEventListener('click', () => {
+        this._formatJsonHandler = () => {
             const area = this.ui.bodyArea;
-            if (!area) return;
+            if (!area) {
+                return;
+            }
 
             try {
                 const raw = area.value?.trim();
                 const parsed = JSON.parse(raw && raw.length ? raw : '{}');
                 area.value = JSON.stringify(parsed, null, 2);
                 area.focus();
-            } catch (e) {
+            } catch (_e) {
                 NotificationService.show(Config.MESSAGES.WEB_API.invalidJson, 'error');
             }
-        });
+        };
+        btn.addEventListener('click', this._formatJsonHandler);
     }
 
     /**
@@ -319,7 +351,9 @@ export class WebApiExplorerTab extends BaseComponent {
      * @returns {void}
      */
     _displayResult() {
-        if (!this.resultPanel) return;
+        if (!this.resultPanel) {
+            return;
+        }
         const entities = Array.isArray(this.lastResult?.entities)
             ? this.lastResult.entities
             : (Array.isArray(this.lastResult) ? this.lastResult : (this.lastResult?.value || []));
@@ -335,7 +369,7 @@ export class WebApiExplorerTab extends BaseComponent {
 
     /** Choose entity and columns with metadata browser, enabling controls once known. */
     _bindEntityBrowsers() {
-        const pickEntity = () => {
+        this._pickEntityHandler = () => {
             MetadataBrowserDialog.show('entity', (selected) => {
                 this.selectedEntityLogicalName = selected.LogicalName;
                 this.attrMap = null; // rebuild lazily
@@ -355,9 +389,9 @@ export class WebApiExplorerTab extends BaseComponent {
             });
         };
 
-        this.ui.browseGetEntityBtn.addEventListener('click', pickEntity);
-        this.ui.browsePostPatchEntityBtn.addEventListener('click', pickEntity);
-        this.ui.browseDeleteEntityBtn.addEventListener('click', pickEntity);
+        this.ui.browseGetEntityBtn.addEventListener('click', this._pickEntityHandler);
+        this.ui.browsePostPatchEntityBtn.addEventListener('click', this._pickEntityHandler);
+        this.ui.browseDeleteEntityBtn.addEventListener('click', this._pickEntityHandler);
 
         const pickColumn = (assign) => {
             showColumnBrowser(
@@ -372,88 +406,95 @@ export class WebApiExplorerTab extends BaseComponent {
             );
         };
 
-        this.ui.browseGetSelectBtn.addEventListener('click', () =>
+        this._browseGetSelectHandler = () =>
             pickColumn((ln) => {
                 const area = this.ui.getSelectInput;
                 area.value += (area.value ? '\n' : '') + ln;
-            })
-        );
+            });
 
-        this.ui.browseGetOrderByBtn.addEventListener('click', () =>
-            pickColumn((ln) => (this.ui.getOrderByAttrInput.value = ln))
-        );
+        this._browseGetOrderByHandler = () =>
+            pickColumn((ln) => (this.ui.getOrderByAttrInput.value = ln));
+
+        this.ui.browseGetSelectBtn.addEventListener('click', this._browseGetSelectHandler);
+        this.ui.browseGetOrderByBtn.addEventListener('click', this._browseGetOrderByHandler);
     }
 
     /** Add Condition button (GET only). */
     _bindConditionAdd() {
-        if (!this.ui.addCondBtn) return;
-        this.ui.addCondBtn.addEventListener('click', async () => {
+        if (!this.ui.addCondBtn) {
+            return;
+        }
+        this._addConditionHandler = async () => {
             /** @type {HttpMethod} */
             const method = this.ui.methodSelect.value || 'GET';
-            if (method !== 'GET') return;
+            if (method !== 'GET') {
+                return;
+            }
             try {
                 await this._ensureEntityContext();
                 this._addConditionUI(false);
                 this._updatePreview();
-            } catch (e) {
+            } catch (_e) {
                 NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
             }
-        });
+        };
+        this.ui.addCondBtn.addEventListener('click', this._addConditionHandler);
     }
 
     /** Execute requests; Copy URL for GET. */
     _bindExecute() {
-        this.ui.executeBtn.addEventListener('click', async () => {
-            if (!this.ui.executeBtn || this.ui.executeBtn.disabled) return; // guard
+        this._executeHandler = async () => {
+            if (!this.ui.executeBtn || this.ui.executeBtn.disabled) {
+                return;
+            } // guard
             /** @type {HttpMethod} */
             const method = this.ui.methodSelect.value;
 
             this._setExecuting(true);
             try {
                 switch (method) {
-                    case 'GET': {
-                        const { entitySet, logicalName } = await this._ensureEntityContext(this.ui.getEntityInput.value);
-                        const options = await this._buildGetOptionsString(logicalName);
-                        const res = await DataService.retrieveMultipleRecords(entitySet, options);
-                        this.lastResult = normalizeApiResponse(res);
-                        break;
-                    }
-                    case 'POST':
-                    case 'PATCH': {
-                        const { entitySet } = await this._ensureEntityContext(this.ui.postPatchEntityInput.value);
-                        const body = ValidationService.validateJson(this.ui.bodyArea.value || '{}', 'Request body');
+                case 'GET': {
+                    const { entitySet, logicalName } = await this._ensureEntityContext(this.ui.getEntityInput.value);
+                    const options = await this._buildGetOptionsString(logicalName);
+                    const res = await DataService.retrieveMultipleRecords(entitySet, options);
+                    this.lastResult = normalizeApiResponse(res);
+                    break;
+                }
+                case 'POST':
+                case 'PATCH': {
+                    const { entitySet } = await this._ensureEntityContext(this.ui.postPatchEntityInput.value);
+                    const body = ValidationService.validateJson(this.ui.bodyArea.value || '{}', 'Request body');
 
-                        let res;
-                        if (method === 'POST') {
-                            res = await DataService.createRecord(entitySet, body);
-                        } else {
-                            const id = this.ui.patchIdInput.value.trim();
-                            ValidationService.validateGuid(id, 'Record ID', Config.VALIDATION_ERRORS.invalidPatchGuid);
-                            res = await DataService.updateRecord(entitySet, id, body);
-                        }
-                        this.lastResult = normalizeApiResponse(res);
-                        break;
+                    let res;
+                    if (method === 'POST') {
+                        res = await DataService.createRecord(entitySet, body);
+                    } else {
+                        const id = this.ui.patchIdInput.value.trim();
+                        ValidationService.validateGuid(id, 'Record ID', Config.VALIDATION_ERRORS.invalidPatchGuid);
+                        res = await DataService.updateRecord(entitySet, id, body);
                     }
-                    case 'DELETE': {
-                        const { entitySet } = await this._ensureEntityContext(this.ui.deleteEntityInput.value);
-                        const id = this.ui.deleteIdInput.value.trim();
-                        ValidationService.validateGuid(id, 'Record ID', Config.VALIDATION_ERRORS.invalidDeleteGuid);
-                        const ok = await showConfirmDialog(
-                            'Confirm Delete',
-                            `<p>Delete record <code>${escapeHtml(id)}</code> from <strong>${escapeHtml(entitySet)}</strong>?</p><p class="pdt-text-error">This action cannot be undone.</p>`
-                        );
-                        if (!ok) {
-                            this.lastResult = normalizeApiResponse(null);
-                            this._displayResult();
-                            const count = Array.isArray(this.lastResult?.entities) ? this.lastResult.entities.length : 0;
-                            NotificationService.show(Config.MESSAGES.WEB_API.requestSuccess, 'success');
-                            return;
-                        }
-                        const res = await DataService.deleteRecord(entitySet, id);
-                        // Delete is usually empty; still normalize to keep UX consistent.
-                        this.lastResult = normalizeApiResponse(res);
-                        break;
+                    this.lastResult = normalizeApiResponse(res);
+                    break;
+                }
+                case 'DELETE': {
+                    const { entitySet } = await this._ensureEntityContext(this.ui.deleteEntityInput.value);
+                    const id = this.ui.deleteIdInput.value.trim();
+                    ValidationService.validateGuid(id, 'Record ID', Config.VALIDATION_ERRORS.invalidDeleteGuid);
+                    const ok = await showConfirmDialog(
+                        'Confirm Delete',
+                        `<p>Delete record <code>${escapeHtml(id)}</code> from <strong>${escapeHtml(entitySet)}</strong>?</p><p class="pdt-text-error">This action cannot be undone.</p>`
+                    );
+                    if (!ok) {
+                        this.lastResult = normalizeApiResponse(null);
+                        this._displayResult();
+                        NotificationService.show(Config.MESSAGES.WEB_API.requestSuccess, 'success');
+                        return;
                     }
+                    const res = await DataService.deleteRecord(entitySet, id);
+                    // Delete is usually empty; still normalize to keep UX consistent.
+                    this.lastResult = normalizeApiResponse(res);
+                    break;
+                }
                 }
 
                 // Reset sort state on fresh results
@@ -489,10 +530,11 @@ export class WebApiExplorerTab extends BaseComponent {
             } finally {
                 this._setExecuting(false);
             }
-        });
+        };
+        this.ui.executeBtn.addEventListener('click', this._executeHandler);
 
         // Copy URL (GET only)
-        this.ui.copyUrlBtn.addEventListener('click', async () => {
+        this._copyUrlHandler = async () => {
             try {
                 const { entitySet, logicalName } = await this._ensureEntityContext(this.ui.getEntityInput.value);
                 const opts = await this._buildGetOptionsString(logicalName);
@@ -502,12 +544,13 @@ export class WebApiExplorerTab extends BaseComponent {
             } catch (e) {
                 NotificationService.show(Config.MESSAGES.WEB_API.buildUrlFailed(e.message), 'warning');
             }
-        });
+        };
+        this.ui.copyUrlBtn.addEventListener('click', this._copyUrlHandler);
     }
 
     /** Live preview refresh (debounced). */
     _bindLivePreview() {
-        const refresh = debounce(async () => {
+        this._livePreviewRefreshHandler = debounce(async () => {
             await this._updatePreview();
         }, 200);
 
@@ -516,10 +559,10 @@ export class WebApiExplorerTab extends BaseComponent {
             this.ui.getOrderByAttrInput, this.ui.getOrderByDirSelect,
             this.ui.postPatchEntityInput, this.ui.patchIdInput, this.ui.bodyArea,
             this.ui.deleteEntityInput, this.ui.deleteIdInput
-        ].forEach(n => n && n.addEventListener('input', refresh));
+        ].forEach(n => n && n.addEventListener('input', this._livePreviewRefreshHandler));
 
-        this.ui.getConditionsContainer.addEventListener('input', refresh);
-        this.ui.getConditionsContainer.addEventListener('change', refresh);
+        this.ui.getConditionsContainer.addEventListener('input', this._livePreviewRefreshHandler);
+        this.ui.getConditionsContainer.addEventListener('change', this._livePreviewRefreshHandler);
     }
 
     /**
@@ -527,9 +570,9 @@ export class WebApiExplorerTab extends BaseComponent {
      * Fire: document.dispatchEvent(new CustomEvent('pdt:tool-refresh'));
      */
     _bindExternalRefresh() {
-        const clear = () => this.clearResults();
-        document.addEventListener('pdt:tool-refresh', clear);
-        document.addEventListener('pdt:refresh', clear);
+        this._externalRefreshHandler = () => this.clearResults();
+        document.addEventListener('pdt:tool-refresh', this._externalRefreshHandler);
+        document.addEventListener('pdt:refresh', this._externalRefreshHandler);
     }
 
     /**
@@ -555,9 +598,15 @@ export class WebApiExplorerTab extends BaseComponent {
         const { entitySet, logicalName } = await EntityContextResolver.resolve(entityInput);
 
         // Normalize UI to entity set (consistent downstream)
-        if (this.ui.getEntityInput) this.ui.getEntityInput.value = entitySet;
-        if (this.ui.postPatchEntityInput) this.ui.postPatchEntityInput.value = entitySet;
-        if (this.ui.deleteEntityInput) this.ui.deleteEntityInput.value = entitySet;
+        if (this.ui.getEntityInput) {
+            this.ui.getEntityInput.value = entitySet;
+        }
+        if (this.ui.postPatchEntityInput) {
+            this.ui.postPatchEntityInput.value = entitySet;
+        }
+        if (this.ui.deleteEntityInput) {
+            this.ui.deleteEntityInput.value = entitySet;
+        }
 
         this.selectedEntityLogicalName = logicalName;
 
@@ -578,7 +627,9 @@ export class WebApiExplorerTab extends BaseComponent {
      * @returns {Promise<string>}
      */
     async _buildGetOptionsString(logicalName) {
-        if (!this.attrMap) this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
+        if (!this.attrMap) {
+            this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
+        }
 
         const rawSelect = this.ui.getSelectInput.value.trim();
         const select = rawSelect ? rawSelect.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
@@ -655,7 +706,9 @@ export class WebApiExplorerTab extends BaseComponent {
         operatorSelect.onchange = () => {
             const shouldShow = shouldShowOperatorValue(operatorSelect.value);
             valueInput.style.display = shouldShow ? 'block' : 'none';
-            if (!shouldShow) valueInput.value = '';
+            if (!shouldShow) {
+                valueInput.value = '';
+            }
         };
         // Run once to sync initial state
         operatorSelect.dispatchEvent(new Event('change'));
@@ -676,13 +729,15 @@ export class WebApiExplorerTab extends BaseComponent {
         if (method === 'GET') {
             const inputName = this.ui.getEntityInput.value.trim();
             if (!inputName) {
-                html += `<div class="pdt-preview-line"><strong>URL:</strong> <code>(table?)</code></div>`;
+                html += '<div class="pdt-preview-line"><strong>URL:</strong> <code>(table?)</code></div>';
             } else {
                 try {
                     const { entitySet, logicalName } = await EntityContextResolver.resolve(inputName);
                     this.ui.getEntityInput.value = entitySet;
                     this.selectedEntityLogicalName = logicalName;
-                    if (!this.attrMap) this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
+                    if (!this.attrMap) {
+                        this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
+                    }
                     const opts = await this._buildGetOptionsString(logicalName);
                     this._setPreviewUrl(`${entitySet}${opts || ''}`);
                     return;
@@ -712,7 +767,7 @@ export class WebApiExplorerTab extends BaseComponent {
      */
     _setPreviewUrl(url) {
         const html = [
-            `<div class="pdt-preview-line"><strong>Method:</strong> GET</div>`,
+            '<div class="pdt-preview-line"><strong>Method:</strong> GET</div>',
             `<div class="pdt-preview-line"><strong>URL:</strong> <code>${escapeHtml(url)}</code></div>`
         ].join('');
         this.ui.preview.innerHTML = html;
@@ -738,8 +793,12 @@ export class WebApiExplorerTab extends BaseComponent {
             const a = r.querySelector('[data-prop="attribute"]').value.trim();
             const o = r.querySelector('[data-prop="operator"]').value;
             const v = r.querySelector('[data-prop="value"]').value.trim();
-            if (!a || !o) return '';
-            if (o.includes('null')) return `${a} ${o}`;
+            if (!a || !o) {
+                return '';
+            }
+            if (o.includes('null')) {
+                return `${a} ${o}`;
+            }
             if (['contains', 'startswith', 'endswith', 'not contains'].includes(o)) {
                 const fn = (o === 'not contains') ? 'contains' : o;
                 const expr = `${fn}(${a},${q(v)})`;
@@ -749,10 +808,18 @@ export class WebApiExplorerTab extends BaseComponent {
         }).filter(Boolean);
 
         const params = [];
-        if (selectCols.length) params.push(`$select=${selectCols.join(',')}`);
-        if (filterParts.length) params.push(`$filter=${filterParts.join(' and ')}`);
-        if (top) params.push(`$top=${top}`);
-        if (orderAttr) params.push(`$orderby=${orderAttr} ${orderDir}`);
+        if (selectCols.length) {
+            params.push(`$select=${selectCols.join(',')}`);
+        }
+        if (filterParts.length) {
+            params.push(`$filter=${filterParts.join(' and ')}`);
+        }
+        if (top) {
+            params.push(`$top=${top}`);
+        }
+        if (orderAttr) {
+            params.push(`$orderby=${orderAttr} ${orderDir}`);
+        }
 
         return params.length ? `?${params.join('&')}` : '';
     }
@@ -764,14 +831,24 @@ export class WebApiExplorerTab extends BaseComponent {
         this.lastResult = normalizeApiResponse(null);
         this.resultSortState = { column: null, direction: 'asc' };
 
-        try { this.resultPanel?.dispose?.(); } catch { }
-        if (this.ui.resultRoot) this.ui.resultRoot.textContent = '';
+        try {
+            this.resultPanel?.dispose?.();
+        } catch { }
+        if (this.ui.resultRoot) {
+            this.ui.resultRoot.textContent = '';
+        }
         this.resultPanel = new ResultPanel({
             root: this.ui.resultRoot,
-            onToggleView: (v) => { this.currentView = v; PreferencesHelper.save(Config.STORAGE_KEYS.webApiView, v); this._displayResult(); },
-            onToggleHide: (h) => { this.hideOdata = h; PreferencesHelper.save(Config.STORAGE_KEYS.webApiHideOdata, h, 'boolean'); this._displayResult(); },
+            onToggleView: (v) => {
+                this.currentView = v; PreferencesHelper.save(Config.STORAGE_KEYS.webApiView, v); this._displayResult();
+            },
+            onToggleHide: (h) => {
+                this.hideOdata = h; PreferencesHelper.save(Config.STORAGE_KEYS.webApiHideOdata, h, 'boolean'); this._displayResult();
+            },
             getSortState: () => this.resultSortState,
-            setSortState: (s) => { this.resultSortState = s; }
+            setSortState: (s) => {
+                this.resultSortState = s;
+            }
         });
 
         // draw empty
@@ -785,9 +862,108 @@ export class WebApiExplorerTab extends BaseComponent {
      * @param {boolean} busy
      */
     _setExecuting(busy) {
-        if (!this.ui.executeBtn) return;
+        if (!this.ui.executeBtn) {
+            return;
+        }
         this.ui.executeBtn.disabled = !!busy;
-        if (busy) BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot, 'Executing…');
-        else BusyIndicator.clear(this.ui.executeBtn);
+        if (busy) {
+            BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot, 'Executing…');
+        } else {
+            BusyIndicator.clear(this.ui.executeBtn);
+        }
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        // Remove input handlers
+        if (this.ui.getEntityInput) {
+            this.ui.getEntityInput.removeEventListener('input', this._getEntityInputHandler);
+        }
+        if (this.ui.postPatchEntityInput) {
+            this.ui.postPatchEntityInput.removeEventListener('input', this._postPatchEntityInputHandler);
+        }
+        if (this.ui.deleteEntityInput) {
+            this.ui.deleteEntityInput.removeEventListener('input', this._deleteEntityInputHandler);
+        }
+
+        // Remove root keydown handler
+        if (this._rootElement) {
+            this._rootElement.removeEventListener('keydown', this._rootKeydownHandler);
+        }
+
+        // Remove method select handler
+        if (this.ui.methodSelect) {
+            this.ui.methodSelect.removeEventListener('change', this._methodSelectHandler);
+        }
+
+        // Remove format JSON handler
+        if (this.ui.formatJsonBtn) {
+            this.ui.formatJsonBtn.removeEventListener('click', this._formatJsonHandler);
+        }
+
+        // Remove entity browser handlers
+        if (this.ui.browseGetEntityBtn) {
+            this.ui.browseGetEntityBtn.removeEventListener('click', this._pickEntityHandler);
+        }
+        if (this.ui.browsePostPatchEntityBtn) {
+            this.ui.browsePostPatchEntityBtn.removeEventListener('click', this._pickEntityHandler);
+        }
+        if (this.ui.browseDeleteEntityBtn) {
+            this.ui.browseDeleteEntityBtn.removeEventListener('click', this._pickEntityHandler);
+        }
+
+        // Remove column browser handlers
+        if (this.ui.browseGetSelectBtn) {
+            this.ui.browseGetSelectBtn.removeEventListener('click', this._browseGetSelectHandler);
+        }
+        if (this.ui.browseGetOrderByBtn) {
+            this.ui.browseGetOrderByBtn.removeEventListener('click', this._browseGetOrderByHandler);
+        }
+
+        // Remove condition add handler
+        if (this.ui.addCondBtn) {
+            this.ui.addCondBtn.removeEventListener('click', this._addConditionHandler);
+        }
+
+        // Remove execute and copy URL handlers
+        if (this.ui.executeBtn) {
+            this.ui.executeBtn.removeEventListener('click', this._executeHandler);
+        }
+        if (this.ui.copyUrlBtn) {
+            this.ui.copyUrlBtn.removeEventListener('click', this._copyUrlHandler);
+        }
+
+        // Remove live preview handlers
+        if (this._livePreviewRefreshHandler) {
+            [
+                this.ui.methodSelect, this.ui.getEntityInput, this.ui.getSelectInput, this.ui.getTopInput,
+                this.ui.getOrderByAttrInput, this.ui.getOrderByDirSelect,
+                this.ui.postPatchEntityInput, this.ui.patchIdInput, this.ui.bodyArea,
+                this.ui.deleteEntityInput, this.ui.deleteIdInput
+            ].forEach(n => n && n.removeEventListener('input', this._livePreviewRefreshHandler));
+
+            if (this.ui.getConditionsContainer) {
+                this.ui.getConditionsContainer.removeEventListener('input', this._livePreviewRefreshHandler);
+                this.ui.getConditionsContainer.removeEventListener('change', this._livePreviewRefreshHandler);
+            }
+
+            // Cancel any pending debounced refresh
+            if (this._livePreviewRefreshHandler.cancel) {
+                this._livePreviewRefreshHandler.cancel();
+            }
+        }
+
+        // Remove external refresh handlers
+        if (this._externalRefreshHandler) {
+            document.removeEventListener('pdt:tool-refresh', this._externalRefreshHandler);
+            document.removeEventListener('pdt:refresh', this._externalRefreshHandler);
+        }
+
+        // Clean up result panel
+        if (this.resultPanel && typeof this.resultPanel.destroy === 'function') {
+            this.resultPanel.destroy();
+        }
     }
 }

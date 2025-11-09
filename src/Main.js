@@ -13,7 +13,7 @@ import { Config } from './constants/index.js';
  * @description An IIFE (Immediately Invoked Function Expression) to create a private scope
  * for the application's startup logic, preventing pollution of the global namespace.
  */
-(function () {
+(function() {
     'use strict';
 
     // --- Singleton Check ---
@@ -45,11 +45,9 @@ import { Config } from './constants/index.js';
                 };
                 Xrm.Page.data.addOnLoad(initOnLoad);
             }
-        }
-        else if (typeof Xrm !== 'undefined' && Xrm.Utility) {
+        } else if (typeof Xrm !== 'undefined' && Xrm.Utility) {
             setTimeout(() => App.init(), Config.MAIN.initDelay);
-        }
-        else {
+        } else {
             throw new Error(Config.MAIN.errors.xrmNotAvailable);
         }
     }

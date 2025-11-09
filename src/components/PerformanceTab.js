@@ -378,12 +378,15 @@ export class PerformanceTab extends BaseComponent {
         }
 
         const { server, network, client } = m.breakdown || {};
-        if (m.isApiAvailable && server > client && server > network)
+        if (m.isApiAvailable && server > client && server > network) {
             tips.push('Server-side processing dominates — review plugins and workflows triggered on load.');
-        if (m.isApiAvailable && client > server && client > network)
+        }
+        if (m.isApiAvailable && client > server && client > network) {
             tips.push('Client rendering dominates — optimize scripts and avoid heavy loops on onLoad.');
-        if (m.isApiAvailable && network > Math.max(server, client))
+        }
+        if (m.isApiAvailable && network > Math.max(server, client)) {
             tips.push('Network time dominates — minimize initial fetch size and enable column reduction.');
+        }
 
         return tips;
     }
@@ -394,7 +397,9 @@ export class PerformanceTab extends BaseComponent {
      * @private
      */
     _setLoading(isLoading) {
-        if (!this.ui.content) return;
+        if (!this.ui.content) {
+            return;
+        }
         if (isLoading) {
             this.ui.content.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PERFORMANCE.loading}</p>`;
         }

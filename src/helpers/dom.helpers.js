@@ -20,7 +20,9 @@ export const DOMHelpers = {
      * @returns {HTMLElement|null} The created log entry element, or null if container is invalid.
      */
     appendLogEntry(container, className, message, maxEntries = 500, autoScroll = true) {
-        if (!container) return null;
+        if (!container) {
+            return null;
+        }
 
         const entry = document.createElement('div');
         entry.className = `log-entry ${className}`;
@@ -45,7 +47,9 @@ export const DOMHelpers = {
      * @returns {boolean} True if cleared successfully, false if container is invalid.
      */
     clearContainer(container) {
-        if (!container) return false;
+        if (!container) {
+            return false;
+        }
         while (container.firstChild) {
             container.removeChild(container.firstChild);
         }
@@ -61,7 +65,9 @@ export const DOMHelpers = {
      * @returns {object|null} The found node object, or null if not found.
      */
     findNodeInTree(nodes, propertyName, value, childrenKey = 'children') {
-        if (!Array.isArray(nodes)) return null;
+        if (!Array.isArray(nodes)) {
+            return null;
+        }
 
         for (const node of nodes) {
             if (node[propertyName] === value) {
@@ -69,7 +75,9 @@ export const DOMHelpers = {
             }
             if (node[childrenKey]) {
                 const found = this.findNodeInTree(node[childrenKey], propertyName, value, childrenKey);
-                if (found) return found;
+                if (found) {
+                    return found;
+                }
             }
         }
         return null;

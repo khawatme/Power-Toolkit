@@ -20,7 +20,9 @@ export const MetadataHelpers = {
      * @returns {string} The display name or schema name.
      */
     getMetadataDisplayName(metadataItem) {
-        if (!metadataItem) return '';
+        if (!metadataItem) {
+            return '';
+        }
         return metadataItem.DisplayName?.UserLocalizedLabel?.Label || metadataItem.SchemaName || '';
     },
 
@@ -28,7 +30,7 @@ export const MetadataHelpers = {
      * Shows column browser with validation.
      * Validates that an entity is selected before opening the column browser.
      * Shows a notification if no entity is selected.
-     * 
+     *
      * @param {Function} resolveEntityName - Async function that returns the entity logical name.
      *                                       Should throw an error if no entity is selected.
      * @param {Function} onSelect - Callback when a column is selected.

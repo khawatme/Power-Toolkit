@@ -39,6 +39,8 @@ export const DIALOG_CLASSES = {
 export const DIALOG_TITLES = {
     error: 'Error',
     confirm: 'Confirm',
+    info: 'Information',
+    warning: 'Warning',
     confirmDelete: 'Confirm Deletion',
     selectTable: 'Select a Table',
     selectColumn: 'Select a Column',
@@ -53,6 +55,36 @@ export const DIALOG_TITLES = {
     invalidTableName: 'Invalid Table Name',
     tableNameRequired: 'Table Name Required',
     propertyInspector: 'Property Inspector'
+};
+
+/**
+ * Minimize service configuration and constants.
+ * @type {Object}
+ */
+export const MINIMIZE_SERVICE = {
+    classes: {
+        minimized: 'pdt-minimized'
+    },
+    tooltip: {
+        minimize: 'Minimize',
+        restore: 'Restore'
+    },
+    animation: {
+        duration: 250
+    },
+    viewport: {
+        margin: 20  // Minimum distance from viewport edges (px)
+    },
+    keyboard: {
+        shortcut: 'm',  // Key for keyboard shortcut (Ctrl/Cmd + M)
+        modifiers: ['ctrlKey', 'metaKey']  // Required modifier keys
+    },
+    messages: {
+        minimizeFailed: 'Failed to minimize toolkit. Please try again.',
+        restoreFailed: 'Failed to restore toolkit. Please try again.',
+        initFailed: 'Failed to initialize minimize feature.',
+        buttonNotFound: 'Minimize button not found in dialog.'
+    }
 };
 
 /**

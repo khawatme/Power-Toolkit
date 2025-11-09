@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
     theme: 'pdt-theme',
     tabSettings: 'pdt-tab-settings',
     dimensions: 'pdt-dimensions',
+    isMinimized: 'pdt-is-minimized',
     fetchXmlView: 'pdt-fetchxml-view',
     fetchXmlHideOdata: 'pdt-fetchxml-hide-odata',
     webApiView: 'pdt-webapi-view',

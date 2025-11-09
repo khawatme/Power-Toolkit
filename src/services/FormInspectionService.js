@@ -24,7 +24,7 @@ function _getFormIdReliably() {
             }
         }
         return null;
-    } catch (e) {
+    } catch (_e) {
         return null;
     }
 }
@@ -49,7 +49,9 @@ export const FormInspectionService = {
      */
     getFormHierarchy() {
         const tabs = PowerAppsApiService.getAllTabs();
-        if (!tabs?.length) return [];
+        if (!tabs?.length) {
+            return [];
+        }
 
         const mapControl = ctrl => {
             try {
@@ -134,7 +136,9 @@ export const FormInspectionService = {
         const entityLogicalName = PowerAppsApiService.getEntityName();
         const entityId = PowerAppsApiService.getEntityId();
 
-        if (!entityId) return getFormColumns();
+        if (!entityId) {
+            return getFormColumns();
+        }
 
         // Ensure metadata is loaded before converting entity names
         await loadMetadata();
@@ -208,8 +212,12 @@ export const FormInspectionService = {
                 enabled: h.getAttribute('enabled') === 'true'
             }));
 
-            if (eventName === 'onload') automations.OnLoad.push(...handlers);
-            if (eventName === 'onsave') automations.OnSave.push(...handlers);
+            if (eventName === 'onload') {
+                automations.OnLoad.push(...handlers);
+            }
+            if (eventName === 'onsave') {
+                automations.OnSave.push(...handlers);
+            }
         });
 
         return automations;
@@ -223,18 +231,24 @@ export const FormInspectionService = {
      * @returns {Promise<{OnLoad: Array, OnSave: Array}|null>} Event handlers or null
      */
     async getFormEventHandlersForEntity(retrieveMultipleRecords, retrieveRecord, entityName) {
-        if (!entityName) return null;
+        if (!entityName) {
+            return null;
+        }
 
         // Get main form for entity
         const formQueryOptions = `?$filter=objecttypecode eq '${entityName}' and type eq 2&$select=formid&$top=1`;
         const formResult = await retrieveMultipleRecords('systemform', formQueryOptions);
 
-        if (!formResult?.entities?.length) return null;
+        if (!formResult?.entities?.length) {
+            return null;
+        }
 
         const formId = formResult.entities[0].formid;
         const formRecord = await retrieveRecord('systemform', formId, '?$select=formxml');
 
-        if (!formRecord?.formxml) return null;
+        if (!formRecord?.formxml) {
+            return null;
+        }
 
         const xmlDoc = new DOMParser().parseFromString(formRecord.formxml, 'text/xml');
         const automations = { OnLoad: [], OnSave: [] };
@@ -247,8 +261,12 @@ export const FormInspectionService = {
                 enabled: h.getAttribute('enabled') === 'true'
             }));
 
-            if (eventName === 'onload') automations.OnLoad.push(...handlers);
-            if (eventName === 'onsave') automations.OnSave.push(...handlers);
+            if (eventName === 'onload') {
+                automations.OnLoad.push(...handlers);
+            }
+            if (eventName === 'onsave') {
+                automations.OnSave.push(...handlers);
+            }
         });
 
         return automations;

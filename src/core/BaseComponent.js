@@ -59,9 +59,9 @@ export class BaseComponent {
      * Subclasses can override this method to attach event listeners or perform other DOM manipulations
      * that require the element to be present in the document.
      *
-     * @param {HTMLElement} element - The root element of the component that was just rendered.
+     * @param {HTMLElement} _element - The root element of the component that was just rendered.
      */
-    postRender(element) {
+    postRender(_element) {
         // This is a "no-op" (no operation) by default. Subclasses can override if needed.
     }
 
