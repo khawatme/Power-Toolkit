@@ -9,6 +9,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, isSystemProperty, parseInputValue } from '../helpers/index.js';
+import { UIHelpers } from '../helpers/ui.helpers.js';
 import { DialogService } from '../services/DialogService.js';
 import { FormControlFactory } from '../ui/FormControlFactory.js';
 import { NotificationService } from '../services/NotificationService.js';
@@ -189,6 +190,14 @@ export class FormColumnsTab extends BaseComponent {
                 vs.removeEventListener('click', this._onSwitch);
             }
         } catch { }
+
+        // Destroy any column resize handlers
+        try {
+            const table = this.ui?.tableWrapper && this.ui.tableWrapper.querySelector('table.pdt-table');
+            if (table) {
+                UIHelpers.destroyColumnResize(table);
+            }
+        } catch (_) { }
     }
 
     /**
@@ -370,9 +379,9 @@ export class FormColumnsTab extends BaseComponent {
             const why = this.viewMode === 'all'
                 ? (this.ui.odataToggle.checked || this.ui.unusedColsToggle.checked
                     ? 'Try turning off filters (Hide System / Unused Only) or clearing search.'
-                    : 'No record columns were returned by the API.')
-                : 'No form columns matched your search.';
-            note.textContent = `No columns to display. ${why}`;
+                    : Config.MESSAGES.FORM_COLUMNS.noRecordColumns)
+                : Config.MESSAGES.FORM_COLUMNS.noFormColumns;
+            note.textContent = `${Config.MESSAGES.FORM_COLUMNS.noColumnsPrefix} ${why}`;
             this.ui.tableWrapper.appendChild(note);
         } else {
             this._renderNextBatch();
@@ -569,6 +578,13 @@ export class FormColumnsTab extends BaseComponent {
                 ? (this.sortState.direction === 'asc' ? 'ascending' : 'descending')
                 : 'none');
         });
+
+        // Initialize column resizing
+        const table = container.querySelector('table.pdt-table');
+        if (table) {
+            table.setAttribute('data-resize-mode', 'shift');
+            UIHelpers.initColumnResize(table);
+        }
     }
 
     /**

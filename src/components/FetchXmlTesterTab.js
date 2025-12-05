@@ -64,6 +64,12 @@ export class FetchXmlTesterTab extends BaseComponent {
         /** @private {Function|null} */ this._handleRootKeydown = null;
         /** @private {Function|null} */ this._onToolRefresh = null;
         /** @private {Function|null} */ this._onRefresh = null;
+        /** @private {Function|null} */ this._templateSelectHandler = null;
+
+        // Map to track dynamically created event handlers for proper cleanup
+        // Each entry: element -> {event: 'click'|'change', handler: Function}
+        /** @private @type {Map<HTMLElement, {event: string, handler: Function}>} */
+        this._dynamicHandlers = new Map();
     }
 
     /**
@@ -304,7 +310,8 @@ export class FetchXmlTesterTab extends BaseComponent {
         element.addEventListener('keydown', this._handleRootKeydown);
 
         // Listener for template selection
-        this.ui.templateSelect.onchange = (e) => this._handleTemplateChange(e.target.value);
+        this._templateSelectHandler = (e) => this._handleTemplateChange(e.target.value);
+        this.ui.templateSelect.addEventListener('change', this._templateSelectHandler);
     }
 
     /**
@@ -395,7 +402,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             const linkedEntityName = joinGroup.querySelector('[data-prop="name"]').value.trim();
             const input = target.previousElementSibling;
             if (!linkedEntityName) {
-                NotificationService.show('Please enter a "Link to Table" name for this join before browsing its columns', 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warning');
                 return;
             }
             showColumnBrowser(
@@ -426,7 +433,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             const joinGroup = target.closest('.link-entity-group');
             const linkedEntityName = joinGroup.querySelector('[data-prop="name"]').value.trim();
             if (!linkedEntityName) {
-                NotificationService.show('Please enter a "Link to Table" name for this join before browsing its columns', 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warning');
                 return;
             }
             showColumnBrowser(
@@ -501,18 +508,43 @@ export class FetchXmlTesterTab extends BaseComponent {
             <select class="pdt-select" data-prop="operator">${optionsHtml}</select>
             <input type="text" class="pdt-input" data-prop="value" placeholder="Value">
             <button class="modern-button danger secondary" ${isFirst ? 'disabled' : ''}>X</button>`;
-        if (!isFirst) {
-            conditionGroup.querySelector('button.danger').onclick = () => conditionGroup.remove();
-        }
+
         const operatorSelect = conditionGroup.querySelector('[data-prop="operator"]');
         const valueInput = conditionGroup.querySelector('[data-prop="value"]');
-        operatorSelect.onchange = () => {
+        const removeBtn = conditionGroup.querySelector('button.danger');
+
+        // Handler to remove condition group and clean up its listeners
+        if (!isFirst && removeBtn) {
+            const removeHandler = () => {
+                // Clean up this group's handlers
+                if (operatorSelect && this._dynamicHandlers.has(operatorSelect)) {
+                    const opHandler = this._dynamicHandlers.get(operatorSelect);
+                    operatorSelect.removeEventListener('change', opHandler.handler);
+                    this._dynamicHandlers.delete(operatorSelect);
+                }
+                if (removeBtn && this._dynamicHandlers.has(removeBtn)) {
+                    removeBtn.removeEventListener('click', removeHandler);
+                    this._dynamicHandlers.delete(removeBtn);
+                }
+                conditionGroup.remove();
+            };
+            removeBtn.addEventListener('click', removeHandler);
+            this._dynamicHandlers.set(removeBtn, { event: 'click', handler: removeHandler });
+        }
+
+        // Operator change handler
+        const operatorChangeHandler = () => {
             const shouldShow = shouldShowOperatorValue(operatorSelect.value);
             valueInput.style.display = shouldShow ? 'block' : 'none';
             if (!shouldShow) {
                 valueInput.value = '';
             }
         };
+        if (operatorSelect) {
+            operatorSelect.addEventListener('change', operatorChangeHandler);
+            this._dynamicHandlers.set(operatorSelect, { event: 'change', handler: operatorChangeHandler });
+        }
+
         this.ui.builderContent.querySelector('#builder-conditions-container').appendChild(conditionGroup);
     }
 
@@ -552,7 +584,21 @@ export class FetchXmlTesterTab extends BaseComponent {
             </div>
             <label></label>
             <button class="modern-button danger secondary">Remove Join</button>`;
-        joinGroup.querySelector('button.danger').onclick = () => joinGroup.remove();
+
+        const removeBtn = joinGroup.querySelector('button.danger');
+        if (removeBtn) {
+            const removeHandler = () => {
+                // Clean up this group's handler
+                if (removeBtn && this._dynamicHandlers.has(removeBtn)) {
+                    removeBtn.removeEventListener('click', removeHandler);
+                    this._dynamicHandlers.delete(removeBtn);
+                }
+                joinGroup.remove();
+            };
+            removeBtn.addEventListener('click', removeHandler);
+            this._dynamicHandlers.set(removeBtn, { event: 'click', handler: removeHandler });
+        }
+
         this.ui.joinsContainer.appendChild(joinGroup);
     }
 
@@ -827,9 +873,16 @@ export class FetchXmlTesterTab extends BaseComponent {
         } catch { }
 
         // Clean up template select handler
-        if (this.ui.templateSelect) {
-            this.ui.templateSelect.onchange = null;
+        if (this.ui.templateSelect && this._templateSelectHandler) {
+            this.ui.templateSelect.removeEventListener('change', this._templateSelectHandler);
+            this._templateSelectHandler = null;
         }
+
+        // Clean up all dynamically created handlers (condition groups, join groups)
+        for (const [element, { event, handler }] of this._dynamicHandlers.entries()) {
+            element.removeEventListener(event, handler);
+        }
+        this._dynamicHandlers.clear();
 
         // Clean up result panel
         try {

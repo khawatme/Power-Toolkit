@@ -5,7 +5,7 @@
  */
 
 import { UIFactory } from '../../ui/UIFactory.js';
-import { escapeHtml, isOdataProperty } from '../../helpers/index.js';
+import { escapeHtml, isOdataProperty, UIHelpers } from '../../helpers/index.js';
 import { Config } from '../../constants/index.js';
 
 /**
@@ -186,6 +186,13 @@ export class ResultPanel {
         };
 
         host.addEventListener('click', this._handleContentClick);
+
+        // Initialize column resizing for the rendered table (if present)
+        const table = host.querySelector('table.pdt-table');
+        if (table && UIHelpers && typeof UIHelpers.initColumnResize === 'function') {
+            table.setAttribute('data-resize-mode', 'shift');
+            UIHelpers.initColumnResize(table);
+        }
     }
 
     /**
@@ -230,6 +237,16 @@ export class ResultPanel {
         this._handleViewJson = null;
         this._handleHideChange = null;
         this._handleContentClick = null;
+
+        // Destroy any column resize handlers in the hosted table (if present)
+        try {
+            const table = this._contentHost && this._contentHost.querySelector('table.pdt-table');
+            if (table) {
+                UIHelpers.destroyColumnResize(table);
+            }
+        } catch (_) {
+            // ignore
+        }
     }
 
     /**

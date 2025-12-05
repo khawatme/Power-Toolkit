@@ -47,6 +47,13 @@ export class PluginContextTab extends BaseComponent {
         this.ui = {};
         /** @private */ this._latestContext = null;
         /** @private Cache for EntitySetName lookups */ this._entitySetCache = new Map();
+
+        // Handler references for cleanup
+        /** @private {Function|null} */ this._generateBtnHandler = null;
+        /** @private {Function|null} */ this._copyBtnHandler = null;
+        /** @private {Function|null} */ this._testBtnHandler = null;
+        /** @private {Function|null} */ this._exportWebApiBtnHandler = null;
+        /** @private {Function|null} */ this._exportCSharpBtnHandler = null;
     }
 
     /**
@@ -105,18 +112,18 @@ export class PluginContextTab extends BaseComponent {
         // default disabled until a context is generated
         this._setSecondaryEnabled(false);
 
-        // secondary toolbar buttons use the latest generated context
-        this.ui.copyBtn.onclick = () => {
+        // Store handlers for cleanup
+        this._copyBtnHandler = () => {
             if (this._latestContext) {
                 this._copyContextJson(this._latestContext);
             }
         };
-        this.ui.testBtn.onclick = () => {
+        this._testBtnHandler = () => {
             if (this._latestContext) {
                 this._generateCSharpTest(this._latestContext);
             }
         };
-        this.ui.exportWebApiBtn.onclick = async () => {
+        this._exportWebApiBtnHandler = async () => {
             if (!this._latestContext) {
                 return;
             }
@@ -131,13 +138,12 @@ export class PluginContextTab extends BaseComponent {
                 this.ui.exportWebApiBtn.textContent = originalText;
             }
         };
-        this.ui.exportCSharpBtn.onclick = () => {
+        this._exportCSharpBtnHandler = () => {
             if (this._latestContext) {
                 this._exportCSharpCode(this._latestContext);
             }
         };
-
-        this.ui.generateBtn.onclick = () => {
+        this._generateBtnHandler = () => {
             try {
                 const message = this.ui.messageSelect.value;
                 const parsed = parseInt(this.ui.stageSelect.value, 10);
@@ -198,18 +204,31 @@ export class PluginContextTab extends BaseComponent {
                 this._setSecondaryEnabled(false);
             }
         };
+
+        // Attach event listeners
+        this.ui.copyBtn.addEventListener('click', this._copyBtnHandler);
+        this.ui.testBtn.addEventListener('click', this._testBtnHandler);
+        this.ui.exportWebApiBtn.addEventListener('click', this._exportWebApiBtnHandler);
+        this.ui.exportCSharpBtn.addEventListener('click', this._exportCSharpBtnHandler);
+        this.ui.generateBtn.addEventListener('click', this._generateBtnHandler);
     }
 
     destroy() {
         try {
             if (this.ui?.generateBtn) {
-                this.ui.generateBtn.onclick = null;
+                this.ui.generateBtn.removeEventListener('click', this._generateBtnHandler);
             }
             if (this.ui?.copyBtn) {
-                this.ui.copyBtn.onclick = null;
+                this.ui.copyBtn.removeEventListener('click', this._copyBtnHandler);
             }
             if (this.ui?.testBtn) {
-                this.ui.testBtn.onclick = null;
+                this.ui.testBtn.removeEventListener('click', this._testBtnHandler);
+            }
+            if (this.ui?.exportWebApiBtn) {
+                this.ui.exportWebApiBtn.removeEventListener('click', this._exportWebApiBtnHandler);
+            }
+            if (this.ui?.exportCSharpBtn) {
+                this.ui.exportCSharpBtn.removeEventListener('click', this._exportCSharpBtnHandler);
             }
         } catch { /* noop */ }
     }

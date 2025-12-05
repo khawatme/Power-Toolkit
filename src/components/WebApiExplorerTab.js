@@ -62,6 +62,11 @@ export class WebApiExplorerTab extends BaseComponent {
         /** @private {Function|null} */ this._copyUrlHandler = null;
         /** @private {Function|null} */ this._livePreviewRefreshHandler = null;
         /** @private {Function|null} */ this._externalRefreshHandler = null;
+
+        // Map to track dynamically created event handlers for proper cleanup
+        // Each entry: element -> {event: 'click'|'change', handler: Function}
+        /** @private @type {Map<HTMLElement, {event: string, handler: Function}>} */
+        this._dynamicHandlers = new Map();
     }
 
     /**
@@ -681,7 +686,8 @@ export class WebApiExplorerTab extends BaseComponent {
         `;
 
         // Column browser — resolve either logical name or set name before opening the dialog
-        row.querySelector('.browse-condition-attr')?.addEventListener('click', () => {
+        const browseBtn = row.querySelector('.browse-condition-attr');
+        const browseConditionHandler = () => {
             showColumnBrowser(
                 async () => {
                     const { logicalName } = await this._ensureEntityContext();
@@ -692,26 +698,53 @@ export class WebApiExplorerTab extends BaseComponent {
                     this._updatePreview();
                 }
             );
-        });
+        };
+        if (browseBtn) {
+            browseBtn.addEventListener('click', browseConditionHandler);
+            this._dynamicHandlers.set(browseBtn, { event: 'click', handler: browseConditionHandler });
+        }
 
         // Remove row
-        row.querySelector('.pdt-condition-remove')?.addEventListener('click', () => {
+        const removeBtn = row.querySelector('.pdt-condition-remove');
+        const removeConditionHandler = () => {
             row.remove();
+            // Clean up handlers for this row
+            if (browseBtn && this._dynamicHandlers.has(browseBtn)) {
+                browseBtn.removeEventListener('click', browseConditionHandler);
+                this._dynamicHandlers.delete(browseBtn);
+            }
+            if (removeBtn && this._dynamicHandlers.has(removeBtn)) {
+                removeBtn.removeEventListener('click', removeConditionHandler);
+                this._dynamicHandlers.delete(removeBtn);
+            }
+            if (operatorSelect && this._dynamicHandlers.has(operatorSelect)) {
+                const opHandler = this._dynamicHandlers.get(operatorSelect);
+                operatorSelect.removeEventListener('change', opHandler.handler);
+                this._dynamicHandlers.delete(operatorSelect);
+            }
             this._updatePreview();
-        });
+        };
+        if (removeBtn) {
+            removeBtn.addEventListener('click', removeConditionHandler);
+            this._dynamicHandlers.set(removeBtn, { event: 'click', handler: removeConditionHandler });
+        }
 
         // Hide/show Value when operator is null/not-null (match FetchXmlTester)
         const operatorSelect = row.querySelector('[data-prop="operator"]');
         const valueInput = row.querySelector('[data-prop="value"]');
-        operatorSelect.onchange = () => {
+        const operatorChangeHandler = () => {
             const shouldShow = shouldShowOperatorValue(operatorSelect.value);
             valueInput.style.display = shouldShow ? 'block' : 'none';
             if (!shouldShow) {
                 valueInput.value = '';
             }
         };
-        // Run once to sync initial state
-        operatorSelect.dispatchEvent(new Event('change'));
+        if (operatorSelect) {
+            operatorSelect.addEventListener('change', operatorChangeHandler);
+            this._dynamicHandlers.set(operatorSelect, { event: 'change', handler: operatorChangeHandler });
+            // Run once to sync initial state
+            operatorSelect.dispatchEvent(new Event('change'));
+        }
 
         this.ui.getConditionsContainer.appendChild(row);
     }
@@ -960,6 +993,12 @@ export class WebApiExplorerTab extends BaseComponent {
             document.removeEventListener('pdt:tool-refresh', this._externalRefreshHandler);
             document.removeEventListener('pdt:refresh', this._externalRefreshHandler);
         }
+
+        // Clean up all dynamically created handlers
+        for (const [element, { event, handler }] of this._dynamicHandlers.entries()) {
+            element.removeEventListener(event, handler);
+        }
+        this._dynamicHandlers.clear();
 
         // Clean up result panel
         if (this.resultPanel && typeof this.resultPanel.destroy === 'function') {

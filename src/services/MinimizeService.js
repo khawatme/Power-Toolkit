@@ -133,7 +133,25 @@ export const MinimizeService = {
         this._isAnimating = true;
 
         try {
-            Store.setState({ isMinimized: true });
+            // Save current full dimensions before minimizing
+            const preMinimizedDimensions = {
+                width: this._dialogElement.style.width,
+                height: this._dialogElement.style.height,
+                top: this._dialogElement.style.top,
+                left: this._dialogElement.style.left
+            };
+
+            // Apply saved minimized banner width before adding the minimized class
+            const savedBannerWidth = Store.getState().minimizedBannerWidth;
+            if (savedBannerWidth) {
+                this._dialogElement.style.width = savedBannerWidth;
+            }
+
+            Store.setState({
+                isMinimized: true,
+                preMinimizedDimensions: preMinimizedDimensions
+            });
+
             await this._applyMinimizedState(true);
             this._updateButtonState(true);
 
@@ -161,6 +179,18 @@ export const MinimizeService = {
         this._isAnimating = true;
 
         try {
+            // Save current minimized banner width before restoring
+            const minimizedBannerWidth = this._dialogElement.style.width;
+            Store.setState({ minimizedBannerWidth: minimizedBannerWidth });
+
+            // Apply pre-minimized dimensions (width/height) before removing the minimized class
+            // Keep the current position (top/left)
+            const preMinimizedDimensions = Store.getState().preMinimizedDimensions;
+            if (preMinimizedDimensions && preMinimizedDimensions.width) {
+                this._dialogElement.style.width = preMinimizedDimensions.width;
+                this._dialogElement.style.height = preMinimizedDimensions.height;
+            }
+
             Store.setState({ isMinimized: false });
             await this._applyRestoredState(true);
             this._updateButtonState(false);

@@ -24,7 +24,11 @@ export const ENV_VARS = {
     invalidValue: (type, error) => `Invalid ${type} value: ${error}`,
     selectSolution: 'Please select a solution first.',
     loadFailed: (error) => `Could not retrieve environment variables: ${error}`,
-    noVariablesFound: 'No environment variables found in this environment.'
+    noVariablesFound: 'No environment variables found in this environment.',
+    selectSolutionBeforeCreate: 'Please select a solution before creating an environment variable.',
+    selectSolutionButton: 'Select solution…',
+    changeSolutionButton: 'Change solution…',
+    noSolutionSelected: 'No current solution selected. The variable will be created but not added to a solution.'
 };
 
 /**
@@ -57,7 +61,8 @@ export const FETCHXML = {
     generated: 'FetchXML generated successfully.',
     cannotBeEmpty: 'Table name cannot be empty.',
     noEntityName: 'Could not determine entity name from selection.',
-    formatFailed: (error) => `Failed to format FetchXML: ${error}`
+    formatFailed: (error) => `Failed to format FetchXML: ${error}`,
+    enterLinkToTableName: 'Please enter a "Link to Table" name for this join before browsing its columns'
 };
 
 /**
@@ -115,7 +120,10 @@ export const FORM_COLUMNS = {
     noColumns: 'No columns to display for this form.',
     lookupEmpty: 'Lookup value is empty.',
     loading: (viewMode) => `Loading columns for '${viewMode}' view...`,
-    loadFailed: (error) => `Could not load form columns: ${error}`
+    loadFailed: (error) => `Could not load form columns: ${error}`,
+    noFormColumns: 'No form columns matched your search.',
+    noRecordColumns: 'No record columns were returned by the API.',
+    noColumnsPrefix: 'No columns to display.'
 };
 
 /**
@@ -207,7 +215,8 @@ export const USER_CONTEXT = {
  */
 export const PERFORMANCE = {
     loading: 'Loading performance metrics...',
-    loadFailed: (error) => `Could not retrieve performance metrics: ${error}`
+    loadFailed: (error) => `Could not retrieve performance metrics: ${error}`,
+    noIssues: 'No significant issues detected for this form.'
 };
 
 /**
@@ -226,3 +235,21 @@ export const EVENT_MONITOR = {
     monitoring: 'Monitoring form events...',
     cleared: 'Event log cleared.'
 };
+
+/**
+ * Solution Layers tab messages.
+ */
+export const SOLUTION_LAYERS = {
+    selectSolution: 'Select a solution to view its components.',
+    noSolutions: 'No solutions found.',
+    noComponents: 'No components found matching the current filters.',
+    noActiveCustomizations: 'No active customizations found in this solution.',
+    layerDeleted: 'Active customization removed successfully.',
+    loadSolutionsFailed: (error) => `Failed to load solutions: ${error}`,
+    loadComponentsFailed: (error) => `Failed to load solution components: ${error}`,
+    deleteLayerFailed: (error) => `Failed to remove active customization: ${error}`,
+    deleteLayerSuccess: 'Layer deleted successfully.',
+    loadingComponents: 'Loading solution components...'
+};
+
+

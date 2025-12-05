@@ -36,6 +36,19 @@ export class EnvironmentVariablesTab extends BaseComponent {
         /** @private {Function|null} */ this._addBtnHandler = null;
         /** @private {Function|null} */ this._searchInputHandler = null;
         /** @private {Function|null} */ this._listClickHandler = null;
+
+        // Edit mode handlers (for dynamic elements)
+        /** @private {Function|null} */ this._textareaInputHandler = null;
+        /** @private {Function|null} */ this._defaultTextareaInputHandler = null;
+        /** @private {Function|null} */ this._solnButtonClickHandler = null;
+        /** @private {Function|null} */ this._revalidateHandler = null;
+        /** @private {Function|null} */ this._schemaBlurHandler = null;
+        /** @private {Function|null} */ this._createBtnClickHandler = null;
+        /** @private {Function|null} */ this._applyBtnClickHandler = null;
+
+        // Track dynamic elements for cleanup
+        // Each entry maps an element to a handler function (not an object with event/handler)
+        /** @private {Map<HTMLElement, Function>} */ this._dynamicHandlers = new Map();
     }
 
     /**
@@ -236,11 +249,13 @@ export class EnvironmentVariablesTab extends BaseComponent {
 
         const saveBtn = card.querySelector('.save-btn');
 
-        textarea.addEventListener('input', () => {
+        const handler = () => {
             const currentNorm = normalizeForJsonCompare(textarea.value);
             const originalNorm = normalizeForJsonCompare(originalValue);
             saveBtn.disabled = (currentNorm === originalNorm);
-        });
+        };
+        this._dynamicHandlers.set(textarea, handler);
+        textarea.addEventListener('input', handler);
     }
 
     /**
@@ -333,11 +348,14 @@ export class EnvironmentVariablesTab extends BaseComponent {
         ]);
 
         const saveBtn = card.querySelector('.save-default-btn');
-        textarea.addEventListener('input', () => {
+
+        const handler = () => {
             const cur = normalizeForJsonCompare(textarea.value);
             const orig = normalizeForJsonCompare(original);
             saveBtn.disabled = (cur === orig);
-        });
+        };
+        this._dynamicHandlers.set(textarea, handler);
+        textarea.addEventListener('input', handler);
     }
 
     /**
@@ -516,25 +534,15 @@ export class EnvironmentVariablesTab extends BaseComponent {
             if (uniqueName) {
                 solnInfo.textContent = `Will be added to solution: ${uniqueName} (prefix: ${publisherPrefix || 'n/a'})`;
                 solnInfo.style.color = '';
-                solnButton.textContent = 'Change solution…';
+                solnButton.textContent = Config.MESSAGES.ENV_VARS.changeSolutionButton;
             } else {
-                solnInfo.textContent = 'Please select a solution before creating an environment variable.';
+                solnInfo.textContent = Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate;
                 solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
-                solnButton.textContent = 'Select solution…';
+                solnButton.textContent = Config.MESSAGES.ENV_VARS.selectSolutionButton;
             }
         } catch { }
 
-        // Attach picker
-        solnButton?.addEventListener('click', async () => this._openSolutionPicker(solnInfo, solnButton, schemaEl, revalidate));
-
-        // Validation
-        const dlg = DialogService.show(Config.DIALOG_TITLES.newEnvVar, content);
-        const dlgEl = content.closest('.pdt-dialog');
-        const footer = dlgEl?.querySelector('.pdt-dialog-footer');
-
-        const createBtn = this._mkDialogFooterBtn('nv-create', 'modern-button primary', 'Create', true);
-        footer?.appendChild(createBtn);
-
+        // Validation function
         const revalidate = () => {
             const currentSolution = DataService.getCurrentSolution?.();
             const hasSolution = !!(currentSolution && currentSolution.uniqueName);
@@ -547,14 +555,33 @@ export class EnvironmentVariablesTab extends BaseComponent {
             // Update info text color to indicate requirement
             if (!hasSolution) {
                 solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
-                solnInfo.textContent = 'Please select a solution before creating an environment variable.';
+                solnInfo.textContent = Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate;
             }
         };
 
-        content.querySelectorAll('input,textarea,select').forEach(el => el.addEventListener('input', revalidate));
+        // Attach picker
+        const solnButtonHandler = async () => this._openSolutionPicker(solnInfo, solnButton, schemaEl, revalidate);
+        if (solnButton) {
+            this._dynamicHandlers.set(solnButton, solnButtonHandler);
+            solnButton.addEventListener('click', solnButtonHandler);
+        }
+
+        // Validation
+        const dlg = DialogService.show(Config.DIALOG_TITLES.newEnvVar, content);
+        const dlgEl = content.closest('.pdt-dialog');
+        const footer = dlgEl?.querySelector('.pdt-dialog-footer');
+
+        const createBtn = this._mkDialogFooterBtn('nv-create', 'modern-button primary', 'Create', true);
+        footer?.appendChild(createBtn);
+
+        // Attach revalidate handlers to all inputs - store for cleanup
+        content.querySelectorAll('input,textarea,select').forEach(el => {
+            this._dynamicHandlers.set(el, revalidate);
+            el.addEventListener('input', revalidate);
+        });
 
         // Schema prefix autofix
-        schemaEl.addEventListener('blur', () => {
+        const schemaBlurHandler = () => {
             try {
                 const { publisherPrefix } = DataService.getCurrentSolution?.() || {};
                 if (!publisherPrefix) {
@@ -566,10 +593,12 @@ export class EnvironmentVariablesTab extends BaseComponent {
                     revalidate();
                 }
             } catch { }
-        });
+        };
+        this._dynamicHandlers.set(schemaEl, schemaBlurHandler);
+        schemaEl.addEventListener('blur', schemaBlurHandler);
 
         // Create handler
-        createBtn.addEventListener('click', async () => {
+        const createBtnClickHandler = async () => {
             // Disable all inputs and show loading state
             createBtn.disabled = true;
             const originalText = createBtn.textContent;
@@ -616,7 +645,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 content.querySelectorAll('input,textarea,select,button').forEach(el => el.disabled = false);
                 revalidate();
             }
-        });
+        };
+        this._dynamicHandlers.set(createBtn, createBtnClickHandler);
+        createBtn.addEventListener('click', createBtnClickHandler);
 
         revalidate();
     }
@@ -726,7 +757,7 @@ export class EnvironmentVariablesTab extends BaseComponent {
             }
         };
 
-        apply.addEventListener('click', async () => {
+        const applyButtonClickHandler = async () => {
             const opt = sel.selectedOptions[0];
             const unique = opt?.value;
             await DataService.setCurrentSolution(unique);
@@ -736,11 +767,11 @@ export class EnvironmentVariablesTab extends BaseComponent {
             if (u) {
                 solnInfo.textContent = `Will be added to solution: ${u} (prefix: ${p || 'n/a'})`;
                 solnInfo.style.color = '';
-                solnButton.textContent = 'Change solution…';
+                solnButton.textContent = Config.MESSAGES.ENV_VARS.changeSolutionButton;
             } else {
-                solnInfo.textContent = 'No current solution selected. The variable will be created but not added to a solution.';
+                solnInfo.textContent = Config.MESSAGES.ENV_VARS.noSolutionSelected;
                 solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
-                solnButton.textContent = 'Select solution…';
+                solnButton.textContent = Config.MESSAGES.ENV_VARS.selectSolutionButton;
             }
             if (p && !schemaEl.value) {
                 schemaEl.value = `${p}_`;
@@ -752,7 +783,10 @@ export class EnvironmentVariablesTab extends BaseComponent {
             }
 
             closeAndRestore();
-        });
+        };
+
+        apply.addEventListener('click', applyButtonClickHandler);
+        this._dynamicHandlers.set(apply, { event: 'click', handler: applyButtonClickHandler });
 
         // Override the dialog's close/cancel buttons to restore parent dialog
         const cancelBtn = dlgEl?.querySelector('.pdt-dialog-cancel');
@@ -949,5 +983,14 @@ export class EnvironmentVariablesTab extends BaseComponent {
         if (this.ui.listContainer) {
             this.ui.listContainer.removeEventListener('click', this._listClickHandler);
         }
+
+        // Clean up all dynamically created handlers (stored as simple functions)
+        for (const [element, handler] of this._dynamicHandlers.entries()) {
+            // Try common event types
+            element.removeEventListener('click', handler);
+            element.removeEventListener('input', handler);
+            element.removeEventListener('blur', handler);
+        }
+        this._dynamicHandlers.clear();
     }
 }

@@ -52,6 +52,7 @@ function getDefaultTabSettings() {
         { id: 'pluginContext', visible: true, formOnly: true },
         { id: 'impersonate', visible: true, formOnly: false },
         { id: 'metadataBrowser', visible: true, formOnly: false },
+        { id: 'solutionLayers', visible: true, formOnly: false },
         { id: 'apiExplorer', visible: true, formOnly: false },
         { id: 'fetchXmlTester', visible: true, formOnly: false },
         { id: 'envVars', visible: true, formOnly: false },
@@ -102,7 +103,9 @@ export const Store = {
             tabSettings: finalSettings,
             dimensions: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.dimensions) || '{}'),
             impersonationUserId: null,
-            isMinimized: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.isMinimized) || 'false')
+            isMinimized: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.isMinimized) || 'false'),
+            preMinimizedDimensions: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.preMinimizedDimensions) || '{}'),
+            minimizedBannerWidth: localStorage.getItem(Config.STORAGE_KEYS.minimizedBannerWidth) || null
         };
     },
 
@@ -138,6 +141,12 @@ export const Store = {
         if (newState.isMinimized !== undefined) {
             localStorage.setItem(Config.STORAGE_KEYS.isMinimized, JSON.stringify(newState.isMinimized));
         }
+        if (newState.preMinimizedDimensions !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.preMinimizedDimensions, JSON.stringify(newState.preMinimizedDimensions));
+        }
+        if (newState.minimizedBannerWidth !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.minimizedBannerWidth, newState.minimizedBannerWidth);
+        }
 
         _listeners.forEach(listener => listener(_state, oldState));
     },
@@ -161,7 +170,9 @@ export const Store = {
             theme: 'dark',
             tabSettings: defaultSettings,
             dimensions: {},
-            isMinimized: false
+            isMinimized: false,
+            preMinimizedDimensions: {},
+            minimizedBannerWidth: null
         };
 
         // Clear all persisted items from localStorage explicitly.
@@ -169,6 +180,8 @@ export const Store = {
         localStorage.removeItem('pdt-theme');
         localStorage.removeItem('pdt-dimensions');
         localStorage.removeItem('pdt-is-minimized');
+        localStorage.removeItem('pdt-pre-minimized-dimensions');
+        localStorage.removeItem('pdt-minimized-banner-width');
 
         // Use setState with the full default state to ensure all listeners are properly notified.
         this.setState(defaultState);

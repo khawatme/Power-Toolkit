@@ -306,7 +306,7 @@ export class PerformanceTab extends BaseComponent {
         if (!insights.length) {
             const note = document.createElement('p');
             note.className = 'pdt-note';
-            note.textContent = 'No significant issues detected for this form.';
+            note.textContent = Config.MESSAGES.PERFORMANCE.noIssues;
             section.append(header, note);
             return section;
         }

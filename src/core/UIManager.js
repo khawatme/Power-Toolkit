@@ -83,7 +83,7 @@ export const UIManager = {
         this.dialog.innerHTML = `
             <div class="pdt-header">
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <h1>Power-<span>Toolkit</span></h1>
+                    <h1><span>Power</span>-Toolkit</h1>
                     <div id="pdt-impersonation-indicator"></div>
                 </div>
                 <div class="pdt-header-controls">
@@ -290,19 +290,70 @@ export const UIManager = {
      * @private
      */
     _applySavedDimensions() {
-        const savedDims = Store.getState().dimensions;
+        const state = Store.getState();
+        const isMinimized = state.isMinimized;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
 
-        const width = savedDims.width ? parseInt(savedDims.width, 10) : vw * 0.75;
-        const height = savedDims.height ? parseInt(savedDims.height, 10) : vh * 0.85;
-        const top = savedDims.top ? parseInt(savedDims.top, 10) : vh * 0.05;
-        const left = savedDims.left ? parseInt(savedDims.left, 10) : vw * 0.125;
+        // If minimized, use minimized banner width or fall back to default
+        if (isMinimized && state.minimizedBannerWidth) {
+            const width = parseInt(state.minimizedBannerWidth, 10);
+            this.dialog.style.width = Math.min(width, vw - 20) + 'px';
+            // Height will be handled by CSS when minimized class is applied
+            const top = state.preMinimizedDimensions?.top ? parseInt(state.preMinimizedDimensions.top, 10) : vh * 0.05;
+            const left = state.preMinimizedDimensions?.left ? parseInt(state.preMinimizedDimensions.left, 10) : vw * 0.125;
+            this.dialog.style.top = Math.max(0, Math.min(top, vh - 50)) + 'px';
+            this.dialog.style.left = Math.max(0, Math.min(left, vw - 150)) + 'px';
+        } else {
+            // Not minimized, use regular dimensions
+            const savedDims = state.dimensions;
+            const width = savedDims.width ? parseInt(savedDims.width, 10) : vw * 0.75;
+            const height = savedDims.height ? parseInt(savedDims.height, 10) : vh * 0.85;
+            const top = savedDims.top ? parseInt(savedDims.top, 10) : vh * 0.05;
+            const left = savedDims.left ? parseInt(savedDims.left, 10) : vw * 0.125;
 
-        this.dialog.style.width = Math.min(width, vw - 20) + 'px';
-        this.dialog.style.height = Math.min(height, vh - 20) + 'px';
-        this.dialog.style.top = Math.max(0, Math.min(top, vh - 50)) + 'px';
-        this.dialog.style.left = Math.max(0, Math.min(left, vw - 150)) + 'px';
+            this.dialog.style.width = Math.min(width, vw - 20) + 'px';
+            this.dialog.style.height = Math.min(height, vh - 20) + 'px';
+            this.dialog.style.top = Math.max(0, Math.min(top, vh - 50)) + 'px';
+            this.dialog.style.left = Math.max(0, Math.min(left, vw - 150)) + 'px';
+        }
+    },
+
+    /**
+     * Saves the current dialog dimensions to the store based on the minimized state.
+     * When minimized, saves the banner width and position.
+     * When restored, saves the full dimensions including height.
+     * @private
+     * @returns {void}
+     */
+    _saveCurrentDimensions() {
+        if (!this.dialog) {
+            return;
+        }
+
+        const isMinimized = Store.getState().isMinimized;
+
+        if (isMinimized) {
+            // When minimized, save the banner width
+            Store.setState({
+                minimizedBannerWidth: this.dialog.style.width,
+                preMinimizedDimensions: {
+                    ...Store.getState().preMinimizedDimensions,
+                    top: this.dialog.style.top,
+                    left: this.dialog.style.left
+                }
+            });
+        } else {
+            // When not minimized, save full dimensions
+            Store.setState({
+                dimensions: {
+                    width: this.dialog.style.width,
+                    height: this.dialog.style.height,
+                    top: this.dialog.style.top,
+                    left: this.dialog.style.left
+                }
+            });
+        }
     },
 
     /**
@@ -340,14 +391,7 @@ export const UIManager = {
         };
 
         const saveDimensions = debounce(() => {
-            Store.setState({
-                dimensions: {
-                    width: this.dialog.style.width,
-                    height: this.dialog.style.height,
-                    top: this.dialog.style.top,
-                    left: this.dialog.style.left
-                }
-            });
+            this._saveCurrentDimensions();
         }, 500);
 
         // Store reference for cleanup
@@ -458,19 +502,10 @@ export const UIManager = {
         try {
             // Immediately save the final dimensions to the store before closing.
             // This ensures the last position is always remembered, even without a drag/resize.
-            if (this.dialog) {
-                try {
-                    Store.setState({
-                        dimensions: {
-                            width: this.dialog.style.width,
-                            height: this.dialog.style.height,
-                            top: this.dialog.style.top,
-                            left: this.dialog.style.left
-                        }
-                    });
-                } catch (_err) {
-                    // Silently handle state saving errors
-                }
+            try {
+                this._saveCurrentDimensions();
+            } catch (_err) {
+                // Silently handle state saving errors
             }
 
             // Hide dialog immediately for better UX

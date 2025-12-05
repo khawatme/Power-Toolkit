@@ -151,19 +151,22 @@ import { UIFactory } from '../ui/UIFactory.js';
 
 export class MyCustomTab extends BaseComponent {
     constructor() {
-        super('mycustomtab'); // Unique tab ID
+        super('mycustomtab', 'My Custom', ICONS.myIcon); // id, label, icon
+
+        this.ui = {}; // Store DOM references
 
         // Handler references for cleanup (IMPORTANT: Prevents memory leaks)
-        /** @private {Function|null} Handler for execute button */ this._executeHandler = null;
-        /** @private {Function|null} Handler for input keydown */ this._inputKeydownHandler = null;
+        /** @private {Function|null} */ this._executeHandler = null;
+        /** @private {Function|null} */ this._inputKeydownHandler = null;
     }
 
     /**
      * Render the tab's UI
-     * @returns {string} HTML content for the tab
+     * @returns {Promise<HTMLElement>} The root element
      */
-    render() {
-        return `
+    async render() {
+        const container = document.createElement('div');
+        container.innerHTML = `
             <div class="pdt-section">
                 <div class="pdt-section-header">
                     <h3>My Custom Feature</h3>
@@ -186,15 +189,22 @@ export class MyCustomTab extends BaseComponent {
                 <div id="my-result-container"></div>
             </div>
         `;
+        
+        return container;
     }
 
     /**
-     * Attach event listeners after render
+     * Post-render lifecycle hook - called after DOM is attached
      * IMPORTANT: Store handlers as instance properties for cleanup in destroy()
+     * @param {HTMLElement} element - The root element
      */
-    attachEventListeners() {
-        const executeBtn = this.getElement('#my-execute-btn');
-        const inputField = this.getElement('#my-input');
+    postRender(element) {
+        // Cache DOM references
+        this.ui = {
+            executeBtn: element.querySelector('#my-execute-btn'),
+            inputField: element.querySelector('#my-input'),
+            resultContainer: element.querySelector('#my-result-container')
+        };
         
         // Store handlers for cleanup
         this._executeHandler = () => this._handleExecute();
@@ -206,8 +216,8 @@ export class MyCustomTab extends BaseComponent {
         };
         
         // Attach listeners
-        executeBtn?.addEventListener('click', this._executeHandler);
-        inputField?.addEventListener('keydown', this._inputKeydownHandler);
+        this.ui.executeBtn?.addEventListener('click', this._executeHandler);
+        this.ui.inputField?.addEventListener('keydown', this._inputKeydownHandler);
     }
 
     /**
@@ -215,27 +225,24 @@ export class MyCustomTab extends BaseComponent {
      * @private
      */
     async _handleExecute() {
-        const input = this.getElement('#my-input')?.value?.trim();
+        const input = this.ui.inputField?.value?.trim();
         
         if (!input) {
             NotificationService.show('Please enter a value', 'error');
             return;
         }
 
-        const executeBtn = this.getElement('#my-execute-btn');
-        const resultContainer = this.getElement('#my-result-container');
-
         try {
             // Show loading state
-            executeBtn.disabled = true;
-            executeBtn.textContent = 'Processing...';
+            this.ui.executeBtn.disabled = true;
+            this.ui.executeBtn.textContent = 'Processing...';
             
             // Your business logic here
             const result = await DataService.retrieveRecord('account', input);
             
             // Display results
-            resultContainer.innerHTML = '';
-            resultContainer.appendChild(
+            this.ui.resultContainer.innerHTML = '';
+            this.ui.resultContainer.appendChild(
                 UIFactory.createCopyableCodeBlock(
                     JSON.stringify(result, null, 2),
                     'json'
@@ -246,15 +253,15 @@ export class MyCustomTab extends BaseComponent {
             
         } catch (error) {
             NotificationService.show(`Error: ${error.message}`, 'error');
-            resultContainer.innerHTML = `
+            this.ui.resultContainer.innerHTML = `
                 <div class="pdt-card error">
-                    <p><strong>Error:</strong> ${error.message}</p>
+                    <p><strong>Error:</strong> ${escapeHtml(error.message)}</p>
                 </div>
             `;
         } finally {
             // Reset button state
-            executeBtn.disabled = false;
-            executeBtn.textContent = 'Execute';
+            this.ui.executeBtn.disabled = false;
+            this.ui.executeBtn.textContent = 'Execute';
         }
     }
 
@@ -263,14 +270,11 @@ export class MyCustomTab extends BaseComponent {
      * CRITICAL: Always implement this to prevent memory leaks
      */
     destroy() {
-        const executeBtn = this.getElement('#my-execute-btn');
-        const inputField = this.getElement('#my-input');
-        
-        if (executeBtn) {
-            executeBtn.removeEventListener('click', this._executeHandler);
+        if (this.ui.executeBtn) {
+            this.ui.executeBtn.removeEventListener('click', this._executeHandler);
         }
-        if (inputField) {
-            inputField.removeEventListener('keydown', this._inputKeydownHandler);
+        if (this.ui.inputField) {
+            this.ui.inputField.removeEventListener('keydown', this._inputKeydownHandler);
         }
     }
 }
@@ -278,32 +282,25 @@ export class MyCustomTab extends BaseComponent {
 
 ### Step 2: Register Your Tab
 
-Open `src/core/ComponentRegistry.js` and import your component:
+Open `src/App.js` and import your component:
 
 ```javascript
-import { MyCustomTab } from '../components/MyCustomTab.js';
+import { MyCustomTab } from './components/MyCustomTab.js';
 ```
 
-Then add it to the registry:
+Then add it to the `_registerComponents()` method:
 
 ```javascript
-export function registerAllComponents() {
-    ComponentRegistry.register('mycustomtab', MyCustomTab);
+_registerComponents() {
+    // Existing components...
+    ComponentRegistry.register(new MyCustomTab());
     // ... other components
 }
 ```
 
-### Step 3: Add Tab to UI
+### Step 3: No Additional UI Registration Needed
 
-Open `src/App.js` and add your tab to the tabs array:
-
-```javascript
-this.tabs = [
-    { id: 'inspector', label: 'Inspector', icon: '🔍' },
-    // ... other tabs
-    { id: 'mycustomtab', label: 'My Custom', icon: '🎯' },
-    // ... remaining tabs
-];
+The tab metadata (id, label, icon) is defined in your component's constructor via `super()`. The `UIManager` automatically discovers all registered components, so no separate tab array is needed.
 ```
 
 ### Step 4: Update Constants (Optional)
@@ -390,10 +387,11 @@ attachEventListeners() {
 
 #### 2. Follow the BaseComponent Pattern
 - Extend `BaseComponent` for automatic lifecycle management
-- Use `render()` for HTML generation
-- Use `attachEventListeners()` for event binding
+- Constructor: Call `super(id, label, icon)` with tab metadata
+- Use `async render()` to create and return HTMLElement
+- Use `postRender(element)` to cache DOM refs and attach event listeners
 - Use `destroy()` for cleanup (memory leak prevention)
-- Use `getElement(selector)` helper for DOM queries
+- Store DOM references in `this.ui = {}` during postRender
 
 #### 3. Use Existing Services
 - **DataService:** All Dataverse CRUD operations
@@ -402,10 +400,10 @@ attachEventListeners() {
 - **PowerAppsApiService:** Xrm.Page and context operations
 
 #### 4. Lifecycle Management
-- **Constructor:** Initialize all handler properties to `null` with JSDoc
-- **render():** Return HTML string or create DOM elements
-- **attachEventListeners():** Store handlers as instance properties, then attach
-- **destroy():** Remove ALL event listeners and clear references
+- **Constructor:** Call `super(id, label, icon)`, initialize `this.ui = {}` and handler properties to `null`
+- **render():** Create DOM structure, return HTMLElement (can be async)
+- **postRender(element):** Cache DOM refs in `this.ui`, store handlers as instance properties, attach listeners
+- **destroy():** Remove ALL event listeners using cached refs
 
 #### 5. Error Handling
 - Always wrap async operations in try-catch
@@ -461,18 +459,20 @@ Power-Toolkit follows strict memory management patterns. Here are common pattern
 #### Pattern 1: Simple Event Handlers
 ```javascript
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._clickHandler = null;
 }
 
-attachEventListeners() {
+postRender(element) {
+    this.ui.button = element.querySelector('#my-button');
     this._clickHandler = () => { /* code */ };
-    button.addEventListener('click', this._clickHandler);
+    this.ui.button?.addEventListener('click', this._clickHandler);
 }
 
 destroy() {
-    if (button) {
-        button.removeEventListener('click', this._clickHandler);
+    if (this.ui.button) {
+        this.ui.button.removeEventListener('click', this._clickHandler);
     }
 }
 ```
@@ -480,23 +480,23 @@ destroy() {
 #### Pattern 2: Delegated Event Handlers
 ```javascript
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._delegatedHandler = null;
-    /** @private {HTMLElement|null} */ this._container = null;
 }
 
-attachEventListeners() {
-    this._container = this.getElement('#container');
+postRender(element) {
+    this.ui.container = element.querySelector('#container');
     this._delegatedHandler = (e) => {
         const target = e.target.closest('.my-item');
         if (target) { /* handle */ }
     };
-    this._container.addEventListener('click', this._delegatedHandler);
+    this.ui.container?.addEventListener('click', this._delegatedHandler);
 }
 
 destroy() {
-    if (this._container) {
-        this._container.removeEventListener('click', this._delegatedHandler);
+    if (this.ui.container) {
+        this.ui.container.removeEventListener('click', this._delegatedHandler);
     }
 }
 ```
@@ -506,20 +506,22 @@ destroy() {
 import { debounce } from '../helpers/index.js';
 
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._debouncedSearch = null;
 }
 
-attachEventListeners() {
+postRender(element) {
+    this.ui.searchInput = element.querySelector('#search-input');
     this._debouncedSearch = debounce(() => {
         // Search logic
     }, 250);
-    searchInput.addEventListener('input', this._debouncedSearch);
+    this.ui.searchInput?.addEventListener('input', this._debouncedSearch);
 }
 
 destroy() {
-    if (searchInput) {
-        searchInput.removeEventListener('input', this._debouncedSearch);
+    if (this.ui.searchInput) {
+        this.ui.searchInput.removeEventListener('input', this._debouncedSearch);
     }
 }
 ```
@@ -527,11 +529,12 @@ destroy() {
 #### Pattern 4: Document-Level Events
 ```javascript
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._globalHandler = null;
 }
 
-attachEventListeners() {
+postRender(element) {
     this._globalHandler = (e) => { /* code */ };
     document.addEventListener('pdt:refresh', this._globalHandler);
 }
@@ -545,20 +548,27 @@ destroy() {
 #### Pattern 5: Multiple Inputs with Same Handler
 ```javascript
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._inputHandler = null;
 }
 
-attachEventListeners() {
+postRender(element) {
+    this.ui.inputs = [
+        element.querySelector('#input1'),
+        element.querySelector('#input2'),
+        element.querySelector('#input3')
+    ];
+    
     this._inputHandler = () => this._updatePreview();
     
-    [input1, input2, input3].forEach(input => {
+    this.ui.inputs.forEach(input => {
         input?.addEventListener('input', this._inputHandler);
     });
 }
 
 destroy() {
-    [input1, input2, input3].forEach(input => {
+    this.ui.inputs?.forEach(input => {
         if (input) {
             input.removeEventListener('input', this._inputHandler);
         }
@@ -569,8 +579,9 @@ destroy() {
 **Common Mistakes to Avoid:**
 ```javascript
 // ❌ WRONG: Closure captures scope - memory leak
-postRender() {
+postRender(element) {
     const data = this.getData();
+    const button = element.querySelector('#my-button');
     button.addEventListener('click', () => {
         console.log(data); // Captures 'data' and 'this'
     });
@@ -578,13 +589,16 @@ postRender() {
 
 // ✅ CORRECT: Use instance property
 constructor() {
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     /** @private {Function|null} */ this._buttonHandler = null;
 }
-postRender() {
+postRender(element) {
+    this.ui.button = element.querySelector('#my-button');
     this._buttonHandler = () => {
         console.log(this.getData()); // No closure leak
     };
-    button.addEventListener('click', this._buttonHandler);
+    this.ui.button.addEventListener('click', this._buttonHandler);
 }
 ```
 

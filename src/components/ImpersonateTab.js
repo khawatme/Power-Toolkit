@@ -8,6 +8,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { addEnterKeyListener, escapeHtml, escapeODataString, generateSortableTableHeaders, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
+import { UIHelpers } from '../helpers/ui.helpers.js';
 import { Config } from '../constants/index.js';
 
 /**
@@ -119,6 +120,13 @@ export class ImpersonateTab extends BaseComponent {
         if (this.ui.statusContainer && this._handleStatusClick) {
             this.ui.statusContainer.removeEventListener('click', this._handleStatusClick);
         }
+        // Destroy column resizers on results table
+        try {
+            const table = this.ui.resultsContainer.querySelector('table.pdt-table');
+            if (table) {
+                UIHelpers.destroyColumnResize(table);
+            }
+        } catch (_) { }
     }
 
     /**
@@ -209,5 +217,12 @@ export class ImpersonateTab extends BaseComponent {
                 <thead>${headerHtml}</thead>
                 <tbody>${rows}</tbody>
             </table>`;
+
+        // Initialize column resizing
+        const table = this.ui.resultsContainer.querySelector('table.pdt-table');
+        if (table) {
+            table.setAttribute('data-resize-mode', 'shift');
+            UIHelpers.initColumnResize(table);
+        }
     }
 }

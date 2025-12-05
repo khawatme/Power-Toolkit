@@ -30,6 +30,7 @@ import { HelpTab } from './components/HelpTab.js';
 import { AboutTab } from './components/AboutTab.js';
 import { ImpersonateTab } from './components/ImpersonateTab.js';
 import { MetadataBrowserTab } from './components/MetadataBrowserTab.js';
+import { SolutionLayersTab } from './components/SolutionLayersTab.js';
 
 /**
  * The main application object.
@@ -91,6 +92,7 @@ export const App = {
         // Global Components
         ComponentRegistry.register(new ImpersonateTab());
         ComponentRegistry.register(new MetadataBrowserTab());
+        ComponentRegistry.register(new SolutionLayersTab());
         ComponentRegistry.register(new WebApiExplorerTab());
         ComponentRegistry.register(new FetchXmlTesterTab());
         ComponentRegistry.register(new EnvironmentVariablesTab());
