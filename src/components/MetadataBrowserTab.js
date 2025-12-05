@@ -9,6 +9,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { debounce, escapeHtml, filterODataProperties, generateSortableTableHeaders, getMetadataDisplayName, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
+import { UIHelpers } from '../helpers/ui.helpers.js';
 import { DialogService } from '../services/DialogService.js';
 import { Store } from '../core/Store.js';
 import { Config } from '../constants/index.js';
@@ -67,6 +68,11 @@ export class MetadataBrowserTab extends BaseComponent {
         /** @private {Object|null} */ this._activeDragHandlers = null;
         this.entitySortState = { column: '_displayName', direction: 'asc' };
         this.attributeSortState = { column: '_displayName', direction: 'asc' };
+
+        // Map to track dynamically created event handlers for proper cleanup
+        // Each entry: element -> {event: 'click', handler: Function}
+        /** @private @type {Map<HTMLElement, {event: string, handler: Function}>} */
+        this._dynamicHandlers = new Map();
     }
 
     /**
@@ -316,6 +322,26 @@ export class MetadataBrowserTab extends BaseComponent {
             document.body.style.cursor = ''; // Reset cursor
             this._activeDragHandlers = null;
         }
+
+        // Clean up all dynamically created handlers (notification close buttons, etc.)
+        for (const [element, { event, handler }] of this._dynamicHandlers.entries()) {
+            element.removeEventListener(event, handler);
+        }
+        this._dynamicHandlers.clear();
+
+        // Destroy any column-resize handlers for the entity/attribute tables
+        try {
+            const entityTable = this.ui.entityList.querySelector('table.pdt-table');
+            if (entityTable) {
+                UIHelpers.destroyColumnResize(entityTable);
+            }
+            const attrTable = this.ui.attributeList.querySelector('table.pdt-table');
+            if (attrTable) {
+                UIHelpers.destroyColumnResize(attrTable);
+            }
+        } catch (_) {
+            // ignore
+        }
     }
 
     /**
@@ -344,11 +370,21 @@ export class MetadataBrowserTab extends BaseComponent {
         <strong>Impersonation Active:</strong> Permission checks may generate expected errors in the console.
       </div>
       <button class="pdt-icon-btn pdt-close-btn" title="Dismiss" style="width:28px;height:28px;flex-shrink:0">&times;</button>`;
-            notification.querySelector('.pdt-close-btn').addEventListener('click', (e) => {
+            const closeBtn = notification.querySelector('.pdt-close-btn');
+            const notificationCloseHandler = (e) => {
                 e.stopPropagation();
                 sessionStorage.setItem('pdt-impersonation-warning-dismissed', 'true');
                 notification.remove();
-            });
+                // Clean up this handler
+                if (closeBtn && this._dynamicHandlers.has(closeBtn)) {
+                    closeBtn.removeEventListener('click', notificationCloseHandler);
+                    this._dynamicHandlers.delete(closeBtn);
+                }
+            };
+            if (closeBtn) {
+                closeBtn.addEventListener('click', notificationCloseHandler);
+                this._dynamicHandlers.set(closeBtn, { event: 'click', handler: notificationCloseHandler });
+            }
             this.ui.entityList.prepend(notification);
         }
 
@@ -461,6 +497,13 @@ export class MetadataBrowserTab extends BaseComponent {
             // As a fallback, append the table if no other content is present.
             listContainer.insertAdjacentHTML('beforeend', tableHTML);
         }
+
+        // Initialize column resizing
+        const table = listContainer.querySelector('table.pdt-table');
+        if (table) {
+            table.setAttribute('data-resize-mode', 'shift');
+            UIHelpers.initColumnResize(table);
+        }
     }
 
     /**
@@ -498,6 +541,13 @@ export class MetadataBrowserTab extends BaseComponent {
                 <thead>${headerHtml}</thead>
                 <tbody>${rows}</tbody>
             </table>`;
+
+        // Initialize column resizing
+        const table = this.ui.attributeList.querySelector('table.pdt-table');
+        if (table) {
+            table.setAttribute('data-resize-mode', 'shift');
+            UIHelpers.initColumnResize(table);
+        }
     }
 
     /**

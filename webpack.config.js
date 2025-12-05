@@ -7,6 +7,7 @@
 const path = require('path');
 const TerserPlugin = require('terser-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 module.exports = (env, argv) => {
     const isProduction = argv.mode === 'production';
@@ -57,6 +58,14 @@ module.exports = (env, argv) => {
                     { from: 'extension/background.js', to: 'extension/background.js' },
                     { from: 'extension/icons', to: 'extension/icons' }
                 ],
+            }),
+
+            new BundleAnalyzerPlugin({
+                analyzerMode: 'static',
+                openAnalyzer: false,
+                reportFilename: '../bundle-report.html',
+                generateStatsFile: true,
+                statsFilename: '../bundle-stats.json'
             }),
         ],
         devtool: isProduction ? 'source-map' : 'inline-source-map',

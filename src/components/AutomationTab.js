@@ -419,7 +419,7 @@ export class AutomationTab extends BaseComponent {
                 return;
             }
             const errorMsg = error.message || String(error);
-            NotificationService.show(`Failed to load automations: ${errorMsg}`, 'error');
+            NotificationService.show(Config.MESSAGES.AUTOMATION.loadAutomationsFailed(errorMsg), 'error');
 
             // Show clean "no data" state instead of error messages
             this.rules = [];

@@ -389,6 +389,10 @@
     color: var(--pro-text-primary);
 }
 
+.pdt-delete-layer-btn {
+    padding: 5px 10px;
+}
+
 .pdt-input-btn {
     background-color: var(--pro-bg-surface);
     border-bottom-right-radius: 4px;
@@ -595,6 +599,10 @@ input[type="datetime-local"].pdt-input {
     font-size: 28px;
     font-weight: 700;
     margin: 0 0 5px 0;
+    color: var(--pro-text-primary);
+}
+
+.pdt-about-title span {
     color: var(--pro-accent);
 }
 
@@ -762,6 +770,7 @@ input[type="datetime-local"].pdt-input {
 .pdt-table {
     border-collapse: collapse;
     width: 100%;
+    --pdt-table-col-max-width: 150px;
 }
 
 .pdt-table th, 
@@ -779,6 +788,11 @@ input[type="datetime-local"].pdt-input {
     top: 0;
     user-select: none;
     z-index: 1;
+    transition: background-color 0.15s ease;
+}
+
+.pdt-table th.pdt-sortable:hover {
+    background-color: var(--pro-hover-bg);
 }
 
 .pdt-table th.sort-asc::after, 
@@ -797,11 +811,17 @@ input[type="datetime-local"].pdt-input {
     border-top-color: var(--pro-text-primary);
 }
 
+.pdt-table th,
 .pdt-table td {
-    max-width: 250px;
+    max-width: var(--pdt-table-col-max-width);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.pdt-table.pdt-table--no-max th,
+.pdt-table.pdt-table--no-max td {
+    max-width: none;
 }
 
 .pdt-table td.code-like {
@@ -833,6 +853,48 @@ input[type="datetime-local"].pdt-input {
 
 .pdt-table tr:hover {
     background-color: var(--pro-hover-bg);
+}
+
+/* Column resizer handle */
+.pdt-column-resizer {
+    position: absolute;
+    right: -6px;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    cursor: col-resize;
+    z-index: 5;
+    background: transparent;
+    display: block;
+}
+.pdt-column-resizer::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 6px;
+    bottom: 6px;
+    transform: translateX(-50%);
+    width: 3px;
+    background: var(--pro-border);
+    border-radius: 1px;
+    opacity: 0.9;
+}
+.pdt-column-resizer:hover::before {
+    background: var(--pro-text-primary);
+}
+.pdt-column-resizer:focus::before,
+.pdt-column-resizer:active::before {
+    background: var(--pro-accent-light);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.08) inset;
+}
+
+body.pdt-col-resize-active,
+body.pdt-col-resize-active * {
+    cursor: col-resize !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    user-select: none !important;
 }
 
 .pdt-pagination {

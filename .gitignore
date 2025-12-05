@@ -6,6 +6,13 @@
 
 # OS-specific files
 .DS_Store
+.vs/
+
+# Bundle analysis
+bundle-report.html
+bundle-stats.json
 
 # package files
 /package-lock.json
+
+/.github

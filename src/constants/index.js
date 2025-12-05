@@ -104,6 +104,7 @@ export const Config = {
         USER_CONTEXT: Messages.USER_CONTEXT,
         PERFORMANCE: Messages.PERFORMANCE,
         IMPERSONATE: Messages.IMPERSONATE,
-        EVENT_MONITOR: Messages.EVENT_MONITOR
+        EVENT_MONITOR: Messages.EVENT_MONITOR,
+        SOLUTION_LAYERS: Messages.SOLUTION_LAYERS
     }
 };
