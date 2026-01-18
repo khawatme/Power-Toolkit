@@ -80,6 +80,7 @@ export const AutomationService = {
      * @param {boolean} activate - True to activate, false to deactivate
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async setBusinessRuleState(updateRecord, ruleId, activate) {
         const state = activate
             ? { statecode: 1, statuscode: 2 } // Activated
@@ -94,6 +95,7 @@ export const AutomationService = {
      * @param {string} ruleId - Business rule workflow ID
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async deleteBusinessRule(deleteRecord, ruleId) {
         return deleteRecord('workflows', ruleId);
     }

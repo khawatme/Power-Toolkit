@@ -142,7 +142,9 @@ export class InspectorTab extends BaseComponent {
                     this.ui.treeView.removeEventListener('click', this._copyHandler, true);
                 }
             }
-        } catch { }
+        } catch {
+            // Intentionally ignored - cleanup failure is non-critical
+        }
     }
 
     /**
@@ -348,6 +350,7 @@ export class InspectorTab extends BaseComponent {
                 const formattedNewValue = formatDisplayValue(attr.getValue(), attr, controlType);
                 elementToUpdate.textContent = formattedNewValue;
                 elementToUpdate.title = formattedNewValue;
+                return true;
             } catch (e) {
                 NotificationService.show(`${Config.MESSAGES.INSPECTOR.updateFailed} ${e.message}`, 'error');
                 return false; // Prevent dialog from closing on error

@@ -66,41 +66,41 @@ export const ValidationHelpers = {
         const value = input.value;
 
         switch (type) {
-        case 'integer': {
-            if (value === null || value === '') {
-                return null;
+            case 'integer': {
+                if (value === null || value === '') {
+                    return null;
+                }
+                return ValidationService.validateNumber(value, 'Input value');
             }
-            return ValidationService.validateNumber(value, 'Input value');
-        }
-        case 'decimal':
-        case 'money':
-        case 'double': {
-            if (value === null || value === '') {
-                return null;
+            case 'decimal':
+            case 'money':
+            case 'double': {
+                if (value === null || value === '') {
+                    return null;
+                }
+                return ValidationService.validateNumber(value, 'Input value');
             }
-            return ValidationService.validateNumber(value, 'Input value');
-        }
-        case 'datetime': {
-            if (value === null || value === '') {
-                return null;
+            case 'datetime': {
+                if (value === null || value === '') {
+                    return null;
+                }
+                return ValidationService.validateDateFormat(value, 'Input value');
             }
-            return ValidationService.validateDateFormat(value, 'Input value');
-        }
-        case 'optionset': {
-            if (value === 'null') {
-                return null;
+            case 'optionset': {
+                if (value === 'null') {
+                    return null;
+                }
+                const num = parseInt(value, 10);
+                return isNaN(num) ? null : num;
             }
-            const num = parseInt(value, 10);
-            return isNaN(num) ? null : num;
-        }
-        case 'boolean': {
-            if (value === 'null') {
-                return null;
+            case 'boolean': {
+                if (value === 'null') {
+                    return null;
+                }
+                return value === 'true';
             }
-            return value === 'true';
-        }
-        default:
-            return value;
+            default:
+                return value;
         }
     },
 

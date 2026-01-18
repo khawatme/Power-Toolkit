@@ -47,6 +47,7 @@ export class CodeHubTab extends BaseComponent {
     }
 
     /** @returns {Promise<HTMLElement>} */
+    // eslint-disable-next-line require-await
     async render() {
         const root = document.createElement('div');
 

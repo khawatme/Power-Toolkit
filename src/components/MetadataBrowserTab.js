@@ -79,6 +79,7 @@ export class MetadataBrowserTab extends BaseComponent {
      * Renders the component's two-panel HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.className = 'pdt-full-height-column';
@@ -164,7 +165,7 @@ export class MetadataBrowserTab extends BaseComponent {
             if (row) {
                 const logicalName = row.dataset.logicalName;
                 this._handleEntitySelect(logicalName);
-                const entity = this.allEntities.find(e => e.LogicalName === row.dataset.logicalName);
+                const entity = this.allEntities.find(ent => ent.LogicalName === row.dataset.logicalName);
                 if (entity) {
                     const title = getMetadataDisplayName(entity);
                     this._showMetadataDetailsDialog(`Table Details: ${title}`, entity);
@@ -267,31 +268,39 @@ export class MetadataBrowserTab extends BaseComponent {
     }
 
     /**
-     * Lifecycle hook for cleaning up resources, including event listeners and store subscription, to prevent memory leaks.
+     * Unsubscribe from store updates
+     * @private
      */
-    destroy() {
-        // Unsubscribe from store
+    _cleanupStoreSubscription() {
         if (this.unsubscribe) {
             this.unsubscribe();
         }
+    }
 
-        // Remove search handlers
+    /**
+     * Remove search input handlers
+     * @private
+     */
+    _removeSearchHandlers() {
         if (this.ui.entitySearch && this._entitySearchHandler) {
             this.ui.entitySearch.removeEventListener('keyup', this._entitySearchHandler);
-            // Cancel any pending debounced entity search
             if (this._entitySearchHandler.cancel) {
                 this._entitySearchHandler.cancel();
             }
         }
         if (this.ui.attributeSearch && this._attributeSearchHandler) {
             this.ui.attributeSearch.removeEventListener('keyup', this._attributeSearchHandler);
-            // Cancel any pending debounced attribute search
             if (this._attributeSearchHandler.cancel) {
                 this._attributeSearchHandler.cancel();
             }
         }
+    }
 
-        // Remove list handlers
+    /**
+     * Remove list click and keydown handlers
+     * @private
+     */
+    _removeListHandlers() {
         if (this.ui.entityList) {
             if (this._entityListClickHandler) {
                 this.ui.entityList.removeEventListener('click', this._entityListClickHandler);
@@ -309,39 +318,72 @@ export class MetadataBrowserTab extends BaseComponent {
                 this.ui.attributeList.removeEventListener('keydown', this._attributeListKeydownHandler);
             }
         }
+    }
 
-        // Remove resizer handler
+    /**
+     * Remove resizer handler
+     * @private
+     */
+    _removeResizerHandler() {
         if (this.ui.resizer && this._resizerMousedownHandler) {
             this.ui.resizer.removeEventListener('mousedown', this._resizerMousedownHandler);
         }
+    }
 
-        // Clean up active drag handlers if destroy is called during a drag operation
+    /**
+     * Clean up active drag handlers
+     * @private
+     */
+    _cleanupActiveDragHandlers() {
         if (this._activeDragHandlers) {
             document.removeEventListener('mousemove', this._activeDragHandlers.handleDrag);
             document.removeEventListener('mouseup', this._activeDragHandlers.stopDrag);
-            document.body.style.cursor = ''; // Reset cursor
+            document.body.style.cursor = '';
             this._activeDragHandlers = null;
         }
+    }
 
-        // Clean up all dynamically created handlers (notification close buttons, etc.)
+    /**
+     * Clean up dynamic handlers
+     * @private
+     */
+    _cleanupDynamicHandlers() {
         for (const [element, { event, handler }] of this._dynamicHandlers.entries()) {
             element.removeEventListener(event, handler);
         }
         this._dynamicHandlers.clear();
+    }
 
-        // Destroy any column-resize handlers for the entity/attribute tables
+    /**
+     * Destroy column resize handlers
+     * @private
+     */
+    _destroyColumnResizeHandlers() {
         try {
-            const entityTable = this.ui.entityList.querySelector('table.pdt-table');
+            const entityTable = this.ui.entityList?.querySelector('table.pdt-table');
             if (entityTable) {
                 UIHelpers.destroyColumnResize(entityTable);
             }
-            const attrTable = this.ui.attributeList.querySelector('table.pdt-table');
+            const attrTable = this.ui.attributeList?.querySelector('table.pdt-table');
             if (attrTable) {
                 UIHelpers.destroyColumnResize(attrTable);
             }
         } catch (_) {
-            // ignore
+            // Intentionally ignored - cleanup is best-effort
         }
+    }
+
+    /**
+     * Cleanup method called when component is destroyed
+     */
+    destroy() {
+        this._cleanupStoreSubscription();
+        this._removeSearchHandlers();
+        this._removeListHandlers();
+        this._removeResizerHandler();
+        this._cleanupActiveDragHandlers();
+        this._cleanupDynamicHandlers();
+        this._destroyColumnResizeHandlers();
     }
 
     /**

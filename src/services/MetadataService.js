@@ -63,9 +63,10 @@ export const MetadataService = {
      * @param {string|null} impersonatedUserId - Current impersonation ID
      * @returns {Promise<void>}
      */
+    // eslint-disable-next-line require-await
     async loadEntityMetadata(webApiFetch, impersonatedUserId = null) {
         if (_isMetadataLoaded) {
-            return;
+            return Promise.resolve();
         }
         if (_metadataPromise) {
             return _metadataPromise;
@@ -91,10 +92,11 @@ export const MetadataService = {
                         NotificationService.show(Config.MESSAGES.DATA_SERVICE.limitedMetadata, 'warn');
                     }
                     _isMetadataLoaded = true; // Mark as loaded to prevent infinite retry
-                    return; // Silent failure for impersonated users without metadata permissions
+                    return Promise.resolve(); // Silent failure for impersonated users without metadata permissions
                 }
                 throw e; // Re-throw other errors
             }
+            return Promise.resolve(); // Explicit return for consistency
         })();
 
         return _metadataPromise;
@@ -133,6 +135,7 @@ export const MetadataService = {
      * @param {boolean} bypassCache - Force refresh
      * @returns {Promise<Array<object>>}
      */
+    // eslint-disable-next-line require-await
     async getEntityDefinitions(webApiFetch, impersonatedUserId = null, bypassCache = false) {
         return _fetch('entityDefinitions', async () => {
             try {
@@ -189,6 +192,7 @@ export const MetadataService = {
      * @param {boolean} bypassCache - Force refresh
      * @returns {Promise<Array<object>>}
      */
+    // eslint-disable-next-line require-await
     async getAttributeDefinitions(webApiFetch, entityLogicalName, bypassCache = false) {
         const key = `attrs_${entityLogicalName}`;
         return _fetch(key, async () => {
@@ -252,6 +256,39 @@ export const MetadataService = {
     },
 
     /**
+     * Get full entity definition including PrimaryNameAttribute.
+     * @async
+     * @param {Function} webApiFetch - Web API fetch function
+     * @param {string|null} impersonatedUserId - Current impersonation ID
+     * @param {string} entityLogicalName - Entity logical name
+     * @returns {Promise<Object|null>} Full entity definition object
+     */
+    async getEntityDefinition(webApiFetch, impersonatedUserId, entityLogicalName) {
+        if (!entityLogicalName) {
+            return null;
+        }
+
+        const defs = await this.getEntityDefinitions(webApiFetch, impersonatedUserId);
+        if (Array.isArray(defs)) {
+            const hit = defs.find(e => e?.LogicalName === entityLogicalName);
+            if (hit) {
+                return hit;
+            }
+        }
+
+        try {
+            const response = await webApiFetch(
+                'GET',
+                `EntityDefinitions(LogicalName='${entityLogicalName}')`,
+                '?$select=LogicalName,EntitySetName,PrimaryNameAttribute,PrimaryIdAttribute,DisplayName'
+            );
+            return response ? _normalizeObjectKeys(response) : null;
+        } catch {
+            return null;
+        }
+    },
+
+    /**
      * Get a compact attribute type map for an entity (useful for query building).
      * @param {Function} webApiFetch - Web API fetch function
      * @param {string} entityLogicalName - Entity logical name
@@ -283,6 +320,182 @@ export const MetadataService = {
             }
         });
         return map;
+    },
+
+    /**
+     * Get a map of lookup attribute logical names to navigation property names.
+     * Used for correctly formatting @odata.bind fields in create/update requests.
+     * @async
+     * @param {Function} webApiFetch - Web API fetch function
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {boolean} bypassCache - Force refresh
+     * @returns {Promise<Map<string, string>>} Map of attributeLogicalName → navigationPropertyName
+     */
+    // eslint-disable-next-line require-await
+    async getNavigationPropertyMap(webApiFetch, entityLogicalName, bypassCache = false) {
+        const key = `navProps_${entityLogicalName}`;
+        return _fetch(key, async () => {
+            const map = new Map();
+            try {
+                const response = await webApiFetch(
+                    'GET',
+                    `EntityDefinitions(LogicalName='${entityLogicalName}')/ManyToOneRelationships`,
+                    '?$select=ReferencingAttribute,ReferencingEntityNavigationPropertyName'
+                );
+                if (response?.value) {
+                    for (const rel of response.value) {
+                        const attrName = rel.ReferencingAttribute;
+                        const navPropName = rel.ReferencingEntityNavigationPropertyName;
+                        if (attrName && navPropName) {
+                            map.set(attrName.toLowerCase(), navPropName);
+                        }
+                    }
+                }
+            } catch (_e) {
+                // Return empty map on failure
+            }
+            return map;
+        }, bypassCache);
+    },
+
+    /**
+     * Determine metadata type and expand clause for optionset.
+     * @private
+     */
+    async _determineOptionsetMetadataType(webApiFetch, entityLogicalName, attributeLogicalName) {
+        // Special handling for state and status
+        if (attributeLogicalName === 'statecode') {
+            return {
+                metadataType: 'StateAttributeMetadata',
+                expandClause: '?$expand=OptionSet($select=Options)'
+            };
+        }
+
+        if (attributeLogicalName === 'statuscode') {
+            return {
+                metadataType: 'StatusAttributeMetadata',
+                expandClause: '?$expand=OptionSet($select=Options)'
+            };
+        }
+
+        // Detect if it's a multiselect picklist
+        let metadataType = 'PicklistAttributeMetadata';
+        try {
+            const attrResponse = await webApiFetch(
+                'GET',
+                `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')`,
+                '?$select=AttributeTypeName'
+            );
+            const attrTypeName = attrResponse?.AttributeTypeName?.Value || '';
+            if (attrTypeName === 'MultiSelectPicklistType') {
+                metadataType = 'MultiSelectPicklistAttributeMetadata';
+            }
+        } catch (_e) {
+            // Default to PicklistAttributeMetadata on error
+        }
+
+        return {
+            metadataType,
+            expandClause: '?$expand=OptionSet($select=Options),GlobalOptionSet($select=Options)'
+        };
+    },
+
+    /**
+     * Extract label from option metadata.
+     * @private
+     */
+    _extractOptionLabel(opt) {
+        return opt.Label?.UserLocalizedLabel?.Label ||
+            opt.Label?.LocalizedLabels?.[0]?.Label ||
+            `${opt.Value}`;
+    },
+
+    /**
+     * Parse options from response data.
+     * @private
+     */
+    _parseOptionSetData(response) {
+        const options = [];
+        const optionSetData = response?.OptionSet?.Options || response?.GlobalOptionSet?.Options || [];
+
+        for (const opt of optionSetData) {
+            if (opt.Value !== null && opt.Value !== undefined) {
+                options.push({
+                    value: opt.Value,
+                    label: this._extractOptionLabel(opt)
+                });
+            }
+        }
+
+        return options;
+    },
+
+    /**
+     * Get optionset options for a picklist attribute.
+     * @async
+     * @param {Function} webApiFetch - Web API fetch function
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {string} attributeLogicalName - Attribute logical name
+     * @param {boolean} bypassCache - Force refresh
+     * @returns {Promise<Array<{value: number, label: string}>>} Array of option value/label pairs
+     */
+    // eslint-disable-next-line require-await
+    async getPicklistOptions(webApiFetch, entityLogicalName, attributeLogicalName, bypassCache = false) {
+        const key = `optionset_${entityLogicalName}_${attributeLogicalName}`;
+        return _fetch(key, async () => {
+            try {
+                const { metadataType, expandClause } = await this._determineOptionsetMetadataType(
+                    webApiFetch,
+                    entityLogicalName,
+                    attributeLogicalName
+                );
+
+                const response = await webApiFetch(
+                    'GET',
+                    `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')/Microsoft.Dynamics.CRM.${metadataType}`,
+                    expandClause
+                );
+
+                return this._parseOptionSetData(response);
+            } catch (_e) {
+                // Return empty array on failure
+                return [];
+            }
+        }, bypassCache);
+    },
+
+    /**
+     * Get boolean options for a boolean attribute.
+     * @async
+     * @param {Function} webApiFetch - Web API fetch function
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {string} attributeLogicalName - Attribute logical name
+     * @param {boolean} bypassCache - Force refresh
+     * @returns {Promise<{trueLabel: string, falseLabel: string}>}
+     */
+    // eslint-disable-next-line require-await
+    async getBooleanOptions(webApiFetch, entityLogicalName, attributeLogicalName, bypassCache = false) {
+        const key = `boolean_${entityLogicalName}_${attributeLogicalName}`;
+        return _fetch(key, async () => {
+            try {
+                const response = await webApiFetch(
+                    'GET',
+                    `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')/Microsoft.Dynamics.CRM.BooleanAttributeMetadata`,
+                    '?$expand=OptionSet'
+                );
+
+                const trueOption = response?.OptionSet?.TrueOption;
+                const falseOption = response?.OptionSet?.FalseOption;
+
+                return {
+                    trueLabel: trueOption?.Label?.UserLocalizedLabel?.Label || 'True',
+                    falseLabel: falseOption?.Label?.UserLocalizedLabel?.Label || 'False'
+                };
+            } catch (_e) {
+                // Return default labels on failure
+                return { trueLabel: 'True', falseLabel: 'False' };
+            }
+        }, bypassCache);
     },
 
     /**

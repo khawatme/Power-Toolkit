@@ -16,6 +16,12 @@ export const DIALOG_OVERLAY_ID = 'pdt-dialog-overlay';
 export const XML_INDENT = '  ';
 
 /**
+ * Default CSV delimiter for exports.
+ * @type {string}
+ */
+export const CSV_DELIMITER = ';';
+
+/**
  * CSS class names used for dialog components.
  * @type {Object.<string, string>}
  */
@@ -125,6 +131,13 @@ export const NOTIFICATION_STYLES = {
 };
 
 /**
+ * Maximum number of notifications to display at once.
+ * When this limit is reached, the oldest notification will be auto-dismissed.
+ * @type {number}
+ */
+export const MAX_NOTIFICATIONS = 3;
+
+/**
  * Form control factory constants for input placeholders and labels.
  * @type {Object.<string, string>}
  */
@@ -167,6 +180,14 @@ export const UI_FACTORY = {
 };
 
 /**
+ * Touch configuration dialog constants.
+ * @type {Object.<string, number>}
+ */
+export const TOUCH_DIALOG = {
+    focusDelay: 100
+};
+
+/**
  * Commonly-reused placeholder text for input fields.
  * @type {Object.<string, string>}
  */
@@ -181,4 +202,37 @@ export const COMMON_PLACEHOLDERS = {
     optional: '(optional)',
     searchByName: 'Type Name contains...',
     searchByContent: 'Trace content contains...'
+};
+
+/**
+ * Pagination UI constants for buttons, controls, and options.
+ * @type {Object}
+ */
+export const PAGINATION = {
+    /** Button text and titles */
+    buttons: {
+        loadMore: 'Load More',
+        loadAll: 'Load All',
+        loading: 'Loading...',
+        loadingAll: 'Loading All...',
+        first: '«',
+        previous: '‹',
+        next: '›',
+        last: '»'
+    },
+    /** Button titles (tooltips) */
+    titles: {
+        firstPage: 'First page',
+        previousPage: 'Previous page',
+        nextPage: 'Next page',
+        lastPage: 'Last page',
+        jumpToPage: 'Jump to page',
+        recordsPerPage: 'Records per page'
+    },
+    /** Available page size options */
+    pageSizeOptions: [25, 50, 100, 250],
+    /** Default page size */
+    defaultPageSize: 25,
+    /** Pagination update interval (pages) for Load All progress */
+    progressUpdateInterval: 3
 };

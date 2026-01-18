@@ -19,6 +19,7 @@ import { throttle, clearContainer, downloadJson, createFileInputElement, readJso
  * @extends {BaseComponent}
  * @property {HTMLElement|null} draggedItem - The list item element currently being dragged.
  * @property {Function} throttledDragOver - A throttled version of the dragover handler for performance.
+ * @property {Function} throttledHeaderDragOver - A throttled version of the header buttons dragover handler.
  */
 export class SettingsTab extends BaseComponent {
     /**
@@ -27,11 +28,14 @@ export class SettingsTab extends BaseComponent {
     constructor() {
         super('settings', 'Settings', ICONS.settings);
         this.draggedItem = null;
-        // Bind and throttle the dragover handler for performance
+        this.headerDraggedItem = null;
+        // Bind and throttle the dragover handlers for performance
         this.throttledDragOver = throttle(this._handleDragOver.bind(this), 100);
+        this.throttledHeaderDragOver = throttle(this._handleHeaderDragOver.bind(this), 100);
 
         // DOM element references for cleanup
         /** @private {HTMLElement|null} */ this._listElement = null;
+        /** @private {HTMLElement|null} */ this._headerListElement = null;
         /** @private {HTMLElement|null} */ this._exportBtn = null;
         /** @private {HTMLElement|null} */ this._importBtn = null;
         /** @private {HTMLElement|null} */ this._resetBtn = null;
@@ -40,6 +44,9 @@ export class SettingsTab extends BaseComponent {
         /** @private {Function|null} */ this._handleVisibilityChangeBound = null;
         /** @private {Function|null} */ this._handleDragStartBound = null;
         /** @private {Function|null} */ this._handleDragEndBound = null;
+        /** @private {Function|null} */ this._handleHeaderVisibilityChangeBound = null;
+        /** @private {Function|null} */ this._handleHeaderDragStartBound = null;
+        /** @private {Function|null} */ this._handleHeaderDragEndBound = null;
         /** @private {Function|null} */ this._handleExport = null;
         /** @private {Function|null} */ this._handleImport = null;
         /** @private {Function|null} */ this._handleReset = null;
@@ -49,6 +56,7 @@ export class SettingsTab extends BaseComponent {
      * Renders the component's HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
@@ -58,11 +66,15 @@ export class SettingsTab extends BaseComponent {
                 <button id="pdt-import-settings" class="modern-button secondary">Import Settings</button>
                 <button id="pdt-reset-settings" class="modern-button ml-auto">Reset All Settings</button>
             </div>
+            <div class="section-title">${Config.MESSAGES.SETTINGS.headerButtonsTitle}</div>
+            <p class="pdt-note">${Config.MESSAGES.SETTINGS.headerButtonsDescription}</p>
+            <ul id="header-button-settings-list"></ul>
             <div class="section-title">Tab Configuration</div>
             <p class="pdt-note">Drag to reorder tabs. Use the toggle to show or hide them.</p>
             <ul id="tab-settings-list"></ul>`;
 
         this._renderList(container.querySelector('#tab-settings-list'));
+        this._renderHeaderButtonList(container.querySelector('#header-button-settings-list'));
         return container;
     }
 
@@ -72,6 +84,7 @@ export class SettingsTab extends BaseComponent {
      */
     postRender(element) {
         this._listElement = element.querySelector('#tab-settings-list');
+        this._headerListElement = element.querySelector('#header-button-settings-list');
         this._exportBtn = element.querySelector('#pdt-export-settings');
         this._importBtn = element.querySelector('#pdt-import-settings');
         this._resetBtn = element.querySelector('#pdt-reset-settings');
@@ -80,14 +93,24 @@ export class SettingsTab extends BaseComponent {
         this._handleVisibilityChangeBound = (e) => this._handleVisibilityChange(e);
         this._handleDragStartBound = (e) => this._handleDragStart(e);
         this._handleDragEndBound = (e) => this._handleDragEnd(e);
+        this._handleHeaderVisibilityChangeBound = (e) => this._handleHeaderVisibilityChange(e);
+        this._handleHeaderDragStartBound = (e) => this._handleHeaderDragStart(e);
+        this._handleHeaderDragEndBound = (e) => this._handleHeaderDragEnd(e);
         this._handleExport = () => this._exportSettings();
         this._handleImport = () => this._importSettings();
         this._handleReset = () => this._resetAllSettings();
 
+        // Tab settings list events
         this._listElement.addEventListener('change', this._handleVisibilityChangeBound);
         this._listElement.addEventListener('dragstart', this._handleDragStartBound);
         this._listElement.addEventListener('dragend', this._handleDragEndBound);
         this._listElement.addEventListener('dragover', this.throttledDragOver);
+
+        // Header buttons list events
+        this._headerListElement.addEventListener('change', this._handleHeaderVisibilityChangeBound);
+        this._headerListElement.addEventListener('dragstart', this._handleHeaderDragStartBound);
+        this._headerListElement.addEventListener('dragend', this._handleHeaderDragEndBound);
+        this._headerListElement.addEventListener('dragover', this.throttledHeaderDragOver);
 
         this._exportBtn.onclick = this._handleExport;
         this._importBtn.onclick = this._handleImport;
@@ -104,9 +127,18 @@ export class SettingsTab extends BaseComponent {
             this._listElement.removeEventListener('dragend', this._handleDragEndBound);
             this._listElement.removeEventListener('dragover', this.throttledDragOver);
         }
+        if (this._headerListElement) {
+            this._headerListElement.removeEventListener('change', this._handleHeaderVisibilityChangeBound);
+            this._headerListElement.removeEventListener('dragstart', this._handleHeaderDragStartBound);
+            this._headerListElement.removeEventListener('dragend', this._handleHeaderDragEndBound);
+            this._headerListElement.removeEventListener('dragover', this.throttledHeaderDragOver);
+        }
         // Cancel any pending throttled dragover
         if (this.throttledDragOver?.cancel) {
             this.throttledDragOver.cancel();
+        }
+        if (this.throttledHeaderDragOver?.cancel) {
+            this.throttledHeaderDragOver.cancel();
         }
         if (this._exportBtn) {
             this._exportBtn.onclick = null;
@@ -117,6 +149,110 @@ export class SettingsTab extends BaseComponent {
         if (this._resetBtn) {
             this._resetBtn.onclick = null;
         }
+    }
+
+    /**
+     * Renders the list of configurable header buttons.
+     * @param {HTMLUListElement} listElement - The <ul> element to populate.
+     * @private
+     */
+    _renderHeaderButtonList(listElement) {
+        const headerButtonSettings = Store.getState().headerButtonSettings;
+        clearContainer(listElement);
+        headerButtonSettings.forEach(setting => {
+            const li = document.createElement('li');
+            li.dataset.buttonId = setting.id;
+            li.draggable = true;
+
+            const formOnlyBadge = setting.formOnly ? `<span class="pdt-badge-small">${Config.MESSAGES.SETTINGS.headerButtonFormOnly}</span>` : '';
+
+            li.innerHTML = `
+                <span class="drag-handle" style="cursor:grab;">☰</span>
+                <span>${setting.label} ${formOnlyBadge}</span>
+                <label class="pdt-toggle-label ml-auto">
+                    <span class="pdt-toggle-switch">
+                        <input type="checkbox" class="header-button-visibility-toggle" 
+                            ${setting.visible ? 'checked' : ''}>
+                        <span class="pdt-toggle-slider"></span>
+                    </span>
+                </label>`;
+            listElement.appendChild(li);
+        });
+    }
+
+    /**
+     * Handles changes to a header button's visibility toggle.
+     * @param {Event} e - The change event object from the input checkbox.
+     * @private
+     */
+    _handleHeaderVisibilityChange(e) {
+        if (!e.target.classList.contains('header-button-visibility-toggle')) {
+            return;
+        }
+
+        const buttonId = e.target.closest('li').dataset.buttonId;
+        const newSettings = Store.getState().headerButtonSettings.map(setting =>
+            setting.id === buttonId ? { ...setting, visible: e.target.checked } : setting
+        );
+        Store.setState({ headerButtonSettings: newSettings });
+    }
+
+    /**
+     * Handles the start of a drag operation for header buttons.
+     * @param {DragEvent} e - The dragstart event object.
+     * @private
+     */
+    _handleHeaderDragStart(e) {
+        if (e.target.draggable) {
+            this.headerDraggedItem = e.target;
+            setTimeout(() => e.target.classList.add('dragging'), 0);
+        } else {
+            e.preventDefault();
+        }
+    }
+
+    /**
+     * Handles the end of a drag operation for header buttons.
+     * @param {DragEvent} e - The dragend event object.
+     * @private
+     */
+    _handleHeaderDragEnd(e) {
+        if (this.headerDraggedItem) {
+            this.headerDraggedItem.classList.remove('dragging');
+            this._saveHeaderButtonOrder(e.currentTarget);
+            this.headerDraggedItem = null;
+        }
+    }
+
+    /**
+     * Handles the dragover event for header buttons.
+     * @param {DragEvent} e - The dragover event object.
+     * @private
+     */
+    _handleHeaderDragOver(e) {
+        e.preventDefault();
+        const list = e.currentTarget;
+        const afterElement = this._getDragAfterElement(list, e.clientY);
+        if (this.headerDraggedItem) {
+            if (afterElement === null || afterElement === undefined) {
+                list.appendChild(this.headerDraggedItem);
+            } else {
+                list.insertBefore(this.headerDraggedItem, afterElement);
+            }
+        }
+    }
+
+    /**
+     * Saves the new order of header buttons to the central store.
+     * @param {HTMLUListElement} listElement - The list element containing the reordered buttons.
+     * @private
+     */
+    _saveHeaderButtonOrder(listElement) {
+        const newOrderedIds = [...listElement.querySelectorAll('li')].map(li => li.dataset.buttonId);
+        const currentSettings = Store.getState().headerButtonSettings;
+        const settingsMap = new Map(currentSettings.map(s => [s.id, s]));
+        const newSettings = newOrderedIds.map(id => settingsMap.get(id)).filter(Boolean);
+        Store.setState({ headerButtonSettings: newSettings });
     }
 
     /**
@@ -137,9 +273,11 @@ export class SettingsTab extends BaseComponent {
                 li.draggable = !isUnconfigurable;
                 li.style.opacity = isUnconfigurable ? '0.7' : '1';
 
+                const formOnlyBadge = component.isFormOnly ? `<span class="pdt-badge-small">${Config.MESSAGES.SETTINGS.tabFormOnly}</span>` : '';
+
                 li.innerHTML = `
                     <span class="drag-handle" style="cursor:${isUnconfigurable ? 'not-allowed' : 'grab'};">☰</span>
-                    <span>${component.label}</span>
+                    <span>${component.label} ${formOnlyBadge}</span>
                     <label class="pdt-toggle-label ml-auto">
                         <span class="pdt-toggle-switch">
                             <input type="checkbox" class="tab-visibility-toggle" 
@@ -256,7 +394,8 @@ export class SettingsTab extends BaseComponent {
             const settingsToExport = {
                 version: Config.TOOL_VERSION,
                 theme: Store.getState().theme,
-                tabSettings: Store.getState().tabSettings
+                tabSettings: Store.getState().tabSettings,
+                headerButtonSettings: Store.getState().headerButtonSettings
             };
             downloadJson(settingsToExport, 'pdt-settings.json');
             NotificationService.show(Config.MESSAGES.SETTINGS.exportSuccess, 'success');
@@ -270,6 +409,7 @@ export class SettingsTab extends BaseComponent {
      * and applies the settings from that file to the application's state.
      * @private
      */
+    // eslint-disable-next-line require-await
     async _importSettings() {
         const input = createFileInputElement({
             accept: '.json',
@@ -285,6 +425,9 @@ export class SettingsTab extends BaseComponent {
                     if (imported.tabSettings) {
                         newState.tabSettings = imported.tabSettings;
                     }
+                    if (imported.headerButtonSettings) {
+                        newState.headerButtonSettings = imported.headerButtonSettings;
+                    }
                     if (imported.theme) {
                         newState.theme = imported.theme;
                     }
@@ -292,6 +435,7 @@ export class SettingsTab extends BaseComponent {
                     if (Object.keys(newState).length > 0) {
                         Store.setState(newState);
                         this._renderList(document.getElementById('tab-settings-list'));
+                        this._renderHeaderButtonList(document.getElementById('header-button-settings-list'));
                         NotificationService.show(Config.MESSAGES.SETTINGS.importSuccess, 'success');
                     } else {
                         NotificationService.show(Config.MESSAGES.SETTINGS.invalidSettings, 'error');
@@ -312,15 +456,16 @@ export class SettingsTab extends BaseComponent {
     async _resetAllSettings() {
         const confirmed = await showConfirmDialog(
             'Reset All Settings',
-            'Are you sure you want to reset all settings to their default values? This will reset the tab order, visibility, and theme.'
+            'Are you sure you want to reset all settings to their default values? This will reset the tab order, header button order, visibility, and theme.'
         );
 
         if (confirmed) {
             Store.resetToDefaults();
 
-            // Manually re-render the list inside this settings tab.
+            // Manually re-render the lists inside this settings tab.
             // The main navigation will update automatically via the store subscription.
             this._renderList(document.getElementById('tab-settings-list'));
+            this._renderHeaderButtonList(document.getElementById('header-button-settings-list'));
             NotificationService.show(Config.MESSAGES.SETTINGS.resetSuccess, 'success');
         }
     }

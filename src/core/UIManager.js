@@ -60,8 +60,84 @@ export const UIManager = {
             if (JSON.stringify(newState.tabSettings) !== JSON.stringify(oldState.tabSettings)) {
                 this.updateNavTabs();
             }
+            // Re-render header buttons if header button settings change
+            if (JSON.stringify(newState.headerButtonSettings) !== JSON.stringify(oldState.headerButtonSettings)) {
+                this._updateHeaderButtons();
+            }
             // Minimize state changes are handled internally by MinimizeService
         });
+    },
+
+    /**
+     * Updates the header buttons based on current settings.
+     * @private
+     */
+    _updateHeaderButtons() {
+        if (!this.dialog) {
+            return;
+        }
+
+        const headerControls = this.dialog.querySelector('.pdt-header-controls');
+        if (!headerControls) {
+            return;
+        }
+
+        const closeBtn = headerControls.querySelector('.pdt-close-btn');
+        headerControls.innerHTML = '';
+        headerControls.innerHTML = this._renderHeaderButtons();
+
+        if (closeBtn) {
+            headerControls.appendChild(closeBtn);
+        } else {
+            const newCloseBtn = document.createElement('button');
+            newCloseBtn.className = 'pdt-icon-btn pdt-close-btn';
+            newCloseBtn.title = 'Close';
+            newCloseBtn.innerHTML = '&times;';
+            newCloseBtn.onclick = () => this._handleClose();
+            headerControls.appendChild(newCloseBtn);
+        }
+
+        this._attachHeaderButtonListeners();
+
+        const minimizeBtn = headerControls.querySelector('.pdt-minimize-btn');
+        if (minimizeBtn) {
+            MinimizeService.init(this.dialog);
+        }
+    },
+
+    /**
+     * Attaches event listeners to header buttons.
+     * Used when header buttons are dynamically updated.
+     * @private
+     */
+    _attachHeaderButtonListeners() {
+        const controls = {
+            theme: this.dialog.querySelector('.pdt-theme-toggle'),
+            refresh: this.dialog.querySelector('.pdt-refresh-btn'),
+            godMode: this.dialog.querySelector('.pdt-god-mode-btn'),
+            reset: this.dialog.querySelector('.pdt-reset-form-btn'),
+            showLogical: this.dialog.querySelector('.pdt-show-logical-btn'),
+            hideLogical: this.dialog.querySelector('.pdt-hide-logical-btn')
+        };
+
+        if (controls.theme) {
+            controls.theme.onclick = () => this._handleThemeToggle();
+        }
+        if (controls.refresh) {
+            controls.refresh.onclick = () => this.refreshActiveTab();
+        }
+        if (controls.godMode) {
+            controls.godMode.onclick = () => this._handleGodMode();
+        }
+        if (controls.reset) {
+            controls.reset.onclick = () => this._handleResetForm();
+        }
+        if (controls.showLogical) {
+            controls.showLogical.onclick = () => this._handleShowLogical();
+        }
+        if (controls.hideLogical) {
+            controls.hideLogical.onclick = () => this._handleHideLogical();
+        }
     },
 
     /**
@@ -87,11 +163,7 @@ export const UIManager = {
                     <div id="pdt-impersonation-indicator"></div>
                 </div>
                 <div class="pdt-header-controls">
-                    <button class="pdt-icon-btn pdt-reset-form-btn" title="Reset Form (Discard Changes)">${ICONS.reset}</button>
-                    <button class="pdt-icon-btn pdt-god-mode-btn" title="Activate God Mode">${ICONS.gmode}</button>
-                    <button class="pdt-icon-btn pdt-refresh-btn" title="Refresh Tool & Clear Cache">${ICONS.refresh}</button>
-                    <button class="pdt-icon-btn pdt-theme-toggle" title="Toggle Theme">${ICONS.theme}</button>
-                    <button class="pdt-icon-btn pdt-minimize-btn" title="Minimize">${ICONS.minimize}</button>
+                    ${this._renderHeaderButtons()}
                     <button class="pdt-icon-btn pdt-close-btn" title="Close">&times;</button>
                 </div>
             </div>
@@ -110,6 +182,78 @@ export const UIManager = {
         this._attachEventListeners();
         MinimizeService.init(this.dialog);
         this.updateNavTabs();
+    },
+
+    /**
+     * Gets the button configuration mapping for header buttons.
+     * @returns {Object} A map of button IDs to their configuration.
+     * @private
+     */
+    _getHeaderButtonConfig() {
+        return {
+            showLogical: {
+                className: 'pdt-show-logical-btn',
+                title: 'Show Logical Names',
+                icon: ICONS.showLogical
+            },
+            hideLogical: {
+                className: 'pdt-hide-logical-btn',
+                title: 'Hide Logical Names',
+                icon: ICONS.hideLogical
+            },
+            resetForm: {
+                className: 'pdt-reset-form-btn',
+                title: 'Reset Form (Discard Changes)',
+                icon: ICONS.reset
+            },
+            godMode: {
+                className: 'pdt-god-mode-btn',
+                title: 'Activate God Mode',
+                icon: ICONS.gmode
+            },
+            refresh: {
+                className: 'pdt-refresh-btn',
+                title: 'Refresh Tool & Clear Cache',
+                icon: ICONS.refresh
+            },
+            theme: {
+                className: 'pdt-theme-toggle',
+                title: 'Toggle Theme',
+                icon: ICONS.theme
+            },
+            minimize: {
+                className: 'pdt-minimize-btn',
+                title: 'Minimize',
+                icon: ICONS.minimize
+            }
+        };
+    },
+
+    /**
+     * Renders header buttons based on user settings.
+     * @returns {string} HTML string for header buttons.
+     * @private
+     */
+    _renderHeaderButtons() {
+        const headerButtonSettings = Store.getState().headerButtonSettings;
+        const buttonConfig = this._getHeaderButtonConfig();
+
+        return headerButtonSettings
+            .filter(setting => setting.visible)
+            .filter(setting => {
+                if (setting.formOnly && !PowerAppsApiService.isFormContextAvailable) {
+                    return false;
+                }
+                return true;
+            })
+            .map(setting => {
+                const config = buttonConfig[setting.id];
+                if (!config) {
+                    return '';
+                }
+                return `<button class="pdt-icon-btn ${config.className}" title="${config.title}">${config.icon}</button>`;
+            })
+            .join('');
     },
 
     /**
@@ -246,6 +390,7 @@ export const UIManager = {
 
     /**
      * Attaches event listeners for the main UI controls, including the close, theme, and refresh buttons.
+     * Buttons are only attached if they exist (user may have hidden them via settings).
      * @private
      */
     _attachEventListeners() {
@@ -254,21 +399,36 @@ export const UIManager = {
             theme: this.dialog.querySelector('.pdt-theme-toggle'),
             refresh: this.dialog.querySelector('.pdt-refresh-btn'),
             godMode: this.dialog.querySelector('.pdt-god-mode-btn'),
-            reset: this.dialog.querySelector('.pdt-reset-form-btn')
+            reset: this.dialog.querySelector('.pdt-reset-form-btn'),
+            showLogical: this.dialog.querySelector('.pdt-show-logical-btn'),
+            hideLogical: this.dialog.querySelector('.pdt-hide-logical-btn')
             // Note: minimize button handled by MinimizeService
         };
 
+        // Close button is always present
         controls.close.onclick = () => this._handleClose();
-        controls.theme.onclick = () => this._handleThemeToggle();
-        controls.refresh.onclick = () => this.refreshActiveTab();
+
+        // Attach handlers only if buttons exist (they may be hidden via settings)
+        if (controls.theme) {
+            controls.theme.onclick = () => this._handleThemeToggle();
+        }
+        if (controls.refresh) {
+            controls.refresh.onclick = () => this.refreshActiveTab();
+        }
         // Minimize button event listener is handled by MinimizeService.init()
 
-        if (!PowerAppsApiService.isFormContextAvailable) {
-            controls.godMode.disabled = true;
-            controls.reset.disabled = true;
-        } else {
+        // Form-only buttons - attach handlers if they exist (they're already filtered out if form context unavailable)
+        if (controls.godMode) {
             controls.godMode.onclick = () => this._handleGodMode();
+        }
+        if (controls.reset) {
             controls.reset.onclick = () => this._handleResetForm();
+        }
+        if (controls.showLogical) {
+            controls.showLogical.onclick = () => this._handleShowLogical();
+        }
+        if (controls.hideLogical) {
+            controls.hideLogical.onclick = () => this._handleHideLogical();
         }
 
         // Store global click handler for cleanup
@@ -446,15 +606,18 @@ export const UIManager = {
     },
 
     /**
-     * Activates "God Mode" by removing disabled and required attributes from all form controls.
+     * Activates "God Mode" by removing disabled/required attributes and showing hidden controls.
      * @private
      */
     _handleGodMode() {
-        let unlocked = 0, required = 0;
+        let unlocked = 0, required = 0, shown = 0;
         PowerAppsApiService.getAllControls().forEach(c => {
             try {
                 if (c.getDisabled()) {
                     c.setDisabled(false); unlocked++;
+                }
+                if (c.getVisible && !c.getVisible()) {
+                    c.setVisible(true); shown++;
                 }
                 const a = c.getAttribute();
                 if (a?.getRequiredLevel() === 'required') {
@@ -462,7 +625,7 @@ export const UIManager = {
                 }
             } catch (_e) { /* Safely ignore */ }
         });
-        NotificationService.show(Config.MESSAGES.UI_MANAGER.godModeSuccess(unlocked, required), 'success');
+        NotificationService.show(Config.MESSAGES.UI_MANAGER.godModeSuccess(unlocked, required, shown), 'success');
     },
 
     /**
@@ -479,6 +642,138 @@ export const UIManager = {
             NotificationService.show(Config.MESSAGES.UI_MANAGER.formReset, 'success');
         } catch (e) {
             NotificationService.show(Config.MESSAGES.UI_MANAGER.resetFailed(e.message), 'error');
+        }
+    },
+
+    /**
+     * Shows logical names as overlay badges on form tabs, sections, and controls.
+     * Overlays are positioned above elements on the left side and are clickable to copy.
+     * @private
+     */
+    _handleShowLogical() {
+        const formContext = PowerAppsApiService.getFormContext();
+        if (!formContext?.ui) {
+            return;
+        }
+
+        this._handleHideLogical(true);
+        this._logicalOverlays = [];
+
+        let tabCount = 0;
+        let sectionCount = 0;
+        let controlCount = 0;
+
+        const tabs = formContext.ui.tabs?.get?.() || [];
+        tabs.forEach(tab => {
+            const tabName = tab.getName();
+            const tabElement = document.querySelector(`li[data-id="tablist-${tabName}"]`) ||
+                document.querySelector(`[data-id="${tabName}"]`) ||
+                document.querySelector(`[id*="${tabName}"]`);
+
+            if (tabElement) {
+                this._addLogicalOverlay(tabElement, tabName, 'tab');
+                tabCount++;
+            }
+
+            const sections = tab.sections?.get?.() || [];
+            sections.forEach(section => {
+                const sectionName = section.getName();
+                const sectionElement = document.querySelector(`section[data-id="${sectionName}"]`) ||
+                    document.querySelector(`[data-id="${sectionName}"]`) ||
+                    document.querySelector(`div[data-control-name="${sectionName}"]`);
+
+                if (sectionElement) {
+                    this._addLogicalOverlay(sectionElement, sectionName, 'section');
+                    sectionCount++;
+                }
+
+                const controls = section.controls?.get?.() || [];
+                const processedControls = new Set();
+
+                controls.forEach(control => {
+                    const controlName = control.getName();
+
+                    let displayName = controlName;
+                    const compositeControlSuffix = '_compositionLinkControl_';
+                    if (controlName.includes(compositeControlSuffix)) {
+                        displayName = controlName.split(compositeControlSuffix)[1] || controlName;
+                    }
+
+                    if (processedControls.has(displayName)) {
+                        return;
+                    }
+                    processedControls.add(displayName);
+
+                    const controlElement = document.querySelector(`div[data-control-name="${controlName}"]`) ||
+                        document.querySelector(`[data-lp-id*="${controlName}"]`) ||
+                        document.querySelector(`[data-id="${controlName}"]`);
+
+                    if (controlElement) {
+                        this._addLogicalOverlay(controlElement, displayName, 'control');
+                        controlCount++;
+                    }
+                });
+            });
+        });
+
+        NotificationService.show(
+            Config.MESSAGES.UI_MANAGER.logicalNamesShown(tabCount, sectionCount, controlCount),
+            'success'
+        );
+    },
+
+    /**
+     * Adds a logical name overlay to a form element, positioned inside it at top-left.
+     * @param {HTMLElement} element - The DOM element to attach the overlay to.
+     * @param {string} logicalName - The logical name to display.
+     * @param {'tab'|'section'|'control'} type - The type of element for styling.
+     * @private
+     */
+    _addLogicalOverlay(element, logicalName, type) {
+        const computedStyle = window.getComputedStyle(element);
+        if (computedStyle.position === 'static') {
+            element.style.position = 'relative';
+            element.dataset.pdtOriginalPosition = 'static';
+        }
+
+        const overlay = document.createElement('span');
+        overlay.className = `pdt-form-logical-overlay pdt-logical-${type}`;
+        overlay.textContent = logicalName;
+        overlay.title = 'Click to copy';
+
+        overlay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            copyToClipboard(logicalName, Config.MESSAGES.UI_MANAGER.logicalNameCopied(logicalName));
+        });
+
+        element.appendChild(overlay);
+    },
+
+    /**
+     * Removes all logical name overlays from the form.
+     * @param {boolean} [silent=false] - If true, don't show notification.
+     * @private
+     */
+    _handleHideLogical(silent = false) {
+        const overlays = document.querySelectorAll('.pdt-form-logical-overlay');
+
+        if (overlays.length === 0 && !silent) {
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.logicalNamesAlreadyHidden, 'info');
+            return;
+        }
+
+        overlays.forEach(overlay => {
+            const parent = overlay.parentElement;
+            if (parent?.dataset.pdtOriginalPosition === 'static') {
+                parent.style.position = '';
+                delete parent.dataset.pdtOriginalPosition;
+            }
+            overlay.remove();
+        });
+
+        if (!silent) {
+            NotificationService.show(Config.MESSAGES.UI_MANAGER.logicalNamesHidden, 'success');
         }
     },
 

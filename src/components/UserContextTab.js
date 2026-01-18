@@ -7,6 +7,8 @@
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
+import { SecurityAnalysisService } from '../services/SecurityAnalysisService.js';
+import { NotificationService } from '../services/NotificationService.js';
 import { escapeHtml, copyToClipboard } from '../helpers/index.js';
 import { Config } from '../constants/index.js';
 import { Store } from '../core/Store.js';
@@ -50,6 +52,7 @@ export class UserContextTab extends BaseComponent {
      * Renders the component's initial container. Data loads in postRender.
      * @returns {Promise<HTMLElement>} The root element.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.className = 'pdt-userctx-root';
@@ -154,7 +157,26 @@ export class UserContextTab extends BaseComponent {
             if (signal.aborted) {
                 return;
             }
-            this._renderCards(context);
+
+            // Fetch user teams and detailed roles (with team inheritance info)
+            const userId = context.user.id;
+            let teams = [];
+            let detailedRoles = [];
+            try {
+                [teams, detailedRoles] = await Promise.all([
+                    SecurityAnalysisService.getUserTeams(userId),
+                    SecurityAnalysisService.getUserRoles(userId)
+                ]);
+                if (signal.aborted) {
+                    return;
+                }
+            } catch (error) {
+                NotificationService.show(`Failed to fetch teams/roles: ${error.message || String(error)}`, 'error');
+                // Continue rendering with context roles if detailed fetch fails
+                detailedRoles = context.user.roles;
+            }
+
+            this._renderCards(context, teams, detailedRoles);
         } catch (e) {
             if (e?.name === 'AbortError') {
                 return;
@@ -173,9 +195,11 @@ export class UserContextTab extends BaseComponent {
     /**
      * Renders all context cards.
      * @param {EnhancedUserContext} ctx
+     * @param {Array<Object>} teams - User's team memberships
+     * @param {Array<Object>} detailedRoles - Detailed roles with team inheritance info
      * @private
      */
-    _renderCards(ctx) {
+    _renderCards(ctx, teams = [], detailedRoles = []) {
         const impersonated = Store.getState?.()?.impersonationUserId;
         const banner = impersonated
             ? `<div class="pdt-impersonation-banner" role="status" aria-live="polite">
@@ -204,12 +228,13 @@ export class UserContextTab extends BaseComponent {
             'Timestamp': `<span class="copyable" title="Click to copy" tabindex="0">${escapeHtml(ctx.session.timestamp)}</span>`
         });
 
-        const rolesSection = this._rolesSection(ctx.user.roles);
+        const teamsSection = this._teamsSection(teams);
+        const rolesSection = this._rolesSection(detailedRoles.length > 0 ? detailedRoles : ctx.user.roles);
 
         this.ui.container.innerHTML = `
       <div class="section-title">User & Session Context</div>
       ${banner}
-      ${this._card('User Settings', '👤', userData, rolesSection)}
+      ${this._card('User Settings', '👤', userData, teamsSection + rolesSection)}
       ${this._card('Client & Session', '💻', clientData)}
       ${this._card('Organization Details', '🏢', orgData)}
     `;
@@ -228,8 +253,30 @@ export class UserContextTab extends BaseComponent {
     }
 
     /**
+     * Renders the teams section as a body section for the user card.
+     * @param {Array<{teamid:string, name:string, teamtype:string}>} teams
+     * @returns {string} HTML
+     * @private
+     */
+    _teamsSection(teams) {
+        const count = Array.isArray(teams) ? teams.length : 0;
+        const bodyTitle = `<h4 class="pdt-section-header">Team Memberships (${count})</h4>`;
+        if (!count) {
+            return `<div class="pdt-card-body">${bodyTitle}<p class="pdt-note">${Config.MESSAGES.USER_CONTEXT.noTeams}</p></div>`;
+        }
+        const items = teams.map(t => `<li class="pdt-list-item">
+            <div class="pdt-item-content">
+                <span class="pdt-item-name">${escapeHtml(t.name)}</span>
+                <code class="pdt-copyable-id copyable" title="Click to copy" tabindex="0">${escapeHtml(t.teamid)}</code>
+            </div>
+            <span class="pdt-badge-small">${escapeHtml(t.teamtype)}</span>
+        </li>`).join('');
+        return `<div class="pdt-card-body">${bodyTitle}<div class="pdt-role-section"><ul class="pdt-list">${items}</ul></div></div>`;
+    }
+
+    /**
      * Renders the roles section as a footer body for the user card.
-     * @param {Array<{id:string, name:string}>} roles
+     * @param {Array<{id:string, name:string, roleid:string, isInherited:boolean, teams:Array}>} roles
      * @returns {string} HTML
      * @private
      */
@@ -239,11 +286,27 @@ export class UserContextTab extends BaseComponent {
         if (!count) {
             return `<div class="pdt-card-body">${bodyTitle}<p class="pdt-note">${Config.MESSAGES.USER_CONTEXT.noRoles}</p></div>`;
         }
-        const items = roles.map(r => `<li>
-            <div>${escapeHtml(r.name)}</div>
-            <div class="copyable code-like pdt-role-id" title="Click to copy role ID" tabindex="0">${escapeHtml(r.id)}</div>
-        </li>`).join('');
-        return `<div class="pdt-card-body">${bodyTitle}<ul class="pdt-role-list">${items}</ul></div>`;
+        const items = roles.map(r => {
+            // Determine badge text based on role inheritance
+            let badgeText = 'Direct';
+            if (r.isInherited && r.teams && r.teams.length > 0) {
+                const teamNames = r.teams.map(t => escapeHtml(t.teamName)).join(', ');
+                badgeText = `via team: ${teamNames}`;
+            } else if (r.isInherited) {
+                badgeText = 'Inherited from Team';
+            }
+
+            // Use roleid if available (from detailed fetch), otherwise fallback to id
+            const roleId = r.roleid || r.id;
+            return `<li class="pdt-list-item">
+                <div class="pdt-item-content">
+                    <span class="pdt-item-name">${escapeHtml(r.name)}</span>
+                    <code class="pdt-copyable-id copyable" title="Click to copy" tabindex="0">${escapeHtml(roleId)}</code>
+                </div>
+                <span class="pdt-badge-small">${badgeText}</span>
+            </li>`;
+        }).join('');
+        return `<div class="pdt-card-body">${bodyTitle}<div class="pdt-role-section"><ul class="pdt-list">${items}</ul></div></div>`;
     }
 
     /**

@@ -5,7 +5,7 @@
  */
 
 import { NotificationService } from '../services/NotificationService.js';
-import { Config } from '../constants/index.js';
+import { Config, CSV_DELIMITER } from '../constants/index.js';
 
 /**
  * File I/O utility functions.
@@ -51,6 +51,59 @@ export const FileHelpers = {
     downloadJson(data, filename) {
         const jsonString = JSON.stringify(data, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    /**
+     * Triggers a browser download for a given array of objects by converting it to a CSV file.
+     * @param {Array<Object>} data - The array of objects to download.
+     * @param {string} filename - The desired filename for the downloaded file.
+     * @param {string} [delimiter=CSV_DELIMITER] - The delimiter to use.
+     * @returns {void}
+     */
+    downloadCsv(data, filename, delimiter = CSV_DELIMITER) {
+        if (!data || !data.length) {
+            return;
+        }
+
+        if (!delimiter || delimiter.includes('"') || delimiter.includes('\n')) {
+            console.warn('[FileHelpers] Invalid delimiter, using default');
+            delimiter = CSV_DELIMITER;
+        }
+
+        const headers = Array.from(new Set(data.flatMap(Object.keys)));
+        const csvRows = [
+            headers.join(delimiter),
+            ...data.map(row => {
+                return headers.map(fieldName => {
+                    let val = row[fieldName];
+
+                    if (val === null || val === undefined) {
+                        return '';
+                    }
+
+                    if (typeof val === 'object') {
+                        val = JSON.stringify(val);
+                    }
+
+                    val = String(val);
+                    if (val.includes(delimiter) || val.includes('\n') || val.includes('"')) {
+                        val = `"${val.replace(/"/g, '""')}"`;
+                    }
+                    return val;
+                }).join(delimiter);
+            })
+        ];
+
+        const csvString = csvRows.join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

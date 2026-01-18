@@ -49,6 +49,7 @@ export class EventMonitorTab extends BaseComponent {
      * Renders the component's HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
@@ -144,7 +145,9 @@ export class EventMonitorTab extends BaseComponent {
             if (clearBtn && this._clearBtnHandler) {
                 clearBtn.removeEventListener('click', this._clearBtnHandler);
             }
-        } catch { }
+        } catch {
+            // Intentionally ignored - cleanup failure is non-critical
+        }
     }
 
     /**
@@ -208,7 +211,9 @@ export class EventMonitorTab extends BaseComponent {
                     } else if (item.type === 'change') {
                         item.attr?.removeOnChange?.(item.handler);
                     }
-                } catch { }
+                } catch {
+                    // Intentionally ignored - handler removal is optional
+                }
             });
         } catch (_e) {
             // Silent - cleanup errors are handled gracefully

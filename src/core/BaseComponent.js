@@ -42,6 +42,7 @@ export class BaseComponent {
      * @async
      * @returns {Promise<HTMLElement>} A promise that resolves to the root HTML element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         // If a form-only component is loaded outside a form context, show a standard message and stop.
         if (this.isFormOnly && !PowerAppsApiService.isFormContextAvailable) {

@@ -6,7 +6,7 @@
 
 import { PowerAppsApiService } from './PowerAppsApiService.js';
 import { ValidationService } from './ValidationService.js';
-import { formatDisplayValue } from '../helpers/index.js';
+import { formatDisplayValue, inferDataverseType } from '../helpers/index.js';
 import { Config } from '../constants/index.js';
 
 /**
@@ -130,9 +130,10 @@ export const FormInspectionService = {
      * @param {Function} isOdataProperty - Helper to identify OData properties
      * @param {Function} loadMetadata - Metadata service function to ensure metadata is loaded
      * @param {Function} getEntitySetName - Metadata service function to convert logical name to entity set name
+     * @param {Function} getAttributeDefinitions - Metadata service function to get attribute definitions
      * @returns {Promise<FormColumn[]>} All columns with metadata
      */
-    async getAllRecordColumns(retrieveRecord, getFormColumns, isOdataProperty, loadMetadata, getEntitySetName) {
+    async getAllRecordColumns(retrieveRecord, getFormColumns, isOdataProperty, loadMetadata, getEntitySetName, getAttributeDefinitions) {
         const entityLogicalName = PowerAppsApiService.getEntityName();
         const entityId = PowerAppsApiService.getEntityId();
 
@@ -146,10 +147,24 @@ export const FormInspectionService = {
         // Convert logical name to entity set name for Web API
         const entitySetName = getEntitySetName(entityLogicalName) || entityLogicalName;
 
-        const [formData, recordData] = await Promise.all([
+        // Fetch attribute metadata, form data, and record data in parallel
+        const [formData, recordData, attributeMetadata] = await Promise.all([
             Promise.resolve(getFormColumns()),
-            retrieveRecord(entitySetName, entityId)
+            retrieveRecord(entitySetName, entityId),
+            getAttributeDefinitions ? getAttributeDefinitions(entityLogicalName, false) : Promise.resolve([])
         ]);
+
+        // Create a map of attribute logical names to their types from metadata
+        const attributeTypeMap = new Map();
+        if (attributeMetadata && Array.isArray(attributeMetadata)) {
+            attributeMetadata.forEach(attr => {
+                const logicalName = attr.LogicalName || attr.logicalName;
+                const attrType = attr.AttributeType || attr.attributeType;
+                if (logicalName && attrType) {
+                    attributeTypeMap.set(logicalName.toLowerCase(), attrType.toLowerCase());
+                }
+            });
+        }
 
         const formColumnMap = new Map(formData.map(c => [c.logicalName, c]));
         const allColumns = [];
@@ -163,11 +178,15 @@ export const FormInspectionService = {
                 allColumns.push({ ...formColumn, onForm: true, isSystem });
                 formColumnMap.delete(key);
             } else {
+                // Get type from metadata first, fall back to inference
+                const metadataType = attributeTypeMap.get(key.toLowerCase());
+                const inferredType = inferDataverseType(recordData[key], key);
+
                 allColumns.push({
                     displayName: key,
                     logicalName: key,
                     value: formatDisplayValue(recordData[key]),
-                    type: typeof recordData[key],
+                    type: metadataType || inferredType,
                     isDirty: false,
                     requiredLevel: 'none',
                     attribute: null,

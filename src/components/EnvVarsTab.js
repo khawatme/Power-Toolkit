@@ -532,15 +532,19 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 schemaEl.value = `${publisherPrefix}_`;
             }
             if (uniqueName) {
-                solnInfo.textContent = `Will be added to solution: ${uniqueName} (prefix: ${publisherPrefix || 'n/a'})`;
-                solnInfo.style.color = '';
+                solnInfo.innerHTML = `${Config.MESSAGES.ENV_VARS.solutionSuccess} ${Config.MESSAGES.ENV_VARS.solutionSelected(escapeHtml(uniqueName), escapeHtml(publisherPrefix || 'n/a'))}`;
+                solnInfo.className = 'flex-1 pdt-soln-info pdt-soln-info--success';
                 solnButton.textContent = Config.MESSAGES.ENV_VARS.changeSolutionButton;
             } else {
-                solnInfo.textContent = Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate;
-                solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
+                solnInfo.innerHTML = Config.MESSAGES.ENV_VARS.solutionWarning(Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate);
+                solnInfo.className = 'flex-1 pdt-soln-info pdt-soln-info--warning';
                 solnButton.textContent = Config.MESSAGES.ENV_VARS.selectSolutionButton;
             }
-        } catch { }
+        } catch {
+            // Intentionally ignored - solution info display is optional
+        }
+
+        const createBtn = this._mkDialogFooterBtn('nv-create', 'modern-button primary', 'Create', true);
 
         // Validation function
         const revalidate = () => {
@@ -550,16 +554,19 @@ export class EnvironmentVariablesTab extends BaseComponent {
                 name: nameEl.value, schema: schemaEl.value, type: typeEl.value,
                 defVal: defEl.value, curVal: curEl.value
             });
-            createBtn.disabled = !valid;
+            if (createBtn) {
+                createBtn.disabled = !valid;
+            }
 
             // Update info text color to indicate requirement
             if (!hasSolution) {
-                solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
-                solnInfo.textContent = Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate;
+                solnInfo.innerHTML = Config.MESSAGES.ENV_VARS.solutionWarning(Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate);
+                solnInfo.className = 'flex-1 pdt-soln-info pdt-soln-info--warning';
             }
         };
 
         // Attach picker
+        // eslint-disable-next-line require-await
         const solnButtonHandler = async () => this._openSolutionPicker(solnInfo, solnButton, schemaEl, revalidate);
         if (solnButton) {
             this._dynamicHandlers.set(solnButton, solnButtonHandler);
@@ -571,7 +578,7 @@ export class EnvironmentVariablesTab extends BaseComponent {
         const dlgEl = content.closest('.pdt-dialog');
         const footer = dlgEl?.querySelector('.pdt-dialog-footer');
 
-        const createBtn = this._mkDialogFooterBtn('nv-create', 'modern-button primary', 'Create', true);
+        // createBtn
         footer?.appendChild(createBtn);
 
         // Attach revalidate handlers to all inputs - store for cleanup
@@ -592,7 +599,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
                     schemaEl.value = `${publisherPrefix}_${schemaEl.value.trim()}`;
                     revalidate();
                 }
-            } catch { }
+            } catch {
+                // Intentionally ignored - auto-prefix is optional
+            }
         };
         this._dynamicHandlers.set(schemaEl, schemaBlurHandler);
         schemaEl.addEventListener('blur', schemaBlurHandler);
@@ -661,11 +670,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         const content = document.createElement('div');
         content.innerHTML = `
         <div class="pdt-form-grid minw-520">
-            <div class="pdt-note grid-span-all">
-                <div id="nv-soln-row" class="pdt-inline-row gap-12">
-                    <span id="nv-soln-info" class="flex-1"></span>
-                    <button id="nv-pick-solution" class="modern-button small ml-auto">Select solution…</button>
-                </div>
+            <div id="nv-soln-row" class="pdt-inline-row gap-12 grid-span-all pdt-soln-row">
+                <span id="nv-soln-info" class="flex-1 pdt-soln-info"></span>
+                <button id="nv-pick-solution" class="modern-button small ml-auto">Select solution…</button>
             </div>
 
             <label>Display Name</label>
@@ -683,13 +690,13 @@ export class EnvironmentVariablesTab extends BaseComponent {
             </select>
 
             <label>Description</label>
-            <textarea class="pdt-textarea" id="nv-desc" rows="2" placeholder="What is this variable for?"></textarea>
+            <textarea class="pdt-textarea" id="nv-desc" rows="2" spellcheck="false" placeholder="What is this variable for?"></textarea>
 
             <label>Default Value</label>
-            <textarea class="pdt-textarea" id="nv-default" rows="3" placeholder="(optional)"></textarea>
+            <textarea class="pdt-textarea" id="nv-default" rows="3" spellcheck="false" placeholder="(optional)"></textarea>
 
             <label>Current Value (override)</label>
-            <textarea class="pdt-textarea" id="nv-current" rows="3" placeholder="(optional)"></textarea>
+            <textarea class="pdt-textarea" id="nv-current" rows="3" spellcheck="false" placeholder="(optional)"></textarea>
         </div>`;
         return content;
     }
@@ -765,12 +772,12 @@ export class EnvironmentVariablesTab extends BaseComponent {
 
             const { uniqueName: u, publisherPrefix: p } = DataService.getCurrentSolution();
             if (u) {
-                solnInfo.textContent = `Will be added to solution: ${u} (prefix: ${p || 'n/a'})`;
-                solnInfo.style.color = '';
+                solnInfo.innerHTML = `${Config.MESSAGES.ENV_VARS.solutionSuccess} ${Config.MESSAGES.ENV_VARS.solutionSelected(escapeHtml(u), escapeHtml(p || 'n/a'))}`;
+                solnInfo.className = 'flex-1 pdt-soln-info pdt-soln-info--success';
                 solnButton.textContent = Config.MESSAGES.ENV_VARS.changeSolutionButton;
             } else {
-                solnInfo.textContent = Config.MESSAGES.ENV_VARS.noSolutionSelected;
-                solnInfo.style.color = 'var(--pdt-error-color, #dc3545)';
+                solnInfo.innerHTML = Config.MESSAGES.ENV_VARS.solutionWarning(Config.MESSAGES.ENV_VARS.selectSolutionBeforeCreate);
+                solnInfo.className = 'flex-1 pdt-soln-info pdt-soln-info--warning';
                 solnButton.textContent = Config.MESSAGES.ENV_VARS.selectSolutionButton;
             }
             if (p && !schemaEl.value) {

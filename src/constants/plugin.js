@@ -34,3 +34,24 @@ export const PLUGIN_STAGES = {
     MAIN_OPERATION: { value: 30, label: 'Main Operation' },
     POST_OPERATION: { value: 40, label: 'Post-Operation' }
 };
+
+/**
+ * Standard entity image names used in plugin context.
+ * @type {Object.<string, string>}
+ */
+export const PLUGIN_IMAGE_NAMES = {
+    PRE_IMAGE: 'preimage',
+    POST_IMAGE: 'postimage'
+};
+
+/**
+ * Button text constants for Plugin Context Tab.
+ * @type {Object.<string, string>}
+ */
+export const PLUGIN_CONTEXT_BUTTONS = {
+    GENERATE: 'Generate Context',
+    COPY: 'Full Context',
+    TEST: 'C# Unit Test',
+    EXPORT_WEBAPI: 'Web API JSON',
+    EXPORT_CSHARP: 'C# Code'
+};

@@ -9,6 +9,12 @@ import { Config } from '../constants/index.js';
 /** @private @type {HTMLElement|null} A persistent container for all notifications. */
 let _notificationContainer = null;
 
+/** @private @type {HTMLElement[]} Array of currently visible notification elements. */
+const _activeNotifications = [];
+
+/** @private @type {Map<HTMLElement, {fadeOutTimeout: number, removeTimeout: number}>} Map of notification elements to their timeout IDs. */
+const _notificationTimeouts = new Map();
+
 /**
  * Creates the notification container if it doesn't exist and appends it to the body.
  * @returns {HTMLElement} The notification container element.
@@ -34,6 +40,55 @@ function _getOrCreateContainer() {
         document.body.appendChild(_notificationContainer);
     }
     return _notificationContainer;
+}
+
+/**
+ * Removes a notification element and cleans up tracking.
+ * @private
+ * @param {HTMLElement} notification - The notification element to remove.
+ * @returns {void}
+ */
+function _removeNotification(notification) {
+    const index = _activeNotifications.indexOf(notification);
+    if (index > -1) {
+        _activeNotifications.splice(index, 1);
+    }
+
+    if (_notificationTimeouts.has(notification)) {
+        const { fadeOutTimeout, removeTimeout } = _notificationTimeouts.get(notification);
+        if (fadeOutTimeout) {
+            clearTimeout(fadeOutTimeout);
+        }
+        if (removeTimeout) {
+            clearTimeout(removeTimeout);
+        }
+        _notificationTimeouts.delete(notification);
+    }
+
+    notification.remove();
+}
+
+/**
+ * Enforces the maximum notification limit by dismissing oldest notifications.
+ * Optimized to remove multiple notifications at once if needed.
+ * @private
+ * @returns {void}
+ */
+function _enforceMaxNotifications() {
+    const excessCount = _activeNotifications.length - Config.MAX_NOTIFICATIONS + 1;
+
+    if (excessCount <= 0) {
+        return;
+    }
+
+    const notificationsToRemove = _activeNotifications.splice(0, excessCount);
+    notificationsToRemove.forEach(notification => {
+        if (notification) {
+            notification.style.opacity = '0';
+            notification.style.transform = 'translateY(20px)';
+            setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+        }
+    });
 }
 
 /**
@@ -93,21 +148,20 @@ export const NotificationService = {
             wordBreak: 'break-word'
         });
 
-        // Store timeout IDs for cleanup
-        let fadeOutTimeout = null;
-        let removeTimeout = null;
-
         // Helper to clean up and remove notification
         const cleanupAndRemove = () => {
-            if (fadeOutTimeout) {
-                clearTimeout(fadeOutTimeout);
-            }
-            if (removeTimeout) {
-                clearTimeout(removeTimeout);
+            if (_notificationTimeouts.has(notification)) {
+                const { fadeOutTimeout, removeTimeout } = _notificationTimeouts.get(notification);
+                if (fadeOutTimeout) {
+                    clearTimeout(fadeOutTimeout);
+                }
+                if (removeTimeout) {
+                    clearTimeout(removeTimeout);
+                }
             }
             notification.style.opacity = '0';
             notification.style.transform = 'translateY(20px)';
-            setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+            setTimeout(() => _removeNotification(notification), Config.NOTIFICATION_TIMINGS.fadeOut);
         };
 
         // Add close button for errors
@@ -143,7 +197,10 @@ export const NotificationService = {
             notification.setAttribute('title', 'Click to dismiss');
         }
 
+        _enforceMaxNotifications();
+
         container.appendChild(notification);
+        _activeNotifications.push(notification);
 
         // Animate in
         setTimeout(() => {
@@ -151,11 +208,17 @@ export const NotificationService = {
             notification.style.transform = 'translateY(0)';
         }, Config.NOTIFICATION_TIMINGS.fadeIn);
 
-        // Animate out and remove after duration
-        fadeOutTimeout = setTimeout(() => {
+        // Animate out and remove after duration - store timeouts in map for cleanup
+        const fadeOutTimeout = setTimeout(() => {
             notification.style.opacity = '0';
             notification.style.transform = 'translateY(20px)';
-            removeTimeout = setTimeout(() => notification.remove(), Config.NOTIFICATION_TIMINGS.fadeOut);
+            const removeTimeout = setTimeout(() => _removeNotification(notification), Config.NOTIFICATION_TIMINGS.fadeOut);
+
+            if (_notificationTimeouts.has(notification)) {
+                _notificationTimeouts.get(notification).removeTimeout = removeTimeout;
+            }
         }, adjustedDuration);
+
+        _notificationTimeouts.set(notification, { fadeOutTimeout, removeTimeout: null });
     }
 };

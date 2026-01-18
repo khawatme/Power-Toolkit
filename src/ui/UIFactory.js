@@ -35,28 +35,28 @@ export const UIFactory = {
         let codeToDisplay = '';
 
         switch (language) {
-        case 'json':
-            try {
-                codeToCopy = JSON.stringify(JSON.parse(codeToCopy), null, 2);
-            } catch (_e) { /* Ignore parse error */ }
-            codeToDisplay = highlightCode(codeToCopy, 'json');
-            break;
-        case 'xml':
-            codeToCopy = formatXml(codeToCopy);
-            codeToDisplay = escapeHtml(codeToCopy);
-            break;
-        case 'javascript':
-            codeToDisplay = highlightCode(codeToCopy, 'javascript');
-            break;
-        case 'csharp':
-        case 'text':
-            // Fallback to plain text for unsupported or un-highlighted languages
-            codeToDisplay = escapeHtml(codeToCopy);
-            break;
-        default:
-            // Default to JS highlighting for any other case
-            codeToDisplay = highlightCode(codeToCopy, 'javascript');
-            break;
+            case 'json':
+                try {
+                    codeToCopy = JSON.stringify(JSON.parse(codeToCopy), null, 2);
+                } catch (_e) { /* Ignore parse error */ }
+                codeToDisplay = highlightCode(codeToCopy, 'json');
+                break;
+            case 'xml':
+                codeToCopy = formatXml(codeToCopy);
+                codeToDisplay = escapeHtml(codeToCopy);
+                break;
+            case 'javascript':
+                codeToDisplay = highlightCode(codeToCopy, 'javascript');
+                break;
+            case 'csharp':
+            case 'text':
+                // Fallback to plain text for unsupported or un-highlighted languages
+                codeToDisplay = escapeHtml(codeToCopy);
+                break;
+            default:
+                // Default to JS highlighting for any other case
+                codeToDisplay = highlightCode(codeToCopy, 'javascript');
+                break;
         }
 
         codeElement.innerHTML = codeToDisplay;

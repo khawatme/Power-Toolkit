@@ -16,9 +16,9 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 * **Event Monitor:** Live console that logs `OnLoad`, `OnSave`, and `OnChange` events as they happen
 
 ### ⚙️ Automation & Logic Debugging
-* **Form Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists static `OnLoad`/`OnSave` event handlers
+* **Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists static `OnLoad`/`OnSave` event handlers
 * **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` sent to server-side plugins. Includes a C# unit test generator for FakeXrmEasy
-* **Plugin Traces:** Real-time viewer for server-side Plugin Trace Logs with live polling, powerful filtering, and search capabilities
+* **Plugin Trace Logs:** Real-time viewer for server-side Plugin Trace Logs with live polling, powerful filtering, and search capabilities
 
 ### 📊 Data & API Interaction
 * **WebAPI Explorer:** Full-featured client to execute GET, POST, PATCH, and DELETE requests against the Dataverse Web API with intelligent query building
@@ -29,8 +29,9 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 * **Impersonate:** Test security roles by executing all tool operations as another user (requires impersonation privileges)
 * **User Context:** Detailed breakdown of the current (or impersonated) user's security roles, including those inherited from teams, with organization and session details
 * **Environment Variables:** View, create, and edit all Environment Variables and their current values with schema name validation
+* **Solution Layers:** View and manage solution layers for customizations, delete active layer customizations
 
-### 📈 Performance & Development
+### 🚀 Performance & Development
 * **Performance:** Analyze form load times with breakdown by network, server, and client processing
 * **Code Hub:** Library of modern JavaScript code snippets for common Dataverse operations
 * **Settings:** Customizable dark/light themes, adjustable font sizes, and preference management
@@ -61,7 +62,8 @@ Install directly from your browser's extension store:
 
 ---
 
-### Quick Tips
+## 💡 Quick Tips
+
 - **Dark/Light Theme:** Toggle in Settings tab or use the theme icon
 - **Hide System Fields:** Enable in WebAPI Explorer and FetchXML Tester to filter out OData properties
 - **Impersonation:** Set a user in the Impersonate tab to test their security context across all features
@@ -112,7 +114,12 @@ Power-Toolkit/
 │   ├── services/          # Business logic services
 │   ├── helpers/           # Utility functions (modular)
 │   ├── ui/                # UI factories and controls
-│   ├── utils/             # Utilities (builders, parsers, validators)
+│   ├── utils/             # Utilities
+│   │   ├── builders/      # ODataQueryBuilder
+│   │   ├── parsers/       # ErrorParser
+│   │   ├── resolvers/     # EntityContextResolver
+│   │   ├── testing/       # Testing utilities
+│   │   └── ui/            # BusyIndicator, PreferencesHelper, ResultPanel
 │   ├── constants/         # Configuration and constants
 │   ├── core/              # Base classes and core infrastructure
 │   ├── data/              # Static data (code snippets, etc.)
@@ -121,7 +128,7 @@ Power-Toolkit/
 │   └── Main.js            # Bootstrap and initialization
 ├── extension/
 │   ├── manifest.json      # Extension manifest
-│   ├── background.js      # Service worker
+│   ├── background.cjs      # Service worker
 │   └── icons/             # Extension icons
 ├── webpack.config.js      # Webpack configuration
 └── package.json           # Dependencies and scripts
@@ -144,10 +151,12 @@ Create a new file in `src/components/` (e.g., `MyCustomTab.js`):
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
+import { ICONS } from '../assets/Icons.js';
 import { Config } from '../constants/index.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
 import { UIFactory } from '../ui/UIFactory.js';
+import { escapeHtml } from '../helpers/dom.helpers.js';
 
 export class MyCustomTab extends BaseComponent {
     constructor() {
@@ -298,12 +307,9 @@ _registerComponents() {
 }
 ```
 
-### Step 3: No Additional UI Registration Needed
+**Note:** The tab metadata (id, label, icon) is defined in your component's constructor via `super()`. The `UIManager` automatically discovers all registered components, so no separate tab array is needed.
 
-The tab metadata (id, label, icon) is defined in your component's constructor via `super()`. The `UIManager` automatically discovers all registered components, so no separate tab array is needed.
-```
-
-### Step 4: Update Constants (Optional)
+### Step 3: Update Constants (Optional)
 
 If your tab needs custom messages or configuration, add them to `src/constants/`:
 
@@ -319,7 +325,7 @@ export const MESSAGES = {
 };
 ```
 
-### Step 5: Add Styles (Optional)
+### Step 4: Add Styles (Optional)
 
 If you need custom styles, add them to `src/assets/style.css`:
 
@@ -336,7 +342,7 @@ If you need custom styles, add them to `src/assets/style.css`:
 }
 ```
 
-### Step 6: Test Your Tab
+### Step 5: Test Your Tab
 
 1. Run `npm run dev` to start development mode
 2. Reload the extension in your browser
@@ -351,12 +357,13 @@ If you need custom styles, add them to `src/assets/style.css`:
 ```javascript
 // ✅ CORRECT Pattern
 constructor() {
-    super('mytab');
+    super('mytab', 'My Tab', ICONS.myIcon);
+    this.ui = {};
     // Initialize ALL handler properties to null
     /** @private {Function|null} */ this._myHandler = null;
 }
 
-attachEventListeners() {
+postRender(element) {
     // Store handler as instance property
     this._myHandler = () => { /* handler code */ };
     element.addEventListener('click', this._myHandler);
@@ -370,7 +377,7 @@ destroy() {
 }
 
 // ❌ WRONG - Memory leak!
-attachEventListeners() {
+postRender(element) {
     // Anonymous function - can't be removed later
     element.addEventListener('click', () => { /* handler code */ });
 }
@@ -438,13 +445,10 @@ attachEventListeners() {
 Power-Toolkit provides many helper utilities in `src/helpers/`:
 
 ```javascript
-import { 
-    escapeHtml,           // Safe HTML escaping
-    isValidGuid,          // GUID validation
-    formatDisplayValue,   // Format attribute values
-    normalizeGuid,        // Clean GUID formatting
-    copyToClipboard      // Clipboard operations
-} from '../helpers/index.js';
+import { escapeHtml, createElement } from '../helpers/dom.helpers.js';
+import { isValidGuid, normalizeGuid } from '../helpers/index.js';
+import { formatDisplayValue } from '../helpers/formatting.helpers.js';
+import { copyToClipboard } from '../helpers/file.helpers.js';
 
 // Usage
 const safeText = escapeHtml(userInput);
@@ -619,6 +623,242 @@ Before submitting your tab:
 - [ ] Code follows existing patterns and style
 - [ ] Comments and JSDoc added for public methods
 - [ ] Tested tab switching multiple times (verify no memory leaks)
+
+---
+
+## 🧪 Testing
+
+Power-Toolkit uses **Vitest** as its testing framework with comprehensive test coverage. All tests run in a simulated browser environment using **happy-dom**.
+
+### Running Tests
+
+```bash
+# Run all tests once
+npm test
+
+# Run tests in watch mode (re-runs on file changes)
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+
+# Run specific test file
+npm test -- tests/ui/FilterGroupManager.test.js
+
+# Run tests matching a pattern
+npm test -- --grep "SmartValueInput"
+```
+
+### Test Structure
+
+Tests are organized to mirror the source code structure:
+
+```
+tests/
+├── setup.js                    # Global test setup and mocks
+├── components/                 # Tab component tests
+│   ├── InspectorTab.test.js
+│   ├── WebApiExplorerTab.test.js
+│   ├── FetchXmlTesterTab.test.js
+│   └── ...
+├── services/                   # Service layer tests
+│   ├── DataService.test.js
+│   ├── MetadataService.test.js
+│   ├── NotificationService.test.js
+│   └── ...
+├── helpers/                    # Helper function tests
+│   ├── dom.helpers.test.js
+│   ├── string.helpers.test.js
+│   └── ...
+├── ui/                         # UI component tests
+│   ├── FilterGroupManager.test.js
+│   ├── SmartValueInput.test.js
+│   ├── FormControlFactory.test.js
+│   └── ...
+└── utils/                      # Utility tests
+    ├── ui/
+    │   ├── BusyIndicator.test.js
+    │   ├── PreferencesHelper.test.js
+    │   └── ResultPanel.test.js
+    └── parsers/
+        └── ...
+```
+
+### Writing Tests
+
+#### Basic Test Structure
+
+```javascript
+/**
+ * @file Tests for MyComponent
+ * @module tests/components/MyComponent.test.js
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { MyComponent } from '../../src/components/MyComponent.js';
+
+describe('MyComponent', () => {
+    let component;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        component = new MyComponent();
+    });
+
+    afterEach(() => {
+        component?.cleanup?.();
+    });
+
+    describe('constructor', () => {
+        it('should initialize with correct defaults', () => {
+            expect(component.id).toBe('mycomponent');
+            expect(component.ui).toEqual({});
+        });
+    });
+
+    describe('render', () => {
+        it('should create container element', async () => {
+            const element = await component.render();
+            expect(element).toBeInstanceOf(HTMLElement);
+            expect(element.querySelector('.my-class')).toBeTruthy();
+        });
+    });
+
+    describe('_handleClick', () => {
+        it('should process data correctly', () => {
+            const result = component._handleClick('test');
+            expect(result).toBe('expected');
+        });
+    });
+});
+```
+
+#### Mocking Services
+
+```javascript
+import { vi } from 'vitest';
+
+// Mock a service before importing the component
+vi.mock('../../src/services/DataService.js', () => ({
+    DataService: {
+        retrieveRecord: vi.fn().mockResolvedValue({ name: 'Test' }),
+        fetchRecords: vi.fn().mockResolvedValue([])
+    }
+}));
+
+// Import component after mocks
+import { MyComponent } from '../../src/components/MyComponent.js';
+import { DataService } from '../../src/services/DataService.js';
+
+describe('MyComponent with mocked service', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('should call DataService with correct params', async () => {
+        const component = new MyComponent();
+        await component._loadData('account');
+        
+        expect(DataService.retrieveRecord).toHaveBeenCalledWith('account');
+    });
+
+    it('should handle service errors', async () => {
+        DataService.retrieveRecord.mockRejectedValue(new Error('API Error'));
+        
+        const component = new MyComponent();
+        await expect(component._loadData()).rejects.toThrow('API Error');
+    });
+});
+```
+
+#### Testing DOM Interactions
+
+```javascript
+describe('DOM interactions', () => {
+    let component;
+    let container;
+
+    beforeEach(async () => {
+        component = new MyComponent();
+        container = await component.render();
+        document.body.appendChild(container);
+        component.postRender(container);
+    });
+
+    afterEach(() => {
+        component.cleanup?.();
+        container?.remove();
+    });
+
+    it('should update UI on button click', () => {
+        const button = container.querySelector('#my-button');
+        const output = container.querySelector('#output');
+        
+        button.click();
+        
+        expect(output.textContent).toBe('Clicked!');
+    });
+
+    it('should handle input changes', () => {
+        const input = container.querySelector('#my-input');
+        
+        input.value = 'test value';
+        input.dispatchEvent(new Event('input'));
+        
+        expect(component.currentValue).toBe('test value');
+    });
+});
+```
+
+#### Testing Async Operations
+
+```javascript
+describe('async operations', () => {
+    it('should show loading state during fetch', async () => {
+        // Delay the mock response
+        DataService.fetchRecords.mockImplementation(
+            () => new Promise(resolve => setTimeout(() => resolve([]), 100))
+        );
+
+        const component = new MyComponent();
+        const container = await component.render();
+        
+        const loadPromise = component._loadData();
+        
+        // Check loading state
+        expect(container.querySelector('.loading')).toBeTruthy();
+        
+        await loadPromise;
+        
+        // Check loading cleared
+        expect(container.querySelector('.loading')).toBeFalsy();
+    });
+});
+```
+
+### Testing Best Practices
+
+1. **Test behavior, not implementation** - Focus on what the code does, not how
+2. **Use descriptive test names** - `should show error when input is empty`
+3. **One assertion per test** - Makes failures easier to diagnose
+4. **Mock external dependencies** - Services, APIs, localStorage
+5. **Clean up after tests** - Remove DOM elements, clear mocks
+6. **Test edge cases** - Empty inputs, null values, error states
+7. **Test accessibility** - ARIA attributes, keyboard navigation
+
+### Adding Tests for a New Component
+
+1. Create test file: `tests/components/MyNewTab.test.js`
+2. Import dependencies and set up mocks
+3. Write tests for:
+   - Constructor initialization
+   - `render()` output
+   - `postRender()` event binding
+   - User interactions (clicks, inputs)
+   - Error handling
+   - `cleanup()` method
+4. Run tests: `npm test -- tests/components/MyNewTab.test.js`
+5. Check coverage: `npm run test:coverage`
 
 ---
 

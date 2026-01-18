@@ -75,6 +75,7 @@ export class PerformanceTab extends BaseComponent {
      * Builds and returns the static container structure for this tab.
      * @returns {Promise<HTMLElement>} Root HTML container.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const root = document.createElement('div');
 
