@@ -17,7 +17,14 @@ export const DATAVERSE_SPECIAL_ENDPOINTS = [
     'CloneSolution',
     'EntityDefinitions',
     'entities',
-    'privileges'
+    'privileges',
+    'roleprivilegescollection',
+    'solutions',
+    'publishers',
+    'ribbondiffs',
+    'systemusers',
+    'roles',
+    'systemuserroles_association'
 ];
 
 /**
@@ -35,6 +42,32 @@ export const DATAVERSE_TYPES = {
     PARAMETER_COLLECTION: 'ParameterCollection',
     ATTRIBUTE_COLLECTION: 'AttributeCollection',
     DATE_TIME: 'DateTime'
+};
+
+/**
+ * Dataverse Web API pagination limits.
+ * @type {Object.<string, number>}
+ */
+export const DATAVERSE_PAGINATION = {
+    /** Maximum records per page/request (Dataverse API limit) */
+    MAX_PAGE_SIZE: 5000,
+    /** Maximum iterations for decoding paging cookie */
+    MAX_DECODE_ATTEMPTS: 5,
+    /** Maximum page count for counting operations (prevents infinite loops) */
+    MAX_COUNT_PAGES: 100
+};
+
+/**
+ * Dataverse batch operation limits.
+ * @type {Object.<string, number>}
+ */
+export const DATAVERSE_BATCH = {
+    /** Maximum operations per batch request (Dataverse API limit) */
+    MAX_BATCH_SIZE: 1000,
+    /** Number of concurrent operations to process in parallel */
+    CONCURRENCY: 100,
+    /** Minimum number of operations before showing progress update */
+    PROGRESS_UPDATE_THRESHOLD: 50
 };
 
 /**
@@ -171,8 +204,10 @@ export const WEB_API_HEADERS = {
     FORMATTED_VALUES: {
         'Prefer': 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"'
     },
-    /** Header name for impersonation */
-    IMPERSONATION_HEADER: 'MSCRMCallerID'
+    /** Header name for impersonation using Dataverse SystemUserId */
+    IMPERSONATION_HEADER: 'MSCRMCallerID',
+    /** Header name for impersonation using Azure AD Object ID (recommended - faster) */
+    CALLER_OBJECT_ID_HEADER: 'CallerObjectId'
 };
 
 /**

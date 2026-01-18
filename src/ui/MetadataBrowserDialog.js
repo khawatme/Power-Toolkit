@@ -4,7 +4,7 @@
  */
 import { DataService } from '../services/DataService.js';
 import { DialogService } from '../services/DialogService.js';
-import { debounce, escapeHtml, generateSortableTableHeaders, getMetadataDisplayName, sortArrayByColumn, toggleSortState } from '../helpers/index.js';
+import { debounce, escapeHtml, generateSortableTableHeaders, getMetadataDisplayName, sortArrayByColumn, toggleSortState, UIHelpers } from '../helpers/index.js';
 import { Config } from '../constants/index.js';
 
 /**
@@ -106,6 +106,11 @@ export const MetadataBrowserDialog = {
                     <thead>${headerHtml}</thead>
                     <tbody>${rows}</tbody>
                 </table>`;
+
+            const table = listContainer.querySelector('table');
+            if (table) {
+                UIHelpers.initColumnResize(table);
+            }
         };
 
         // Store event handlers for cleanup
@@ -133,7 +138,6 @@ export const MetadataBrowserDialog = {
                 const selectedItem = enrichedItems.find(item => item.LogicalName === row.dataset.logicalName);
                 if (selectedItem) {
                     onSelect(selectedItem);
-                    cleanup();
                     dialog.close();
                 }
             }
@@ -159,6 +163,11 @@ export const MetadataBrowserDialog = {
             if (listContainer) {
                 listContainer.removeEventListener('click', handleListClick);
                 listContainer.removeEventListener('keydown', handleListKeydown);
+
+                const table = listContainer.querySelector('table');
+                if (table) {
+                    UIHelpers.destroyColumnResize(table);
+                }
             }
         };
 

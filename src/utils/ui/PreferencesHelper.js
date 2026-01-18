@@ -24,19 +24,19 @@ export const PreferencesHelper = {
             }
 
             switch (type) {
-            case 'boolean':
-                return saved === 'true';
-            case 'number':
-                const num = Number(saved);
-                return isNaN(num) ? defaultValue : num;
-            case 'json':
-                try {
-                    return JSON.parse(saved);
-                } catch {
-                    return defaultValue;
-                }
-            default:
-                return saved;
+                case 'boolean':
+                    return saved === 'true';
+                case 'number':
+                    const num = Number(saved);
+                    return isNaN(num) ? defaultValue : num;
+                case 'json':
+                    try {
+                        return JSON.parse(saved);
+                    } catch {
+                        return defaultValue;
+                    }
+                default:
+                    return saved;
             }
         } catch (_e) {
             // localStorage access might be blocked or quota exceeded

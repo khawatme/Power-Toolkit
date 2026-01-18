@@ -57,14 +57,23 @@ let _impersonatedUserName = null;
  * @param {HeadersInit} customHeaders - Custom headers
  * @returns {Promise<object>}
  */
+// eslint-disable-next-line require-await
 async function _webApiFetch(method, logicalName, queryString = '', data = null, customHeaders = {}) {
+    // Use arrow function to defer DataService reference until runtime
+    const getEntitySetName = (name) => {
+        // eslint-disable-next-line no-use-before-define
+        return DataService?.getEntitySetName
+            // eslint-disable-next-line no-use-before-define
+            ? DataService.getEntitySetName(name)
+            : MetadataService.getEntitySetName(name);
+    };
     return WebApiService.webApiFetch(
         method,
         logicalName,
         queryString,
         data,
         customHeaders,
-        DataService.getEntitySetName,
+        getEntitySetName,
         _impersonatedUserId
     );
 }
@@ -105,6 +114,7 @@ export const DataService = {
      * Sets the "current solution" by unique name and caches its publisher prefix.
      * Call this once from your app boot or a solution selector.
      */
+    // eslint-disable-next-line require-await
     async setCurrentSolution(uniqueName) {
         return EnvironmentVariableService.setCurrentSolution(uniqueName, this.retrieveMultipleRecords.bind(this));
     },
@@ -310,12 +320,55 @@ export const DataService = {
     },
 
     /**
+     * Gets full entity definition including PrimaryNameAttribute.
+     * @async
+     * @param {string} entityLogicalName - Entity logical name
+     * @returns {Promise<Object|null>} Full entity definition object
+     */
+    getEntityDefinition(entityLogicalName) {
+        return MetadataService.getEntityDefinition(_webApiFetch, _impersonatedUserId, entityLogicalName);
+    },
+
+    /**
      * Returns a compact attribute map for quick type inference.
      * @param {string} entityLogicalName
      * @returns {Promise<Map<string, {type:string, targets?:string[]}>>}
      */
     getAttributeMap(entityLogicalName) {
         return MetadataService.getAttributeMap(_webApiFetch, entityLogicalName);
+    },
+
+    /**
+     * Returns a map of lookup attribute names to their navigation property names.
+     * Used for correctly formatting @odata.bind fields in create/update requests.
+     * @async
+     * @param {string} entityLogicalName - Entity logical name
+     * @returns {Promise<Map<string, string>>} Map of attributeLogicalName → navigationPropertyName
+     */
+    getNavigationPropertyMap(entityLogicalName) {
+        return MetadataService.getNavigationPropertyMap(_webApiFetch, entityLogicalName);
+    },
+
+    /**
+     * Get optionset options for a picklist attribute.
+     * @async
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {string} attributeLogicalName - Attribute logical name
+     * @returns {Promise<Array<{value: number, label: string}>>}
+     */
+    getPicklistOptions(entityLogicalName, attributeLogicalName) {
+        return MetadataService.getPicklistOptions(_webApiFetch, entityLogicalName, attributeLogicalName);
+    },
+
+    /**
+     * Get boolean options (true/false labels) for a boolean attribute.
+     * @async
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {string} attributeLogicalName - Attribute logical name
+     * @returns {Promise<{trueLabel: string, falseLabel: string}>}
+     */
+    getBooleanOptions(entityLogicalName, attributeLogicalName) {
+        return MetadataService.getBooleanOptions(_webApiFetch, entityLogicalName, attributeLogicalName);
     },
 
     // --- Standard Web API Methods ---
@@ -328,6 +381,29 @@ export const DataService = {
      */
     retrieveMultipleRecords(entity, options, customHeaders = {}) {
         return WebApiService.retrieveMultipleRecords(_webApiFetch, entity, options, customHeaders);
+    },
+
+    /**
+     * Fetch the next page of records using a nextLink URL.
+     * @async
+     * @param {string} nextLinkUrl - Full OData nextLink URL
+     * @returns {Promise<{entities:any[], nextLink?:string}>}
+     */
+    async fetchNextLink(nextLinkUrl) {
+        const resp = await fetch(nextLinkUrl, {
+            method: 'GET',
+            headers: {
+                ...Config.WEB_API_HEADERS.STANDARD
+            }
+        });
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        const json = await resp.json();
+        return {
+            entities: json.value || [],
+            nextLink: json['@odata.nextLink']
+        };
     },
 
     /**
@@ -373,11 +449,22 @@ export const DataService = {
     },
 
     /**
+     * Execute a batch of operations using OData $batch endpoint.
+     * Bundles multiple PATCH/POST/DELETE into a single HTTP request for maximum performance.
+     * Dataverse supports up to 1000 operations per batch.
+     * @param {Array<{method: 'PATCH'|'POST'|'DELETE', entitySet: string, id?: string, data?: object}>} operations - Array of operations
+     * @returns {Promise<{successCount: number, failCount: number, errors: Array<{index: number, error: string}>}>}
+     */
+    executeBatch(operations) {
+        return WebApiService.executeBatch(operations, _impersonatedUserId);
+    },
+
+    /**
      * Execute FetchXML and return `{ entities }`.
      * @param {string} entityName
      * @param {string} fetchXml
      * @param {HeadersInit} [customHeaders={}]
-     * @returns {Promise<{entities:any[]}>}
+     * @returns {Promise<{entities:any[]}>}}
      */
     executeFetchXml(entityName, fetchXml, customHeaders = {}) {
         return WebApiService.executeFetchXml(_webApiFetch, entityName, fetchXml, customHeaders);
@@ -469,7 +556,8 @@ export const DataService = {
             this.getFormColumns.bind(this),
             isOdataProperty,
             () => MetadataService.loadEntityMetadata(_webApiFetch, _impersonatedUserId),
-            this.getEntitySetName.bind(this)
+            this.getEntitySetName.bind(this),
+            (entityLogicalName, bypassCache) => MetadataService.getAttributeDefinitions(_webApiFetch, entityLogicalName, bypassCache)
         );
     },
 
@@ -483,85 +571,146 @@ export const DataService = {
     },
 
     /**
+     * Extracts client information from global context.
+     * @param {object} gc - Global context
+     * @returns {object} Client information
+     * @private
+     */
+    _getClientInfo(gc) {
+        return {
+            type: gc.client.getClient(),
+            formFactor: ['Unknown', 'Desktop', 'Tablet', 'Phone'][gc.client.getFormFactor()],
+            isOffline: gc.client.isOffline(),
+            appUrl: gc.getClientUrl()
+        };
+    },
+
+    /**
+     * Extracts organization information from global context.
+     * @param {object} gc - Global context
+     * @returns {object} Organization information
+     * @private
+     */
+    _getOrganizationInfo(gc) {
+        return {
+            name: gc.organizationSettings.uniqueName,
+            id: gc.organizationSettings.organizationId,
+            version: gc.getVersion(),
+            isAutoSave: gc.organizationSettings.isAutoSaveEnabled
+        };
+    },
+
+    /**
+     * Extracts session information from global context.
+     * @param {object} gc - Global context
+     * @returns {object} Session information
+     * @private
+     */
+    _getSessionInfo(gc) {
+        const appProps = gc.getCurrentAppProperties?.();
+        return {
+            timestamp: new Date().toISOString(),
+            sessionId: gc.client.getSessionId?.() || 'N/A',
+            tenantId: appProps?.tenantId || 'N/A',
+            objectId: appProps?.objectId || 'N/A',
+            buildName: appProps?.appModuleBuildNumber || 'N/A',
+            organizationId: gc.organizationSettings.organizationId,
+            uniqueName: gc.organizationSettings.uniqueName,
+            instanceUrl: gc.getClientUrl(),
+            environmentId: appProps?.environmentId || 'N/A',
+            clusterEnvironment: appProps?.clusterEnvironment || 'N/A',
+            clusterCategory: appProps?.clusterCategory || 'N/A',
+            clusterGeoName: appProps?.clusterGeoName || 'N/A',
+            clusterUriSuffix: appProps?.clusterUriSuffix || 'N/A'
+        };
+    },
+
+    /**
+     * Gets current user information from global context.
+     * @param {object} gc - Global context
+     * @returns {object} User information
+     * @private
+     */
+    _getCurrentUserInfo(gc) {
+        const roles = gc.userSettings.roles.getAll().map(r => ({
+            id: r.id.replace(/[{}]/g, ''),
+            name: r.name
+        }));
+        return {
+            name: gc.userSettings.userName,
+            id: gc.userSettings.userId.replace(/[{}]/g, ''),
+            language: gc.userSettings.languageId,
+            roles
+        };
+    },
+
+    /**
+     * Gets user information for an impersonated user.
+     * @param {string} userId - User ID
+     * @returns {Promise<object>} User information
+     * @private
+     * @async
+     */
+    async _getImpersonatedUserInfo(userId) {
+        const userData = await DataService.retrieveRecord('systemusers', userId, '?$select=fullname,systemuserid');
+
+        // Fetch direct roles (full records) and team memberships in parallel
+        // We need all fields to access _parentrootroleid_value which is the consistent root role ID
+        const [directRolesResponse, teamsResponse] = await Promise.all([
+            _webApiFetch('GET', `systemusers(${userId})/systemuserroles_association`),
+            _webApiFetch('GET', `systemusers(${userId})/teammembership_association?$select=teamid`)
+        ]);
+
+        // Use _parentrootroleid_value (root role ID) if available, otherwise use roleid
+        const directRoles = directRolesResponse.value?.map(r => ({
+            id: r._parentrootroleid_value || r.roleid,
+            name: r.name
+        })) || [];
+        const teamIds = teamsResponse.value?.map(t => t.teamid) || [];
+
+        let teamRoles = [];
+        if (teamIds.length > 0) {
+            const teamRoleResults = await Promise.all(
+                teamIds.map(teamId => _webApiFetch('GET', `teams(${teamId})/teamroles_association`))
+            );
+            teamRoles = teamRoleResults.flatMap(result =>
+                result.value?.map(r => ({
+                    id: r._parentrootroleid_value || r.roleid,
+                    name: r.name
+                })) || []
+            );
+        }
+
+        // Deduplicate and sort roles
+        const uniqueRoles = Array.from(
+            new Map([...directRoles, ...teamRoles].map(r => [r.id, r])).values()
+        ).sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+            name: userData.fullname,
+            id: userData.systemuserid,
+            language: 'N/A (Impersonated)',
+            roles: uniqueRoles
+        };
+    },
+
+    /**
      * Gets an enhanced user/client/org context object.
      * @param {boolean} [bypassCache=false]
      * @returns {object}
      */
     getEnhancedUserContext: (bypassCache = false) => _fetch('userContext', async () => {
         const gc = PowerAppsApiService.getGlobalContext();
-        const clientInfo = {
-            type: gc.client.getClient(),
-            formFactor: ['Unknown', 'Desktop', 'Tablet', 'Phone'][gc.client.getFormFactor()],
-            isOffline: gc.client.isOffline(),
-            appUrl: gc.getClientUrl()
+        const userInfo = _impersonatedUserId
+            ? await DataService._getImpersonatedUserInfo(_impersonatedUserId)
+            : DataService._getCurrentUserInfo(gc);
+
+        return {
+            user: userInfo,
+            client: DataService._getClientInfo(gc),
+            organization: DataService._getOrganizationInfo(gc),
+            session: DataService._getSessionInfo(gc)
         };
-        const orgInfo = {
-            name: gc.organizationSettings.uniqueName,
-            id: gc.organizationSettings.organizationId,
-            version: gc.getVersion(),
-            isAutoSave: gc.organizationSettings.isAutoSaveEnabled
-        };
-
-        // Session information
-        const sessionInfo = {
-            timestamp: new Date().toISOString(),
-            sessionId: gc.client.getSessionId?.() || 'N/A',
-            tenantId: gc.getCurrentAppProperties?.()?.tenantId || 'N/A',
-            objectId: gc.getCurrentAppProperties?.()?.objectId || 'N/A',
-            buildName: gc.getCurrentAppProperties?.()?.appModuleBuildNumber || 'N/A',
-            organizationId: gc.organizationSettings.organizationId,
-            uniqueName: gc.organizationSettings.uniqueName,
-            instanceUrl: gc.getClientUrl(),
-            environmentId: gc.getCurrentAppProperties?.()?.environmentId || 'N/A',
-            clusterEnvironment: gc.getCurrentAppProperties?.()?.clusterEnvironment || 'N/A',
-            clusterCategory: gc.getCurrentAppProperties?.()?.clusterCategory || 'N/A',
-            clusterGeoName: gc.getCurrentAppProperties?.()?.clusterGeoName || 'N/A',
-            clusterUriSuffix: gc.getCurrentAppProperties?.()?.clusterUriSuffix || 'N/A'
-        };
-
-        let userInfo;
-
-        if (!_impersonatedUserId) {
-            const roles = gc.userSettings.roles.getAll().map(r => ({ id: r.id.replace(/[{}]/g, ''), name: r.name }));
-            userInfo = {
-                name: gc.userSettings.userName,
-                id: gc.userSettings.userId.replace(/[{}]/g, ''),
-                language: gc.userSettings.languageId,
-                roles
-            };
-        } else {
-            const userData = await DataService.retrieveRecord('systemusers', _impersonatedUserId, '?$select=fullname,systemuserid');
-
-            const directRolesResponse = await _webApiFetch('GET', `systemusers(${_impersonatedUserId})/systemuserroles_association?$select=name,roleid`);
-            const directRoles = directRolesResponse.value?.map(r => ({ id: r.roleid, name: r.name })) || [];
-
-            const teamsResponse = await _webApiFetch('GET', `systemusers(${_impersonatedUserId})/teammembership_association?$select=teamid`);
-            const teamIds = teamsResponse.value?.map(t => t.teamid) || [];
-            let teamRoles = [];
-            if (teamIds.length > 0) {
-                const teamRolePromises = teamIds.map(teamId =>
-                    _webApiFetch('GET', `teams(${teamId})/teamroles_association?$select=name,roleid`)
-                );
-                const teamRoleResults = await Promise.all(teamRolePromises);
-                teamRoles = teamRoleResults.flatMap(result => result.value?.map(r => ({ id: r.roleid, name: r.name })) || []);
-            }
-            // Deduplicate by role ID
-            const allRolesMap = new Map();
-            [...directRoles, ...teamRoles].forEach(role => {
-                if (!allRolesMap.has(role.id)) {
-                    allRolesMap.set(role.id, role);
-                }
-            });
-
-            userInfo = {
-                name: userData.fullname,
-                id: userData.systemuserid,
-                language: 'N/A (Impersonated)',
-                roles: Array.from(allRolesMap.values()).sort((a, b) => a.name.localeCompare(b.name))
-            };
-        }
-
-        return { user: userInfo, client: clientInfo, organization: orgInfo, session: sessionInfo };
     }, bypassCache),
 
     /**

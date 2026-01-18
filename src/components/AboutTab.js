@@ -31,6 +31,7 @@ export class AboutTab extends BaseComponent {
      * Renders the component's static HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
 
@@ -83,15 +84,31 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li><strong>Solution Layers Tab:</strong> New tab to view and manage solution components with active customizations. Filter by component type, search by name, and safely delete unmanaged layers.</li>
-                        <li><strong>Resizable Table Columns:</strong> All data tables now support column resizing - drag column borders to adjust width and improve readability.</li>
-                        <li><strong>Enhanced Form Inspection:</strong> Improved form context detection and better handling of form-only features.</li>
-                        <li><strong>Performance Improvements:</strong> Faster tab switching and better memory management across all components.</li>
+                        <li><strong>Server-Side Pagination:</strong> Handle 5000+ record queries with automatic pagination in both WebAPI Explorer and FetchXML Tester. Load more incrementally or fetch all records at once.</li>
+                        <li><strong>Smart Value Inputs:</strong> Intelligent input controls that auto-detect attribute types (boolean dropdowns, picklists, date pickers, lookups) for easier query building.</li>
+                        <li><strong>Filter Group Manager:</strong> Build complex queries with multiple filter groups using AND/OR/NOT logic across WebAPI and FetchXML tabs.</li>
+                        <li><strong>Bulk Operations (WebAPI):</strong> Update, delete, or touch multiple records at once with filter conditions and progress tracking.</li>
+                        <li><strong>File Upload Service:</strong> Upload files to Dataverse file columns with chunked upload support for files of any size.</li>
+                        <li><strong>Field Builder Mode (WebAPI):</strong> Visual field editor as an alternative to JSON mode for POST/PATCH operations with auto-populated required fields.</li>
+                        <li><strong>Nested Joins (FetchXML):</strong> Build multi-level relationship chains with parent-child join management.</li>
+                        <li><strong>Show Logical Names:</strong> New Inspector button to display logical names for tabs, sections, and controls directly on forms with click-to-copy functionality.</li>
+                        <li><strong>Advanced Security Analysis (Impersonate):</strong> Deep-dive into user permissions with security role comparison, field security profiles, privilege analysis, and business unit hierarchy visualization to troubleshoot access issues.</li>
+                        <li><strong>Command Bar Visibility Comparison (Impersonate):</strong> Analyze and compare which command bar buttons are visible between different users to troubleshoot permission issues on forms and grids.</li>
+                        <li><strong>Comprehensive Testing:</strong> Full test coverage with Vitest framework ensuring code quality and reliability.</li>
                     </ul>
                     <details class="pdt-changelog-details" style="cursor: pointer;">
                         <summary style="cursor: pointer; user-select: none;"><strong> Previous Releases</strong></summary>
                         <div style="margin-top: 1rem;">
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem;">
+                                <summary style="cursor: pointer; user-select: none;"><strong>Version 3.0.0</strong></summary>
+                                <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
+                                    <li>Solution Layers Tab: New tab to view and manage solution components with active customizations.</li>
+                                    <li>Resizable Table Columns: All data tables now support column resizing.</li>
+                                    <li>Enhanced Form Inspection: Improved form context detection and better handling of form-only features.</li>
+                                    <li>Performance Improvements: Faster tab switching and better memory management.</li>
+                                </ul>
+                            </details>
+                            <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
                                 <summary style="cursor: pointer; user-select: none;"><strong>Version 2.1.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Minimize/Restore: Minimize button added to header, double-click header or press Ctrl/Cmd+M to minimize.</li>

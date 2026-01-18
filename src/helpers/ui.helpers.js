@@ -577,6 +577,7 @@ export const UIHelpers = {
 
     /**
      * Lock table column widths to explicit values.
+     * Uses scaling rendered widths to prevent columns from resizing unexpectedly.
      * @private
      * @param {HTMLTableElement} table - The table element
      * @param {HTMLElement} colgroup - The colgroup element
@@ -587,11 +588,34 @@ export const UIHelpers = {
      */
     _lockTableColumnWidths(table, colgroup, headerMap, colCount, minWidth, getRows) {
         const tableW = Math.max(1, Math.round(table.getBoundingClientRect().width));
-        const colWidths = this._computeColumnWidths(headerMap, getRows, colCount, minWidth);
-        const scaled = this._scaleColumnWidths(colWidths, tableW, minWidth);
-        this._applyColumnWidths(colgroup, headerMap, getRows, scaled, colCount, minWidth);
+        const colWidths = this._getCurrentColumnWidths(colgroup, colCount, minWidth);
+        this._applyColumnWidths(colgroup, headerMap, getRows, colWidths, colCount, minWidth);
         table.style.width = `${tableW}px`;
         table.style.tableLayout = 'fixed';
+    },
+
+    /**
+     * Get current rendered column widths from colgroup.
+     * @private
+     * @param {HTMLElement} colgroup - The colgroup element
+     * @param {number} colCount - Column count
+     * @param {number} minWidth - Minimum column width
+     * @returns {Array<number>} Current column widths
+     */
+    _getCurrentColumnWidths(colgroup, colCount, minWidth) {
+        const cols = Array.from(colgroup.querySelectorAll('col'));
+        const widths = new Array(colCount).fill(minWidth);
+
+        for (let i = 0; i < colCount; i += 1) {
+            const col = cols[i];
+            if (col) {
+                const rect = col.getBoundingClientRect();
+                const renderedWidth = rect.width || 0;
+                widths[i] = renderedWidth > 0 ? Math.max(minWidth, Math.round(renderedWidth)) : minWidth;
+            }
+        }
+
+        return widths;
     },
 
     /**

@@ -30,6 +30,7 @@ export class HelpTab extends BaseComponent {
      * Renders the component's HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
@@ -127,8 +128,8 @@ export class HelpTab extends BaseComponent {
         return {
             globalActions: {
                 title: 'Global Actions (Header Buttons)',
-                summary: 'Access powerful tools like God Mode, form reset, and theme toggling.',
-                content: 'The header provides quick access to powerful actions.<br> <strong>God Mode</strong> unlocks all fields, removes required validations, and makes hidden UI elements visible on the form.<br> <strong>Reset Form</strong> discards all unsaved changes by reloading the form data.<br> <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab.<br> <strong>Toggle Theme</strong> switches between light and dark mode.'
+                summary: 'Access powerful tools like Show/Hide Logical Names, God Mode, form reset, and theme toggling.',
+                content: 'The header provides quick access to powerful actions.<br> <strong>Show Logical Names</strong> displays logical names as overlay badges on form tabs, sections, and controls - click any badge to copy the name.<br> <strong>Hide Logical Names</strong> removes all the logical name overlays from the form.<br> <strong>God Mode</strong> unlocks all fields, removes required validations, and makes hidden UI elements visible on the form.<br> <strong>Reset Form</strong> discards all unsaved changes by reloading the form data.<br> <strong>Refresh Tool</strong> clears the tool\'s internal cache and reloads the current tab.<br> <strong>Toggle Theme</strong> switches between light and dark mode.<br><br><strong>💡 Tip:</strong> You can customize which header buttons are visible and their order in the <strong>Settings</strong> tab under "Header Buttons".'
             },
             inspector: {
                 title: 'Inspector',
@@ -157,23 +158,28 @@ export class HelpTab extends BaseComponent {
             },
             impersonate: {
                 title: 'Impersonate',
-                summary: 'Test security roles by executing all API requests as another user.',
-                content: "This powerful feature allows you to test what your application looks and behaves like for a user with different security roles. Search for and select a user to begin impersonation. While active, **all server-side requests** made by this tool (WebAPI Explorer, FetchXML, Plugin Traces, etc.) will be executed as that user. A yellow indicator will appear in the header. The **User Context** tab will also update to show the impersonated user's details. To stop, simply click 'Clear'."
+                summary: 'Test security roles by executing all API requests as another user and analyze security differences.',
+                content: "This powerful feature allows you to test what your application looks and behaves like for a user with different security roles. Search for and select a user to begin impersonation. While active, <strong>all server-side requests</strong> made by this tool (WebAPI Explorer, FetchXML, Plugin Traces, etc.) will be executed as that user. A yellow indicator will appear in the header.<br><br><strong>Security Analysis</strong>: When a user is impersonated, click <strong>Analyze Security</strong> to compare your security settings with the target user. The analysis shows:<br>• <strong>Entity Privileges</strong>: Read, Write, Create, Delete, Append, AppendTo, Assign, and Share permissions for the current table<br>• <strong>Field Security</strong>: Field security profiles and column-level permissions (Read, Create, Update)<br>• <strong>Team Memberships</strong>: All teams the user belongs to with team type<br>• <strong>Role Comparison</strong>: Common roles, your unique roles, and the target user's unique roles. Shows role source (<strong>Direct</strong> or <strong>via team: Team Name</strong>)<br><br><strong>Command Bar Comparison</strong>: Click <strong>Compare Commands</strong> to analyze which ribbon/command bar buttons each user can see. This feature queries the same ribbon metadata as the built-in Command Checker (<code>&ribbondebug=true</code>) and compares privilege-based display rules between users. It shows:<br>• <strong>Commands only you can see</strong> - buttons hidden from the impersonated user due to missing privileges<br>• <strong>Commands only the user can see</strong> - buttons you cannot see<br>• <strong>Which rules block visibility</strong> - specific privilege requirements like <code>Mscrm.DeleteSelectedEntityPermission</code><br>This helps troubleshoot why a user cannot see certain buttons like 'Delete', 'Assign', or custom command bar actions.<br><br><strong>Note:</strong> Your account must have the <strong>prvActOnBehalfOfAnotherUser</strong> privilege (Delegate security role) assigned directly (not via team).<br>"
             },
             metadataBrowser: {
                 title: 'Metadata Browser',
                 summary: 'A complete, searchable dictionary of all tables and columns in the environment.',
                 content: 'A standalone browser for exploring the Dataverse schema. The left panel shows a searchable list of all tables (entities) the current user can see. Clicking a table loads its columns (attributes) into the right panel. You can click any table or column to see a dialog with all of its detailed metadata properties (e.g., `SchemaName`, `IsManaged`, `ObjectTypeCode`). The panels are also resizable.'
             },
+            solutionLayers: {
+                title: 'Solution Layers',
+                summary: 'View and manage solution components with active unmanaged customizations.',
+                content: 'This tab helps you identify and manage customization layers in your environment. Select a solution to view all components that have active unmanaged customizations sitting on top of managed components. You can search and filter by component type (Entity, Attribute, Form, View, etc.). For unmanaged active layers, you can **delete** them to remove your customization and reveal the managed version beneath. This is especially useful for cleaning up customizations or resolving conflicts after importing managed solutions.'
+            },
             apiExplorer: {
                 title: 'WebAPI Explorer',
                 summary: 'A client to execute GET, POST, PATCH, and DELETE requests against the Web API.',
-                content: 'A powerful tool to directly query the Dataverse Web API. The simplified `GET` method helps you build OData queries easily, while `POST`, `PATCH`, and `DELETE` allow you to create, update, or delete records. Use the **Browse** buttons to search for table and column names instead of typing them manually. Results can be viewed in a table or as raw JSON.'
+                content: 'A powerful tool to directly query the Dataverse Web API.<br><br><strong>GET Requests:</strong> Build OData queries with $select, $filter, $expand, $orderby, and $top options. Use <strong>Filter Groups</strong> to create complex queries with AND/OR/NOT logic. The <strong>Browse</strong> buttons let you search for table and column names. Results can be viewed in a table or as raw JSON, with sortable columns.<br><br><strong>POST/PATCH (Create/Update):</strong> Choose between <strong>JSON mode</strong> (paste/edit raw JSON) or <strong>Field Builder mode</strong> (visual field editor). Field Builder auto-detects attribute types and provides smart inputs (picklists, booleans, date pickers, lookups). Use <strong>Populate Required</strong> to auto-fill mandatory fields with placeholder values.<br><br><strong>Bulk Operations:</strong> Leave the Record ID empty and add filter groups to perform bulk PATCH (update multiple records) or bulk DELETE. Progress tracking shows real-time status.<br><br><strong>Touch Records:</strong> Select rows in the result table and click <strong>Touch</strong> to update a field (like modifiedon) without changing data—useful for triggering plugins or workflows.<br><br><strong>File Uploads:</strong> For file columns, the Field Builder provides a file picker that supports chunked uploads for files of any size.<br><br><strong>Pagination:</strong> When queries return more than 5000 records, use <strong>Load More</strong> or <strong>Load All</strong> to fetch additional pages.<br><br><strong>💡 Tip:</strong> Enable <strong>Hide System Fields</strong> in the toolbar to filter out OData properties like @odata.etag from results.'
             },
             fetchXmlTester: {
                 title: 'FetchXML Tester',
-                summary: 'Build, edit, and execute FetchXML queries and view the results.',
-                content: 'A dedicated tester for FetchXML. Use the simple **Builder** for basic queries and joins, or write/paste complex queries into the **XML Editor**. Execute against the database and see the results immediately in a table or as JSON. Use the built-in templates to get started quickly.'
+                summary: 'Build, edit, and execute FetchXML queries with joins and filter groups.',
+                content: 'A dedicated tester for FetchXML queries with both visual building and XML editing capabilities.<br><br><strong>Builder Mode:</strong> Start with the simple Builder for basic queries. Select a table, add columns with the <strong>Add Column</strong> button, and use <strong>Add Filter Group</strong> to create conditions with AND/OR logic. Add <strong>linked entities (joins)</strong> with the builder—it automatically detects lookup relationships.<br><br><strong>Nested Joins:</strong> Click on a linked entity to add child joins, building multi-level relationship chains (e.g., Account → Contact → SystemUser).<br><br><strong>XML Editor:</strong> Switch to the <strong>XML Editor</strong> for complex queries or to paste FetchXML from other tools. The editor provides syntax highlighting and <strong>Format XML</strong> for proper indentation.<br><strong>Templates:</strong> Use built-in templates to quickly start with common query patterns.<br><br><strong>Pagination:</strong> For large result sets, use <strong>Load More</strong> or <strong>Load All</strong> to fetch additional pages beyond the 5000 record limit.<br><br><strong>💡 Tip:</strong> Enable <strong>Hide System Fields</strong> to filter out OData annotations and focus on your data. Click column headers to sort results.'
             },
             traces: {
                 title: 'Plugin Traces',
@@ -188,7 +194,7 @@ export class HelpTab extends BaseComponent {
             userContext: {
                 title: 'User Context',
                 summary: 'Displays detailed information about the current (or impersonated) user and session.',
-                content: 'Provides a quick overview of the current session context. This includes the user\'s name, ID, and **complete security roles** (including those from teams), as well as details about the client and the organization. When impersonation is active, this tab automatically updates to show the context of the **impersonated user**.'
+                content: 'Provides a quick overview of the current session context. This includes the user\'s name, ID, <strong>team memberships</strong>, and <strong>complete security roles</strong> (including those from teams), as well as details about the client and the organization. Team memberships are displayed with their type (Owner, Access, etc.) and all IDs are <strong>copyable by clicking</strong>. When impersonation is active, this tab automatically updates to show the context of the <strong>impersonated user</strong>.'
             },
             codeHub: {
                 title: 'Code Hub',
@@ -203,7 +209,7 @@ export class HelpTab extends BaseComponent {
             settings: {
                 title: 'Settings',
                 summary: 'Configure the Power-Toolkit by reordering tabs, hiding features, and managing settings.',
-                content: 'This tab allows you to customize the Power-Toolkit. You can **drag and drop** tabs to reorder the navigation and use the toggles to hide any tabs you don\'t use. You can also **export** your settings to a file or **import** them on another machine.'
+                content: 'This tab allows you to customize the Power-Toolkit. You can <strong>drag and drop</strong> tabs to reorder the navigation and use the toggles to hide any tabs you don\'t use.<br><br>The <strong>Header Buttons</strong> section lets you configure which header buttons are visible and their display order. Drag to reorder, and use the toggles to show or hide individual buttons. Note that some buttons (like Show Logical Names, God Mode, etc.) are only available on form pages.<br><br>Use the <strong>Export</strong> button to save your settings to a file, or <strong>Import</strong> to load settings on another machine. Click <strong>Reset</strong> to restore all settings to their defaults.'
             },
             about: {
                 title: 'About',

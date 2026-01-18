@@ -69,6 +69,7 @@ export const DialogService = {
 
         const close = () => {
             dialogOverlay.remove();
+            // eslint-disable-next-line no-use-before-define
             document.removeEventListener('keydown', handleEscKey);
         };
 

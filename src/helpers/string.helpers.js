@@ -37,7 +37,8 @@ export const StringHelpers = {
         const escaped = this.escapeHtml(codeString);
 
         if (language === 'json') {
-            return escaped.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+            const jsonRegex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g;
+            return escaped.replace(jsonRegex, (match) => {
                 let cls = 'json-number';
                 if (/^"/.test(match)) {
                     cls = /:$/.test(match) ? 'json-key' : 'json-string';
@@ -48,7 +49,7 @@ export const StringHelpers = {
                 }
                 return `<span class="${cls}">${match}</span>`;
             });
-        } else if (language === 'csharp') {
+        } if (language === 'csharp') {
             const csharpKeywords = 'public|private|protected|class|void|string|int|bool|var|new|void|get|set|if|else|return|try|catch|using|namespace|in|var|new|get|set';
             const csharpRegex = new RegExp(`(\\[[^\\]]+\\])|(\\/\\*[\\s\\S]*?\\*\\\/|\\\/\\\/[^\\r\\n]*)|(@"[^"]*"|"(?:\\\\.|[^"\\\\])*")|\\b(${csharpKeywords})\\b|\\b(true|false|null)\\b|(\\b-?\\d+\\.?\\d*\\b)`, 'g');
 
@@ -73,28 +74,29 @@ export const StringHelpers = {
                 }
                 return match;
             });
-        } else { // Default to JavaScript
-            return escaped.replace(/(^\s*\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*)|("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")|(\b(function|var|let|const|if|else|return|try|catch|new|typeof|arguments|this)\b)|(\b(true|false|null|undefined)\b)|(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-                (match, comment, string, keyword, constant, number) => {
-                    if (comment) {
-                        return `<span class="json-comment">${comment}</span>`;
-                    }
-                    if (string) {
-                        return `<span class="json-string">${string}</span>`;
-                    }
-                    if (keyword) {
-                        return `<span class="json-key">${keyword}</span>`;
-                    }
-                    if (constant) {
-                        return `<span class="json-boolean">${constant}</span>`;
-                    }
-                    if (number) {
-                        return `<span class="json-number">${number}</span>`;
-                    }
-                    return match;
-                }
-            );
+        }  // Default to JavaScript
+        // eslint-disable-next-line max-len
+        const jsRegex = /(^\s*\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*)|("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")|\b(function|var|let|const|if|else|return|try|catch|new|typeof|arguments|this)\b|\b(true|false|null|undefined)\b|(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g;
+        return escaped.replace(jsRegex, (match, comment, string, keyword, constant, number) => {
+            if (comment) {
+                return `<span class="json-comment">${comment}</span>`;
+            }
+            if (string) {
+                return `<span class="json-string">${string}</span>`;
+            }
+            if (keyword) {
+                return `<span class="json-key">${keyword}</span>`;
+            }
+            if (constant) {
+                return `<span class="json-boolean">${constant}</span>`;
+            }
+            if (number) {
+                return `<span class="json-number">${number}</span>`;
+            }
+            return match;
         }
+        );
+
     },
 
     /**

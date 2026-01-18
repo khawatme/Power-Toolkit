@@ -10,6 +10,7 @@
 export const STORAGE_KEYS = {
     theme: 'pdt-theme',
     tabSettings: 'pdt-tab-settings',
+    headerButtonSettings: 'pdt-header-button-settings',
     dimensions: 'pdt-dimensions',
     isMinimized: 'pdt-is-minimized',
     minimizedBannerWidth: 'pdt-minimized-banner-width',

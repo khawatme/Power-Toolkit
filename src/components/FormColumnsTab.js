@@ -8,7 +8,7 @@
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
-import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, isSystemProperty, parseInputValue } from '../helpers/index.js';
+import { copyToClipboard, debounce, escapeHtml, formatDisplayValue, formatValuePreview, inferDataverseType, isSystemProperty, parseInputValue } from '../helpers/index.js';
 import { UIHelpers } from '../helpers/ui.helpers.js';
 import { DialogService } from '../services/DialogService.js';
 import { FormControlFactory } from '../ui/FormControlFactory.js';
@@ -61,15 +61,14 @@ export class FormColumnsTab extends BaseComponent {
      * Renders the initial HTML structure of the component.
      * @returns {Promise<HTMLElement>} A promise that resolves with the component's root element.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.className = 'pdt-full-height-column';
 
         container.innerHTML = `
             <div class="section-title flex-shrink-0">Form Columns & Attributes</div>
-            <div class="pdt-toolbar flex-shrink-0">
-                <input type="text" id="form-cols-search" class="pdt-input flex-grow" placeholder="Search by Display or Logical Name...">
-                
+            <div class="pdt-toolbar pdt-toolbar-end flex-shrink-0">
                 <div class="pdt-toolbar-group">
                     <label id="unused-cols-container" class="pdt-switcher-toggle" style="display: none;" title="Show only columns that are not on the form">
                         <span class="pdt-toggle-switch">
@@ -86,12 +85,12 @@ export class FormColumnsTab extends BaseComponent {
                         Hide System
                     </label>
                 </div>
-
                 <div class="pdt-view-switcher">
                     <button class="pdt-switcher-btn active" data-view="form" title="Show only columns present on the form layout">Form Columns</button>
                     <button class="pdt-switcher-btn" data-view="all" title="Show all columns for this record, fetched via Web API">Record Columns</button>
                 </div>
             </div>
+            <input type="text" id="form-cols-search" class="pdt-input flex-shrink-0 mb-10" placeholder="Search by Display or Logical Name...">
             <div id="form-cols-table-wrapper" class="pdt-table-wrapper flex-grow" style="min-height: 0;">
                 <p class="pdt-note">Loading columns...</p>
             </div>`;
@@ -146,58 +145,55 @@ export class FormColumnsTab extends BaseComponent {
      * to prevent memory leaks and performance degradation of the host application.
      */
     destroy() {
-        // live form handlers
         this._detachLiveHandlers();
-        // visual highlight
         this._handleMouseOut();
+        this._removeEventListeners();
+        this._destroyColumnResize();
+    }
 
-        try {
-            const w = this.ui?.tableWrapper;
-            if (w) {
-                if (this._onClick) {
-                    w.removeEventListener('click', this._onClick);
-                }
-                if (this._onMove) {
-                    w.removeEventListener('mousemove', this._onMove);
-                }
-                if (this._onLeave) {
-                    w.removeEventListener('mouseleave', this._onLeave);
-                }
-                if (this._onScroll) {
-                    w.removeEventListener('scroll', this._onScroll);
-                }
-            }
-            // Cancel any pending debounced scroll
-            if (this._onScroll?.cancel) {
-                this._onScroll.cancel();
-            }
-            const s = this.ui?.searchInput;
-            if (s && this._onSearch) {
-                s.removeEventListener('input', this._onSearch);
-            }
-            // Cancel any pending debounced render
-            if (this._onSearch?.cancel) {
-                this._onSearch.cancel();
-            }
-            if (this.ui?.odataToggle && this._onOdata) {
-                this.ui.odataToggle.removeEventListener('change', this._onOdata);
-            }
-            if (this.ui?.unusedColsToggle && this._onUnused) {
-                this.ui.unusedColsToggle.removeEventListener('change', this._onUnused);
-            }
-            const vs = this.ui?.viewSwitcher;
-            if (vs && this._onSwitch) {
-                vs.removeEventListener('click', this._onSwitch);
-            }
-        } catch { }
+    /**
+     * Removes all event listeners from UI elements.
+     * @private
+     */
+    _removeEventListeners() {
+        if (!this.ui) {
+            return;
+        }
 
-        // Destroy any column resize handlers
+        const listeners = [
+            { element: this.ui.tableWrapper, event: 'click', handler: this._onClick },
+            { element: this.ui.tableWrapper, event: 'mousemove', handler: this._onMove },
+            { element: this.ui.tableWrapper, event: 'mouseleave', handler: this._onLeave },
+            { element: this.ui.tableWrapper, event: 'scroll', handler: this._onScroll },
+            { element: this.ui.searchInput, event: 'input', handler: this._onSearch },
+            { element: this.ui.odataToggle, event: 'change', handler: this._onOdata },
+            { element: this.ui.unusedColsToggle, event: 'change', handler: this._onUnused },
+            { element: this.ui.viewSwitcher, event: 'click', handler: this._onSwitch }
+        ];
+
+        listeners.forEach(({ element, event, handler }) => {
+            if (element && handler) {
+                element.removeEventListener(event, handler);
+            }
+        });
+
+        this._onScroll?.cancel?.();
+        this._onSearch?.cancel?.();
+    }
+
+    /**
+     * Destroys column resize handlers.
+     * @private
+     */
+    _destroyColumnResize() {
         try {
-            const table = this.ui?.tableWrapper && this.ui.tableWrapper.querySelector('table.pdt-table');
+            const table = this.ui?.tableWrapper?.querySelector('table.pdt-table');
             if (table) {
                 UIHelpers.destroyColumnResize(table);
             }
-        } catch (_) { }
+        } catch {
+            // Intentionally ignored - cleanup failure
+        }
     }
 
     /**
@@ -205,18 +201,25 @@ export class FormColumnsTab extends BaseComponent {
      * @private
      */
     async _loadAndRenderTable() {
-        this.ui.tableWrapper.innerHTML = `<p class="pdt-note">${Config.MESSAGES.FORM_COLUMNS.loading(this.viewMode)}</p>`;
-        this._detachLiveHandlers();
         try {
+            if (this.ui?.tableWrapper) {
+                this.ui.tableWrapper.innerHTML = `<p class="pdt-note">${Config.MESSAGES.FORM_COLUMNS.loading(this.viewMode)}</p>`;
+            }
+            this._detachLiveHandlers();
+
             const res = this.viewMode === 'form'
                 ? await DataService.getFormColumns(true)
                 : await DataService.getAllRecordColumns(true);
             this.allColumns = this._normalizeColumnsResult(res);
 
-            this._renderTable(this.ui.tableWrapper);
+            if (this.ui?.tableWrapper) {
+                this._renderTable(this.ui.tableWrapper);
+            }
             this._attachLiveHandlers();
         } catch (e) {
-            this.ui.tableWrapper.innerHTML = `<div class="pdt-error">${Config.MESSAGES.FORM_COLUMNS.loadFailed(e.message)}</div>`;
+            if (this.ui?.tableWrapper) {
+                this.ui.tableWrapper.innerHTML = `<div class="pdt-error">${Config.MESSAGES.FORM_COLUMNS.loadFailed(e.message)}</div>`;
+            }
         }
     }
 
@@ -240,8 +243,8 @@ export class FormColumnsTab extends BaseComponent {
                     logicalName: key,
                     displayName: key,
                     value: raw,
-                    // best-effort type string
-                    type: raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw,
+                    // Infer Dataverse type from value and property name
+                    type: inferDataverseType(raw, key),
                     // allow filters to hide these if desired
                     isSystem: isSystemProperty(key)
                 });
@@ -322,6 +325,7 @@ export class FormColumnsTab extends BaseComponent {
                 NotificationService.show(Config.MESSAGES.FORM_COLUMNS.updated, 'success');
 
                 this._updateRowUI(logicalName);
+                return true;
             } catch (e) {
                 NotificationService.show(Config.MESSAGES.FORM_COLUMNS.updateFailed(e.message), 'error');
                 return false;

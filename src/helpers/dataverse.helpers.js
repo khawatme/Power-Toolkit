@@ -122,5 +122,65 @@ export const DataverseHelpers = {
             }
         }
         return filtered;
+    },
+
+    /**
+     * Infers the Dataverse attribute type from a value and property name.
+     * Used as fallback when metadata is unavailable. Focuses on common patterns.
+     * @param {*} value - The value from the Web API response
+     * @param {string} propertyName - The property name/logical name
+     * @returns {string} The inferred Dataverse type
+     */
+    inferDataverseType(value, propertyName) {
+        const key = String(propertyName || '').toLowerCase();
+
+        // Property name patterns (most reliable)
+        if (key.startsWith('_') && key.endsWith('_value')) {
+            return 'lookup';
+        }
+        if (key === 'statecode') {
+            return 'state';
+        }
+        if (key === 'statuscode') {
+            return 'status';
+        }
+
+        // Null/undefined - check name patterns
+        if (value === null || value === undefined) {
+            if (key.endsWith('on') || key.includes('date')) {
+                return 'datetime';
+            }
+            return 'unknown';
+        }
+
+        // Value-based type detection
+        const valueType = typeof value;
+        if (valueType === 'boolean') {
+            return 'boolean';
+        }
+        if (valueType === 'number') {
+            return Number.isInteger(value) ? 'integer' : 'decimal';
+        }
+        if (Array.isArray(value)) {
+            return 'array';
+        }
+
+        if (valueType === 'string') {
+            // GUID pattern
+            if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)) {
+                return 'uniqueidentifier';
+            }
+            // ISO datetime pattern
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+                return 'datetime';
+            }
+            return 'string';
+        }
+
+        if (valueType === 'object') {
+            return (value['@odata.etag'] || value['@odata.context']) ? 'entity' : 'object';
+        }
+
+        return valueType;
     }
 };

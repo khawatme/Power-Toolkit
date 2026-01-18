@@ -16,10 +16,20 @@ import { Config } from '../constants/index.js';
  */
 
 /**
+ * Represents the configuration for a single header button.
+ * @typedef {object} HeaderButtonSetting
+ * @property {string} id - The unique identifier for the header button.
+ * @property {string} label - The display label for the button.
+ * @property {boolean} visible - Whether the button is currently visible in the header.
+ * @property {boolean} formOnly - Whether the button only works on a record form.
+ */
+
+/**
  * Represents the entire shared state of the application.
  * @typedef {object} AppState
  * @property {'light'|'dark'} theme - The current UI theme.
  * @property {TabSetting[]} tabSettings - The ordered list of tab configurations.
+ * @property {HeaderButtonSetting[]} headerButtonSettings - The ordered list of header button configurations.
  * @property {object} dimensions - The saved dimensions (width/height) of the main dialog.
  * @property {string|null} impersonationUserId - The GUID of the currently impersonated user, if any.
  * @property {boolean} isMinimized - Whether the dialog is currently in minimized state.
@@ -36,7 +46,25 @@ const _listeners = new Set();
  * @type {string[]}
  * @note Currently unused but kept for future persistence features
  */
-// const PERSISTABLE_STATE_KEYS = ['theme', 'tabSettings', 'dimensions', 'isMinimized'];
+// const PERSISTABLE_STATE_KEYS = ['theme', 'tabSettings', 'headerButtonSettings', 'dimensions', 'isMinimized'];
+
+/**
+ * Defines the default configuration for all available header buttons.
+ * The order here determines the default display order.
+ * @returns {Array<HeaderButtonSetting>} The default configuration for all header buttons.
+ * @private
+ */
+function getDefaultHeaderButtonSettings() {
+    return [
+        { id: 'showLogical', label: 'Show Logical Names', visible: true, formOnly: true },
+        { id: 'hideLogical', label: 'Hide Logical Names', visible: true, formOnly: true },
+        { id: 'resetForm', label: 'Reset Form', visible: true, formOnly: true },
+        { id: 'godMode', label: 'God Mode', visible: true, formOnly: true },
+        { id: 'refresh', label: 'Refresh', visible: true, formOnly: false },
+        { id: 'theme', label: 'Toggle Theme', visible: true, formOnly: false },
+        { id: 'minimize', label: 'Minimize', visible: true, formOnly: false }
+    ];
+}
 
 /**
  * Defines the default configuration for all available tabs.
@@ -98,9 +126,32 @@ export const Store = {
             }
         }
 
+        // Load header button settings
+        const defaultHeaderSettings = getDefaultHeaderButtonSettings();
+        const savedHeaderSettingsRaw = localStorage.getItem(Config.STORAGE_KEYS.headerButtonSettings);
+        let finalHeaderSettings = defaultHeaderSettings;
+
+        if (savedHeaderSettingsRaw) {
+            try {
+                const savedHeaderSettings = JSON.parse(savedHeaderSettingsRaw);
+                const defaultHeaderMap = new Map(defaultHeaderSettings.map(s => [s.id, s]));
+                const relevantHeaderSettings = savedHeaderSettings.filter(s => defaultHeaderMap.has(s.id));
+                const relevantHeaderIds = new Set(relevantHeaderSettings.map(s => s.id));
+                defaultHeaderSettings.forEach(def => {
+                    if (!relevantHeaderIds.has(def.id)) {
+                        relevantHeaderSettings.push(def);
+                    }
+                });
+                finalHeaderSettings = relevantHeaderSettings;
+            } catch (_e) {
+                // Header settings parse error is handled gracefully by falling back to defaults
+            }
+        }
+
         _state = {
             theme: localStorage.getItem(Config.STORAGE_KEYS.theme) || 'dark',
             tabSettings: finalSettings,
+            headerButtonSettings: finalHeaderSettings,
             dimensions: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.dimensions) || '{}'),
             impersonationUserId: null,
             isMinimized: JSON.parse(localStorage.getItem(Config.STORAGE_KEYS.isMinimized) || 'false'),
@@ -135,6 +186,9 @@ export const Store = {
         if (newState.tabSettings !== undefined) {
             localStorage.setItem(Config.STORAGE_KEYS.tabSettings, JSON.stringify(newState.tabSettings));
         }
+        if (newState.headerButtonSettings !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.headerButtonSettings, JSON.stringify(newState.headerButtonSettings));
+        }
         if (newState.dimensions !== undefined) {
             localStorage.setItem(Config.STORAGE_KEYS.dimensions, JSON.stringify(newState.dimensions));
         }
@@ -166,9 +220,11 @@ export const Store = {
      */
     resetToDefaults() {
         const defaultSettings = getDefaultTabSettings();
+        const defaultHeaderSettings = getDefaultHeaderButtonSettings();
         const defaultState = {
             theme: 'dark',
             tabSettings: defaultSettings,
+            headerButtonSettings: defaultHeaderSettings,
             dimensions: {},
             isMinimized: false,
             preMinimizedDimensions: {},
@@ -177,6 +233,7 @@ export const Store = {
 
         // Clear all persisted items from localStorage explicitly.
         localStorage.removeItem('pdt-tab-settings');
+        localStorage.removeItem('pdt-header-button-settings');
         localStorage.removeItem('pdt-theme');
         localStorage.removeItem('pdt-dimensions');
         localStorage.removeItem('pdt-is-minimized');

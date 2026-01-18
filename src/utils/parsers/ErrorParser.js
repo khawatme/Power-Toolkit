@@ -5,193 +5,269 @@
  * @module utils/parsers/ErrorParser
  */
 
+/**
+ * Helper functions for error parsing
+ * @private
+ */
+const isNonEmptyStr = (v) => typeof v === 'string' && v.trim().length > 0;
+
+const tryParseJson = (raw) => {
+    if (raw === null || raw === undefined || typeof raw !== 'string') {
+        return raw;
+    }
+    const t = raw.trim();
+    if (!(t.startsWith('{') || t.startsWith('['))) {
+        return raw;
+    }
+    try {
+        return JSON.parse(t);
+    } catch {
+        return raw;
+    }
+};
+
+const firstString = (...vals) => vals.find(isNonEmptyStr) || null;
+
+const get = (obj, pathArr) => {
+    try {
+        return pathArr.reduce((acc, k) => ((acc === null || acc === undefined) ? acc : acc[k]), obj);
+    } catch {
+        return undefined;
+    }
+};
+
+/**
+ * Extract status code from error
+ * @private
+ */
+const extractStatus = (e) => {
+    return e?.status ??
+        e?.response?.status ??
+        e?.httpStatus ??
+        e?.statusCode ??
+        null;
+};
+
+/**
+ * Build payloads array from error
+ * @private
+ */
+const buildPayloads = (e) => {
+    return [
+        tryParseJson(e?.response?.data),
+        tryParseJson(e?.data),
+        tryParseJson(e?.body),
+        tryParseJson(e?.responseText),
+        e?.error,
+        e?.detail,
+        e?.originalError,
+        tryParseJson(typeof e === 'string' ? e : null),
+        e
+    ].filter((v) => (v !== null && v !== undefined));
+};
+
+/**
+ * Extract correlation ID from headers
+ * @private
+ */
+const extractCorrelationId = (e) => {
+    const headers = e?.response?.headers || e?.headers || null;
+
+    const getHeader = (name) => {
+        if (!headers) {
+            return null;
+        }
+        if (typeof headers.get === 'function') {
+            try {
+                return headers.get(name);
+            } catch {
+                return null;
+            }
+        }
+        const key = Object.keys(headers).find(k => k.toLowerCase() === name.toLowerCase());
+        return key ? headers[key] : null;
+    };
+
+    return getHeader('x-ms-correlation-request-id') ||
+        getHeader('x-ms-request-id') ||
+        getHeader('request-id') ||
+        get(e, ['error', 'x-ms-correlation-request-id']) ||
+        get(e, ['response', 'data', 'x-ms-correlation-request-id']) ||
+        null;
+};
+
+/**
+ * Extract OData v4 error message
+ * @private
+ */
+const extractODataV4Message = (p) => {
+    return firstString(
+        get(p, ['error', 'innererror', 'internalexception', 'message']),
+        get(p, ['error', 'innererror', 'message']),
+        Array.isArray(get(p, ['error', 'details'])) ? get(p, ['error', 'details', 0, 'message']) : null,
+        get(p, ['error', 'message'])
+    );
+};
+
+/**
+ * Extract legacy OData error message
+ * @private
+ */
+const extractLegacyODataMessage = (p) => {
+    return firstString(
+        get(p, ['odata.error', 'message', 'value']),
+        get(p, ['odata.error', 'innererror', 'message'])
+    );
+};
+
+/**
+ * Extract top-level error message
+ * @private
+ */
+const extractTopLevelMessage = (p) => {
+    return firstString(p.message, p.Message);
+};
+
+/**
+ * Extract nested axios/fetch message
+ * @private
+ */
+const extractNestedMessage = (p) => {
+    return firstString(
+        get(p, ['data', 'error', 'message']),
+        get(p, ['data', 'message'])
+    );
+};
+
+/**
+ * Extract message from payload
+ * @private
+ */
+const extractMessageFromPayload = (p) => {
+    if (isNonEmptyStr(p)) {
+        return p;
+    }
+
+    if (p && typeof p === 'object') {
+        return extractODataV4Message(p) ||
+            extractLegacyODataMessage(p) ||
+            extractTopLevelMessage(p) ||
+            extractNestedMessage(p);
+    }
+
+    return null;
+};
+
+/**
+ * Find message in payloads
+ * @private
+ */
+const findMessageInPayloads = (payloads) => {
+    for (const p of payloads) {
+        const msg = extractMessageFromPayload(p);
+        if (isNonEmptyStr(msg)) {
+            return msg;
+        }
+    }
+    return null;
+};
+
+/**
+ * Get fallback message from error
+ * @private
+ */
+const getFallbackMessage = (e) => {
+    return firstString(
+        e?.message,
+        e?.statusText,
+        e?.response?.statusText
+    );
+};
+
+/**
+ * Get last resort JSON message
+ * @private
+ */
+const getLastResortMessage = (payloads) => {
+    const firstObject = payloads.find(v => v && typeof v === 'object') || null;
+    if (firstObject) {
+        try {
+            const s = JSON.stringify(firstObject);
+            return s.length > 900 ? `${s.slice(0, 900)}…` : s;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
+/**
+ * Extract raw body from error
+ * @private
+ */
+const extractRawBody = (e) => {
+    return (typeof e?.response?.data === 'string' ? e.response.data : null) ??
+        (typeof e?.data === 'string' ? e.data : null) ??
+        (typeof e?.body === 'string' ? e.body : null) ??
+        null;
+};
+
+/**
+ * Build final error message
+ * @private
+ */
+const buildFinalMessage = (message, status, rawBody, correlationId) => {
+    let result = message;
+
+    if (status) {
+        result = `(Status ${status}) ${result}`;
+    }
+
+    if (isNonEmptyStr(rawBody) && !result.includes(rawBody)) {
+        result += ` — ${rawBody}`;
+    }
+
+    if (correlationId) {
+        result += ` [CorrelationId: ${correlationId}]`;
+    }
+
+    return result.replace(/\s+/g, ' ').trim();
+};
+
 export const ErrorParser = {
     /**
      * Extract a concise, helpful error string from many possible error shapes.
-     * @param {any} e
-     * @returns {string}
+     * @param {any} e - The error object
+     * @returns {string} Formatted error message
      */
     extract(e) {
-        // status
-        const status =
-            e?.status ??
-            e?.response?.status ??
-            e?.httpStatus ??
-            e?.statusCode ??
-            null;
+        const status = extractStatus(e);
+        const payloads = buildPayloads(e);
+        const correlationId = extractCorrelationId(e);
 
-        // helpers
-        const isNonEmptyStr = (v) => typeof v === 'string' && v.trim().length > 0;
+        // Try to extract message from payloads
+        let message = findMessageInPayloads(payloads);
 
-        const tryParseJson = (raw) => {
-            if (raw === null || raw === undefined || typeof raw !== 'string') {
-                return raw;
-            }
-            const t = raw.trim();
-            if (!(t.startsWith('{') || t.startsWith('['))) {
-                return raw;
-            } // plain text
-            try {
-                return JSON.parse(t);
-            } catch {
-                return raw;
-            }
-        };
-
-        const firstString = (...vals) => vals.find(isNonEmptyStr) || null;
-
-        const get = (obj, pathArr) => {
-            try {
-                return pathArr.reduce((acc, k) => ((acc === null || acc === undefined) ? acc : acc[k]), obj);
-            } catch {
-                return undefined;
-            }
-        };
-
-        // Build a list of possible "payload" containers to probe
-        const payloads = [
-            // axios/fetch common locations
-            tryParseJson(e?.response?.data),
-            tryParseJson(e?.data),
-            tryParseJson(e?.body),
-            tryParseJson(e?.responseText),
-
-            // vendor-ish spots
-            e?.error,
-            e?.detail,
-            e?.originalError,
-
-            // sometimes the thrown value itself is JSON or text
-            tryParseJson(typeof e === 'string' ? e : null),
-
-            // the whole error object
-            e
-        ].filter((v) => (v !== null && v !== undefined));
-
-        // correlation id
-        const headers = e?.response?.headers || e?.headers || null;
-        const getHeader = (name) => {
-            if (!headers) {
-                return null;
-            }
-            if (typeof headers.get === 'function') {
-                try {
-                    return headers.get(name);
-                } catch { /* ignore */ }
-            }
-            const key = Object.keys(headers).find(k => k.toLowerCase() === name.toLowerCase());
-            return key ? headers[key] : null;
-        };
-
-        const correlationId =
-            getHeader?.('x-ms-correlation-request-id') ||
-            getHeader?.('x-ms-request-id') ||
-            getHeader?.('request-id') ||
-            get(e, ['error', 'x-ms-correlation-request-id']) ||
-            get(e, ['response', 'data', 'x-ms-correlation-request-id']) ||
-            null;
-
-        // probe for messages in order of likelihood
-        let message = null;
-
-        for (const p of payloads) {
-            // If the payload is a plain string and looks useful, take it.
-            if (isNonEmptyStr(p)) {
-                message = p;
-                break;
-            }
-
-            if (p && typeof p === 'object') {
-                // OData v4 / Dataverse: { error: { message, innererror: { message }, details: [{message}] } }
-                const odataV4 =
-                    firstString(
-                        get(p, ['error', 'innererror', 'internalexception', 'message']),
-                        get(p, ['error', 'innererror', 'message']),
-                        Array.isArray(get(p, ['error', 'details'])) ? get(p, ['error', 'details', 0, 'message']) : null,
-                        get(p, ['error', 'message'])
-                    );
-
-                if (isNonEmptyStr(odataV4)) {
-                    message = odataV4; break;
-                }
-
-                // Legacy OData v2/v3: { "odata.error": { "message": { "value": "..." }, innererror: {...} } }
-                const legacy =
-                    firstString(
-                        get(p, ['odata.error', 'message', 'value']),
-                        get(p, ['odata.error', 'innererror', 'message'])
-                    );
-
-                if (isNonEmptyStr(legacy)) {
-                    message = legacy; break;
-                }
-
-                // Top-level Dataverse shape: { code, message }
-                const topLevel =
-                    firstString(
-                        p.message,
-                        p.Message
-                    );
-
-                if (isNonEmptyStr(topLevel)) {
-                    message = topLevel; break;
-                }
-
-                // Nested common axios/fetch structures
-                const nestedAxios =
-                    firstString(
-                        get(p, ['data', 'error', 'message']),
-                        get(p, ['data', 'message'])
-                    );
-
-                if (isNonEmptyStr(nestedAxios)) {
-                    message = nestedAxios; break;
-                }
-            }
-        }
-
-        // If still nothing, fall back to outer error text/statusText
+        // Fallback to outer error text
         if (!isNonEmptyStr(message)) {
-            message = firstString(
-                e?.message,
-                e?.statusText,
-                e?.response?.statusText
-            );
+            message = getFallbackMessage(e);
         }
 
-        // As an absolute last resort, surface compact JSON so the user sees something
+        // Last resort: show JSON
         if (!isNonEmptyStr(message)) {
-            const firstObject = payloads.find(v => v && typeof v === 'object') || null;
-            if (firstObject) {
-                try {
-                    const s = JSON.stringify(firstObject);
-                    message = s.length > 900 ? `${s.slice(0, 900)}…` : s;
-                } catch { /* ignore */ }
-            }
+            message = getLastResortMessage(payloads);
         }
 
+        // Absolute fallback
         if (!isNonEmptyStr(message)) {
             message = 'Request failed.';
         }
-        if (status) {
-            message = `(Status ${status}) ${message}`;
-        }
 
-        // If there is a raw string body and it adds info, append it
-        const rawBody =
-            (typeof e?.response?.data === 'string' ? e.response.data : null) ??
-            (typeof e?.data === 'string' ? e.data : null) ??
-            (typeof e?.body === 'string' ? e.body : null) ??
-            null;
+        // Extract raw body for additional context
+        const rawBody = extractRawBody(e);
 
-        if (isNonEmptyStr(rawBody) && !message.includes(rawBody)) {
-            message += ` — ${rawBody}`;
-        }
-
-        if (correlationId) {
-            message += ` [CorrelationId: ${correlationId}]`;
-        }
-
-        return message.replace(/\s+/g, ' ').trim();
+        // Build and return final message
+        return buildFinalMessage(message, status, rawBody, correlationId);
     }
 };
+

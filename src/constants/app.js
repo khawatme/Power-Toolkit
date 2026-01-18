@@ -7,7 +7,7 @@
  * The current version number of the toolkit.
  * @type {string}
  */
-export const TOOL_VERSION = '3.0.0';
+export const TOOL_VERSION = '4.0.0';
 
 /**
  * The name of the application's author.

@@ -46,6 +46,7 @@ export class SolutionLayersTab extends BaseComponent {
      * Renders the component's HTML structure.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.className = 'pdt-full-height-column';
@@ -425,20 +426,20 @@ export class SolutionLayersTab extends BaseComponent {
             let aVal, bVal;
 
             switch (this.sortColumn) {
-            case 'schemaName':
-                aVal = (a.schemaName || '').toLowerCase();
-                bVal = (b.schemaName || '').toLowerCase();
-                break;
-            case 'name':
-                aVal = (a.msdyn_name || '').toLowerCase();
-                bVal = (b.msdyn_name || '').toLowerCase();
-                break;
-            case 'componentType':
-                aVal = (a.componentTypeName || '').toLowerCase();
-                bVal = (b.componentTypeName || '').toLowerCase();
-                break;
-            default:
-                return 0;
+                case 'schemaName':
+                    aVal = (a.schemaName || '').toLowerCase();
+                    bVal = (b.schemaName || '').toLowerCase();
+                    break;
+                case 'name':
+                    aVal = (a.msdyn_name || '').toLowerCase();
+                    bVal = (b.msdyn_name || '').toLowerCase();
+                    break;
+                case 'componentType':
+                    aVal = (a.componentTypeName || '').toLowerCase();
+                    bVal = (b.componentTypeName || '').toLowerCase();
+                    break;
+                default:
+                    return 0;
             }
 
             if (aVal < bVal) {

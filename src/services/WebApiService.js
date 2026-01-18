@@ -37,6 +37,118 @@ function _buildHttpError(resp, body) {
     return error;
 }
 
+/**
+ * Resolve entity logical name to entity set name for Web API.
+ * @private
+ * @param {string} logicalName - Entity logical name or path
+ * @param {Function} getEntitySetName - Metadata service function
+ * @returns {string} Resolved entity set name or path
+ */
+function _resolveEntitySetName(logicalName, getEntitySetName) {
+    const isSpecialCall = Config.DATAVERSE_SPECIAL_ENDPOINTS.some(e => logicalName.startsWith(e));
+    if (isSpecialCall) {
+        return logicalName;
+    }
+
+    const hasRecordId = logicalName.includes('(') && logicalName.includes(')');
+
+    if (!hasRecordId) {
+        const resolvedSetName = getEntitySetName(logicalName);
+        if (resolvedSetName) {
+            return resolvedSetName;
+        }
+        return logicalName.endsWith('s') ? logicalName : `${logicalName}s`;
+    }
+
+    const match = logicalName.match(/^([^(]+)(\(.+\))$/);
+    if (!match) {
+        return logicalName;
+    }
+
+    const [, entityName, idPart] = match;
+    const resolvedSetName = getEntitySetName(entityName);
+
+    if (resolvedSetName) {
+        return `${resolvedSetName}${idPart}`;
+    }
+
+    return entityName.endsWith('s') ? logicalName : `${entityName}s${idPart}`;
+}
+
+/**
+ * Build Web API URL with query string.
+ * @private
+ * @param {string} baseUrl - Base API URL
+ * @param {string} resource - Resource path
+ * @param {string} queryString - Query string
+ * @returns {string} Complete URL
+ */
+function _buildApiUrl(baseUrl, resource, queryString) {
+    let qs = queryString || '';
+    if (qs && !qs.startsWith('?')) {
+        qs = `?${qs}`;
+    }
+    return `${baseUrl}/${resource}${qs}`;
+}
+
+/**
+ * Build request headers with impersonation support.
+ * @private
+ * @param {HeadersInit} customHeaders - Custom headers
+ * @param {string|null} impersonatedUserId - User ID for impersonation
+ * @returns {HeadersInit} Complete headers object
+ */
+function _buildRequestHeaders(customHeaders, impersonatedUserId) {
+    const headers = {
+        ...Config.WEB_API_HEADERS.STANDARD,
+        ...customHeaders
+    };
+
+    if (impersonatedUserId) {
+        headers[Config.WEB_API_HEADERS.IMPERSONATION_HEADER] = impersonatedUserId;
+    }
+
+    return headers;
+}
+
+/**
+ * Parse response and extract data or ID.
+ * @private
+ * @param {Response} resp - Fetch response
+ * @param {string} text - Response body text
+ * @returns {object} Parsed response data
+ */
+function _parseResponse(resp, text) {
+    if (text) {
+        return JSON.parse(text);
+    }
+
+    const id = resp.headers.get('OData-EntityId')?.match(/\(([^)]+)\)/)?.[1];
+    if (id) {
+        return { id };
+    }
+
+    return {};
+}
+
+/**
+ * Generate a unique identifier for batch boundaries.
+ * Uses crypto.randomUUID() when available, falls back to custom implementation.
+ * @private
+ * @returns {string} Unique identifier
+ */
+function _generateUniqueId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 export const WebApiService = {
     /**
      * Core Web API fetch with impersonation support.
@@ -53,55 +165,9 @@ export const WebApiService = {
         const globalContext = PowerAppsApiService.getGlobalContext();
         const baseUrl = `${globalContext.getClientUrl()}/api/data/v9.2`;
 
-        // Check for special endpoints that don't need entity set resolution
-        const isSpecialCall = Config.DATAVERSE_SPECIAL_ENDPOINTS.some(e => logicalName.startsWith(e));
-
-        // Check if path already includes record ID (e.g., "systemform(guid)" or "systemforms(guid)")
-        const hasRecordId = logicalName.includes('(') && logicalName.includes(')');
-
-        let resource = logicalName;
-
-        if (!isSpecialCall && !hasRecordId) {
-            // Simple entity name without ID - convert normally
-            const resolvedSetName = getEntitySetName(logicalName);
-            if (resolvedSetName) {
-                resource = resolvedSetName;
-            } else if (!logicalName.endsWith('s')) {
-                resource = `${logicalName}s`; // Fallback pluralization
-            }
-        } else if (!isSpecialCall && hasRecordId) {
-            // Path with ID like "systemform(guid)" - extract entity name, convert it, then re-append ID
-            const match = logicalName.match(/^([^(]+)(\(.+\))$/);
-            if (match) {
-                const [, entityName, idPart] = match;
-                const resolvedSetName = getEntitySetName(entityName);
-                if (resolvedSetName) {
-                    resource = `${resolvedSetName}${idPart}`;
-                } else if (!entityName.endsWith('s')) {
-                    resource = `${entityName}s${idPart}`; // Fallback pluralization
-                }
-                // else: already correct (like "systemforms(guid)"), use as-is
-            }
-        }
-
-        let qs = queryString || '';
-        if (qs && !qs.startsWith('?')) {
-            qs = `?${qs}`;
-        }
-
-        const url = `${baseUrl}/${resource}${qs}`;
-
-        const headers = {
-            'OData-MaxVersion': '4.0',
-            'OData-Version': '4.0',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json; charset=utf-8',
-            ...customHeaders
-        };
-
-        if (impersonatedUserId) {
-            headers['MSCRMCallerID'] = impersonatedUserId;
-        }
+        const resource = _resolveEntitySetName(logicalName, getEntitySetName);
+        const url = _buildApiUrl(baseUrl, resource, queryString);
+        const headers = _buildRequestHeaders(customHeaders, impersonatedUserId);
 
         const fetchOptions = { method, headers };
         if (data) {
@@ -116,18 +182,7 @@ export const WebApiService = {
         }
 
         const text = await resp.text();
-        if (text) {
-            const json = JSON.parse(text);
-            return json;
-        }
-
-        // Handle 204 No Content or empty responses
-        const id = resp.headers.get('OData-EntityId')?.match(/\(([^)]+)\)/)?.[1];
-        if (id) {
-            return { id };
-        }
-
-        return {};
+        return _parseResponse(resp, text);
     },
 
     /**
@@ -136,14 +191,20 @@ export const WebApiService = {
      * @param {string} entity - Entity name
      * @param {string} options - Query options
      * @param {HeadersInit} customHeaders - Custom headers
-     * @returns {Promise<{entities: any[], nextLink?: string}>}
+     * @returns {Promise<{entities: any[], nextLink?: string, count?: number}>}
      */
     async retrieveMultipleRecords(webApiFetch, entity, options, customHeaders = {}) {
         const result = await webApiFetch('GET', entity, options, null, customHeaders);
-        return {
+        const response = {
             entities: result.value || [],
             nextLink: result['@odata.nextLink']
         };
+
+        if (result['@odata.count'] !== undefined) {
+            response.count = result['@odata.count'];
+        }
+
+        return response;
     },
 
     /**
@@ -154,6 +215,7 @@ export const WebApiService = {
      * @param {string} options - Query options
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async retrieveRecord(webApiFetch, entity, id, options = '') {
         return webApiFetch('GET', `${entity}(${id})`, options);
     },
@@ -165,6 +227,7 @@ export const WebApiService = {
      * @param {object} data - Record data
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async createRecord(webApiFetch, entity, data) {
         return webApiFetch('POST', entity, '', data);
     },
@@ -177,6 +240,7 @@ export const WebApiService = {
      * @param {object} data - Update data
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async updateRecord(webApiFetch, entity, id, data) {
         return webApiFetch('PATCH', `${entity}(${id})`, '', data);
     },
@@ -188,6 +252,7 @@ export const WebApiService = {
      * @param {string} id - Record ID
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async deleteRecord(webApiFetch, entity, id) {
         return webApiFetch('DELETE', `${entity}(${id})`);
     },
@@ -198,7 +263,7 @@ export const WebApiService = {
      * @param {string} entityName - Entity name
      * @param {string} fetchXml - FetchXML query
      * @param {HeadersInit} customHeaders - Custom headers
-     * @returns {Promise<{entities: any[]}>}
+     * @returns {Promise<{entities: any[], pagingCookie?: string, moreRecords?: boolean}>}
      */
     async executeFetchXml(webApiFetch, entityName, fetchXml, customHeaders = {}) {
         const result = await webApiFetch(
@@ -208,7 +273,11 @@ export const WebApiService = {
             null,
             customHeaders
         );
-        return { entities: result.value || [] };
+        return {
+            entities: result.value || [],
+            pagingCookie: result['@Microsoft.Dynamics.CRM.fetchxmlpagingcookie'],
+            moreRecords: result['@Microsoft.Dynamics.CRM.morerecords'] || false
+        };
     },
 
     /**
@@ -228,15 +297,12 @@ export const WebApiService = {
         const apiUrl = `${globalContext.getClientUrl()}/api/data/v9.2/plugintracelogs${queryString}`;
 
         const headers = {
-            'OData-MaxVersion': '4.0',
-            'OData-Version': '4.0',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json; charset=utf-8',
+            ...Config.WEB_API_HEADERS.STANDARD,
             'Prefer': `odata.maxpagesize=${pageSize}`
         };
 
         if (impersonatedUserId) {
-            headers['MSCRMCallerID'] = impersonatedUserId;
+            headers[Config.WEB_API_HEADERS.IMPERSONATION_HEADER] = impersonatedUserId;
         }
 
         const resp = await fetch(apiUrl, { method: 'GET', headers });
@@ -253,5 +319,110 @@ export const WebApiService = {
             entities: json.value || [],
             nextLink: json['@odata.nextLink']
         };
+    },
+
+    /**
+     * Execute a batch of operations using OData $batch endpoint.
+     * This bundles multiple PATCH/POST/DELETE operations into a single HTTP request.
+     *
+     * @param {Array<{method: 'PATCH'|'POST'|'DELETE', entitySet: string, id?: string, data?: object}>} operations - Array of operations
+     * @param {string|null} impersonatedUserId - Impersonation user ID
+     * @returns {Promise<{successCount: number, failCount: number, errors: Array<{index: number, error: string}>}>}
+     * @throws {Error} If operations array exceeds Dataverse limit of 1000
+     */
+    async executeBatch(operations, impersonatedUserId = null) {
+        if (!operations || operations.length === 0) {
+            return { successCount: 0, failCount: 0, errors: [] };
+        }
+
+        if (operations.length > 1000) {
+            throw new Error(`Batch operation limit exceeded: ${operations.length} operations provided, maximum is 1000`);
+        }
+
+        const globalContext = PowerAppsApiService.getGlobalContext();
+        const baseUrl = `${globalContext.getClientUrl()}/api/data/v9.2`;
+        const batchUrl = `${baseUrl}/$batch`;
+        const batchBoundary = `batch_${_generateUniqueId()}`;
+
+        const parts = [];
+
+        for (const op of operations) {
+            let resourcePath = op.entitySet;
+            if (op.id) {
+                resourcePath = `${op.entitySet}(${op.id})`;
+            }
+
+            const requestLines = [];
+            requestLines.push(`${op.method} /api/data/v9.2/${resourcePath} HTTP/1.1`);
+            requestLines.push('Content-Type: application/json; type=entry');
+            requestLines.push('');
+
+            if (op.data) {
+                const jsonData = JSON.stringify(op.data);
+                requestLines.push(jsonData);
+            }
+
+            const requestContent = requestLines.join('\r\n');
+
+            const part = [
+                `--${batchBoundary}`,
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                requestContent
+            ].join('\r\n');
+
+            parts.push(part);
+        }
+
+        const batchBody = parts.join('\r\n') + '\r\n' + `--${batchBoundary}--` + '\r\n';
+
+        const headers = {
+            ...Config.WEB_API_HEADERS.STANDARD,
+            'Content-Type': `multipart/mixed; boundary="${batchBoundary}"`,
+            'Prefer': 'odata.continue-on-error'
+        };
+
+        if (impersonatedUserId) {
+            headers[Config.WEB_API_HEADERS.IMPERSONATION_HEADER] = impersonatedUserId;
+        }
+
+        const resp = await fetch(batchUrl, {
+            method: 'POST',
+            headers,
+            body: batchBody
+        });
+
+        const responseText = await resp.text();
+
+        let successCount = 0;
+        let failCount = 0;
+        const errors = [];
+        const statusMatches = [...responseText.matchAll(/HTTP\/1\.\d\s+(\d{3})\s+[^\r\n]+/g)];
+
+        statusMatches.forEach((match, index) => {
+            const statusCode = parseInt(match[1], 10);
+            if (statusCode >= 200 && statusCode < 300) {
+                successCount++;
+            } else {
+                failCount++;
+                const afterStatus = responseText.substring(match.index);
+                const errorMessageMatch = afterStatus.match(/"message"\s*:\s*"([^"]+)"/);
+                errors.push({
+                    index,
+                    error: errorMessageMatch ? errorMessageMatch[1] : `HTTP ${statusCode}`
+                });
+            }
+        });
+
+        if (statusMatches.length === 0 && resp.ok) {
+            successCount = operations.length;
+        } else if (statusMatches.length === 0 && !resp.ok) {
+            failCount = operations.length;
+            const errorBody = responseText.substring(0, 500);
+            errors.push({ index: -1, error: `Batch request failed: HTTP ${resp.status}. ${errorBody}` });
+        }
+
+        return { successCount, failCount, errors };
     }
 };

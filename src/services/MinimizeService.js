@@ -107,8 +107,8 @@ export const MinimizeService = {
 
         // Type check for safety
         if (typeof currentState !== 'boolean') {
-            console.warn('MinimizeService: Invalid minimized state', currentState);
-            Store.setState({ isMinimized: false }); // Reset to known state
+            // Reset to known state on invalid state
+            Store.setState({ isMinimized: false });
             return;
         }
 
@@ -155,10 +155,8 @@ export const MinimizeService = {
             await this._applyMinimizedState(true);
             this._updateButtonState(true);
 
-        } catch (error) {
+        } catch (_e) {
             NotificationService.show(MINIMIZE_SERVICE.messages.minimizeFailed, 'error');
-            console.error('MinimizeService: Minimize failed', error);
-
             Store.setState({ isMinimized: false });
         } finally {
             this._isAnimating = false;
@@ -195,10 +193,8 @@ export const MinimizeService = {
             await this._applyRestoredState(true);
             this._updateButtonState(false);
 
-        } catch (error) {
+        } catch (_e) {
             NotificationService.show(MINIMIZE_SERVICE.messages.restoreFailed, 'error');
-            console.error('MinimizeService: Restore failed', error);
-
             Store.setState({ isMinimized: true });
         } finally {
             this._isAnimating = false;

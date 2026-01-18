@@ -42,6 +42,7 @@ export const SolutionLayersService = {
      * @param {boolean} isManaged - Whether the solution is managed
      * @returns {Promise<Array<object>>} Array of component objects that are part of the solution
      */
+    // eslint-disable-next-line max-lines-per-function
     async getSolutionLayers(solutionId, solutionUniqueName, isManaged = false) {
         try {
             let publisherName = 'Unknown Publisher';
@@ -135,6 +136,7 @@ export const SolutionLayersService = {
                 };
             });
 
+            // eslint-disable-next-line require-await
             const enhanced = await Promise.all(components.map(async (comp) => {
                 const componentForExtraction = {
                     msdyn_componenttype: comp.componentType,

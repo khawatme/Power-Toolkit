@@ -16,3 +16,5 @@ bundle-stats.json
 /package-lock.json
 
 /.github
+
+/coverage

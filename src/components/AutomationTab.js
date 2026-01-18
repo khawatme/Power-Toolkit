@@ -45,6 +45,7 @@ export class AutomationTab extends BaseComponent {
      * Renders the component's initial HTML structure, including placeholders for the entity selector and lists.
      * @returns {Promise<HTMLElement>} The root element of the component.
      */
+    // eslint-disable-next-line require-await
     async render() {
         const container = document.createElement('div');
         container.innerHTML = `
@@ -161,6 +162,7 @@ export class AutomationTab extends BaseComponent {
      * and displaying data for the current context if available.
      * @private
      */
+    // eslint-disable-next-line require-await
     async _initialize() {
         // Set the default message, ensuring the section is visible
         if (!this.ui.eventsContainer.querySelector('.pdt-note')) {
@@ -267,7 +269,9 @@ export class AutomationTab extends BaseComponent {
                     let formatted = clientCode;
                     try {
                         formatted = js_beautify(clientCode, { indent_size: 2, space_in_empty_paren: true });
-                    } catch { }
+                    } catch {
+                        // Intentionally ignored - use unformatted code
+                    }
                     detailsPanel.appendChild(UIFactory.createCopyableCodeBlock(formatted, 'javascript'));
                 } catch (err) {
                     const msg = escapeHtml(err?.message || String(err));
@@ -365,7 +369,9 @@ export class AutomationTab extends BaseComponent {
         try {
             try {
                 DataService.clearCache(`businessRules_${this.selectedEntity}`);
-            } catch { }
+            } catch {
+                // Intentionally ignored - cache clear is optional
+            }
             this.rules = await DataService.getBusinessRulesForEntity(this.selectedEntity);
             if (myToken !== this._loadToken) {
                 return;

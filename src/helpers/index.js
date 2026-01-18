@@ -87,6 +87,7 @@ export const Helpers = {
     normalizeMoney: DataverseHelpers.normalizeMoney.bind(DataverseHelpers),
     normalizeNumber: DataverseHelpers.normalizeNumber.bind(DataverseHelpers),
     filterSystemFields: DataverseHelpers.filterSystemFields.bind(DataverseHelpers),
+    inferDataverseType: DataverseHelpers.inferDataverseType.bind(DataverseHelpers),
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // ODATA UTILITIES (from ODataHelpers)
@@ -188,6 +189,7 @@ export const normalizeDateTime = DataverseHelpers.normalizeDateTime.bind(Dataver
 export const normalizeMoney = DataverseHelpers.normalizeMoney.bind(DataverseHelpers);
 export const normalizeNumber = DataverseHelpers.normalizeNumber.bind(DataverseHelpers);
 export const filterSystemFields = DataverseHelpers.filterSystemFields.bind(DataverseHelpers);
+export const inferDataverseType = DataverseHelpers.inferDataverseType.bind(DataverseHelpers);
 
 // OData utilities
 export const escapeODataString = ODataHelpers.escapeODataString.bind(ODataHelpers);

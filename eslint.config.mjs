@@ -1,3 +1,5 @@
+import unusedImports from 'eslint-plugin-unused-imports';
+
 export default [
     {
         ignores: [
@@ -10,6 +12,9 @@ export default [
     },
     {
         files: ['src/**/*.js'],
+        plugins: {
+            'unused-imports': unusedImports
+        },
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'module',
@@ -23,6 +28,22 @@ export default [
                 setInterval: 'readonly',
                 clearInterval: 'readonly',
                 requestAnimationFrame: 'readonly',
+                alert: 'readonly',
+                navigator: 'readonly',
+                localStorage: 'readonly',
+                sessionStorage: 'readonly',
+                fetch: 'readonly',
+                URL: 'readonly',
+                Blob: 'readonly',
+                FileReader: 'readonly',
+                DOMParser: 'readonly',
+                HTMLElement: 'readonly',
+                Event: 'readonly',
+                Option: 'readonly',
+                MutationObserver: 'readonly',
+                ResizeObserver: 'readonly',
+                AbortController: 'readonly',
+                crypto: 'readonly',
                 // Power Apps/Dynamics 365 globals
                 Xrm: 'readonly',
                 GetGlobalContext: 'readonly',
@@ -31,7 +52,10 @@ export default [
         },
         rules: {
             // Indentation and formatting
-            'indent': ['error', 4],
+            'indent': ['error', 4, {
+                'SwitchCase': 1,
+                'ignoredNodes': ['TemplateLiteral *']
+            }],
             'quotes': ['error', 'single', { 'avoidEscape': true }],
             'semi': ['error', 'always'],
             'comma-dangle': ['error', 'never'],
@@ -52,12 +76,43 @@ export default [
 
             // Best practices
             'eqeqeq': ['error', 'always'],
-            'no-var': 'warn',
-            'prefer-const': 'warn',
-            'no-unused-vars': ['warn', {
+            'no-var': 'error',
+            'prefer-const': 'error',
+            'no-unused-vars': 'off', // Replaced by unused-imports/no-unused-vars
+            'unused-imports/no-unused-imports': 'error',
+            'unused-imports/no-unused-vars': ['error', {
+                'vars': 'all',
+                'varsIgnorePattern': '^_',
+                'args': 'after-used',
                 'argsIgnorePattern': '^_',
+                'caughtErrors': 'all',
                 'caughtErrorsIgnorePattern': '^_'
             }],
+            'no-undef': 'error',
+            'no-shadow': ['warn', { 'builtinGlobals': false }],
+            'no-use-before-define': ['warn', { 'functions': false, 'classes': true, 'variables': true }],
+            'consistent-return': 'warn',
+            'no-else-return': ['warn', { 'allowElseIf': false }],
+            'prefer-arrow-callback': ['warn', { 'allowNamedFunctions': false }],
+
+            // Error prevention
+            'no-unreachable': 'error',
+            'no-constant-condition': 'error',
+            'no-duplicate-imports': 'error',
+            'no-self-assign': 'error',
+            'no-useless-return': 'warn',
+            'no-empty': 'warn',
+            'no-extra-boolean-cast': 'error',
+            'no-unused-expressions': ['error', { 'allowShortCircuit': true, 'allowTernary': true }],
+            'require-await': 'warn',
+            'no-return-await': 'warn',
+            'no-throw-literal': 'error',
+
+            // Code quality
+            'max-len': ['warn', { 'code': 150, 'ignoreStrings': true, 'ignoreTemplateLiterals': true, 'ignoreComments': true }],
+            'max-lines-per-function': ['warn', { 'max': 150, 'skipBlankLines': true, 'skipComments': true }],
+            'complexity': ['warn', 20],
+            'max-depth': ['warn', 5],
 
             // Development
             'no-console': 'off',

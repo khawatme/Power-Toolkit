@@ -59,7 +59,7 @@ module.exports = (env, argv) => {
                     { from: 'extension/icons', to: 'extension/icons' }
                 ],
             }),
-
+            /*
             new BundleAnalyzerPlugin({
                 analyzerMode: 'static',
                 openAnalyzer: false,
@@ -67,6 +67,7 @@ module.exports = (env, argv) => {
                 generateStatsFile: true,
                 statsFilename: '../bundle-stats.json'
             }),
+            */
         ],
         devtool: isProduction ? 'source-map' : 'inline-source-map',
     };

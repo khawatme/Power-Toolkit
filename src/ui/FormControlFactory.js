@@ -51,57 +51,100 @@ export const FormControlFactory = {
      * @returns {string} The HTML string for the generated form control.
      */
     create(attrType, currentValue, attribute) {
-        switch (attrType) {
-        case 'memo':
-            return `<textarea id="pdt-prompt-input" class="pdt-textarea" rows="4">${escapeHtml(currentValue ?? '')}</textarea>`;
+        const controlCreators = {
+            memo: () => this._createTextarea(currentValue),
+            boolean: () => this._createBooleanSelect(currentValue),
+            optionset: () => this._createOptionsetSelect(currentValue, attribute),
+            multiselectoptionset: () => this._createOptionsetSelect(currentValue, attribute),
+            datetime: () => this._createDatetimeInput(currentValue),
+            money: () => this._createNumberInput(currentValue),
+            decimal: () => this._createNumberInput(currentValue),
+            double: () => this._createNumberInput(currentValue),
+            integer: () => this._createNumberInput(currentValue),
+            bigint: () => this._createNumberInput(currentValue),
+            lookup: () => this._createReadonlyInput(currentValue),
+            customer: () => this._createReadonlyInput(currentValue),
+            owner: () => this._createReadonlyInput(currentValue)
+        };
 
-        case 'boolean':
-            return `<select id="pdt-prompt-input" class="pdt-select">
-                            <option value="true" ${currentValue === true ? 'selected' : ''}>True</option>
-                            <option value="false" ${currentValue === false ? 'selected' : ''}>False</option>
-                            <option value="null" ${currentValue === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>
-                        </select>`;
+        const creator = controlCreators[attrType];
+        return creator ? creator() : this._createTextInput(currentValue);
+    },
 
-        case 'optionset':
-        case 'multiselectoptionset':
-            if (attribute && typeof attribute.getOptions === 'function') {
-                const isRequired = attribute.getRequiredLevel?.() === Config.FORM_CONTROL_LABELS.requiredLevel.required;
-                const options = attribute.getOptions();
+    /**
+     * Create textarea control
+     * @private
+     */
+    _createTextarea(value) {
+        return `<textarea id="pdt-prompt-input" class="pdt-textarea" rows="4" spellcheck="false">${escapeHtml(value ?? '')}</textarea>`;
+    },
 
-                let optionsHtml = isRequired ? '' : `<option value="null" ${currentValue === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>`;
+    /**
+     * Create boolean select control
+     * @private
+     */
+    _createBooleanSelect(value) {
+        return `<select id="pdt-prompt-input" class="pdt-select">
+                    <option value="true" ${value === true ? 'selected' : ''}>True</option>
+                    <option value="false" ${value === false ? 'selected' : ''}>False</option>
+                    <option value="null" ${value === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>
+                </select>`;
+    },
 
-                optionsHtml += options.map(opt => {
-                    if (opt.value === null) {
-                        return '';
-                    }
-                    const isSelected = String(opt.value) === String(currentValue);
-                    return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${escapeHtml(opt.text)} (${opt.value})</option>`;
-                }).join('');
+    /**
+     * Create optionset select control
+     * @private
+     */
+    _createOptionsetSelect(value, attribute) {
+        if (attribute && typeof attribute.getOptions === 'function') {
+            const isRequired = attribute.getRequiredLevel?.() === Config.FORM_CONTROL_LABELS.requiredLevel.required;
+            const options = attribute.getOptions();
 
-                return `<select id="pdt-prompt-input" class="pdt-select">${optionsHtml}</select>`;
-            }
-            // Fallback for optionsets without the full attribute object
-            return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? '')}" placeholder="${Config.FORM_CONTROL_LABELS.optionsetPlaceholder}">`;
+            let optionsHtml = isRequired ? '' : `<option value="null" ${value === null ? 'selected' : ''}>${Config.FORM_CONTROL_LABELS.clearValue}</option>`;
 
-        case 'datetime':
-            return `<input type="datetime-local" id="pdt-prompt-input" class="pdt-input" value="${_toLocalISOString(currentValue)}">`;
+            optionsHtml += options.map(opt => {
+                if (opt.value === null) {
+                    return '';
+                }
+                const isSelected = String(opt.value) === String(value);
+                return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${escapeHtml(opt.text)} (${opt.value})</option>`;
+            }).join('');
 
-        case 'money':
-        case 'decimal':
-        case 'double':
-        case 'integer':
-        case 'bigint':
-            return `<input type="number" id="pdt-prompt-input" class="pdt-input" value="${currentValue ?? ''}" step="any">`;
-
-            // Lookup types (customer, owner, lookup) are typically read-only in this context
-            // but provide a text input for edge cases where they might be editable
-        case 'lookup':
-        case 'customer':
-        case 'owner':
-            return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? '')}" readonly>`;
-
-        default: // Handles 'string' and other types
-            return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(currentValue ?? '')}">`;
+            return `<select id="pdt-prompt-input" class="pdt-select">${optionsHtml}</select>`;
         }
+        // Fallback for optionsets without the full attribute object
+        return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(value ?? '')}" placeholder="${Config.FORM_CONTROL_LABELS.optionsetPlaceholder}">`;
+    },
+
+    /**
+     * Create datetime input control
+     * @private
+     */
+    _createDatetimeInput(value) {
+        return `<input type="datetime-local" id="pdt-prompt-input" class="pdt-input" value="${_toLocalISOString(value)}">`;
+    },
+
+    /**
+     * Create number input control
+     * @private
+     */
+    _createNumberInput(value) {
+        return `<input type="number" id="pdt-prompt-input" class="pdt-input" value="${value ?? ''}" step="any">`;
+    },
+
+    /**
+     * Create readonly input control
+     * @private
+     */
+    _createReadonlyInput(value) {
+        return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(value ?? '')}" readonly>`;
+    },
+
+    /**
+     * Create text input control (default)
+     * @private
+     */
+    _createTextInput(value) {
+        return `<input type="text" id="pdt-prompt-input" class="pdt-input" value="${escapeHtml(value ?? '')}">`;
     }
 };

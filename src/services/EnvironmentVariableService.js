@@ -170,6 +170,7 @@ export const EnvironmentVariableService = {
      * @param {string} definitionSchemaName - Definition schema name
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async setEnvironmentVariableValue(updateRecord, webApiFetch, definitionId, valueId, newValue, definitionSchemaName) {
         const payload = { value: newValue };
 
@@ -193,6 +194,7 @@ export const EnvironmentVariableService = {
      * @param {string} newDefault - New default value
      * @returns {Promise<object>}
      */
+    // eslint-disable-next-line require-await
     async setEnvironmentVariableDefault(updateRecord, definitionId, newDefault) {
         return updateRecord('environmentvariabledefinition', definitionId, {
             defaultvalue: newDefault

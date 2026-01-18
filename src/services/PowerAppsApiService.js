@@ -60,7 +60,9 @@ export const PowerAppsApiService = {
      * Gets the form type for the current page.
      * @returns {number} The form type (e.g., Config.FORM_TYPES.UPDATE, Config.FORM_TYPES.CREATE), or 0 if not on a form.
      */
-    getFormType: () => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.ui.getFormType() : Config.POWERAPPS_API_DEFAULTS.formType,
+    getFormType: () => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.ui.getFormType()
+        : Config.POWERAPPS_API_DEFAULTS.formType,
 
     /**
      * Gets the GUID of the current form definition.
@@ -78,7 +80,9 @@ export const PowerAppsApiService = {
      * Gets the logical name of the table for the current form.
      * @returns {string|null} The entity's logical name, or null if not on a form.
      */
-    getEntityName: () => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.data.entity.getEntityName() : Config.POWERAPPS_API_DEFAULTS.entityName,
+    getEntityName: () => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.data.entity.getEntityName()
+        : Config.POWERAPPS_API_DEFAULTS.entityName,
 
     /**
      * Gets the GUID of the record currently displayed on the form.
@@ -96,26 +100,34 @@ export const PowerAppsApiService = {
      * Gets all attribute objects from the current form.
      * @returns {Xrm.Attributes.Attribute[]} An array of all attribute objects, or an empty array if not on a form.
      */
-    getAllAttributes: () => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.data.entity.attributes.get() : Config.POWERAPPS_API_DEFAULTS.emptyArray,
+    getAllAttributes: () => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.data.entity.attributes.get()
+        : Config.POWERAPPS_API_DEFAULTS.emptyArray,
 
     /**
      * Gets all control objects from the current form.
      * @returns {Xrm.Controls.Control[]} An array of all control objects, or an empty array if not on a form.
      */
-    getAllControls: () => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.ui.controls.get() : Config.POWERAPPS_API_DEFAULTS.emptyArray,
+    getAllControls: () => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.ui.controls.get()
+        : Config.POWERAPPS_API_DEFAULTS.emptyArray,
 
     /**
      * Gets all tab objects from the current form.
      * @returns {Xrm.Controls.Tab[]} An array of all tab objects, or an empty array if not on a form.
      */
-    getAllTabs: () => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.ui.tabs.get() : Config.POWERAPPS_API_DEFAULTS.emptyArray,
+    getAllTabs: () => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.ui.tabs.get()
+        : Config.POWERAPPS_API_DEFAULTS.emptyArray,
 
     /**
      * Refreshes the form data, optionally saving changes first.
      * @param {boolean} save - True to save dirty data before refreshing.
      * @returns {Promise<void>} A promise that resolves when the refresh is complete.
      */
-    refreshForm: (save) => PowerAppsApiService.isFormContextAvailable ? _getCorrectXrmContext().Page.data.refresh(save) : Config.POWERAPPS_API_DEFAULTS.promise,
+    refreshForm: (save) => PowerAppsApiService.isFormContextAvailable
+        ? _getCorrectXrmContext().Page.data.refresh(save)
+        : Config.POWERAPPS_API_DEFAULTS.promise,
 
     /**
      * Adds a handler to the form's OnLoad event.
