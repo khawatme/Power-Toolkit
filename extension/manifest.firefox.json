@@ -1,0 +1,59 @@
+{
+    "manifest_version": 3,
+    "name": "Power-Toolkit for Power Apps",
+    "version": "4.0.0",
+    "description": "A client-side toolkit for Power Apps and Dynamics365 developers to inspect, debug, and manipulate data.",
+    "author": "Mohammed Khawatme",
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "permissions": [
+        "scripting",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "https://*.dynamics.com/*",
+        "https://make.powerapps.com/*",
+        "https://apps.powerapps.com/*"
+    ],
+    "action": {
+        "default_icon": {
+            "48": "icons/icon48.png"
+        },
+        "default_title": "Launch Power-Toolkit"
+    },
+    "background": {
+        "scripts": [
+            "background.js"
+        ],
+        "type": "module"
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "power-toolkit.js"
+            ],
+            "matches": [
+                "https://*.dynamics.com/*",
+                "https://make.powerapps.com/*",
+                "https://apps.powerapps.com/*"
+            ]
+        }
+    ],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'"
+    },
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "{c9c9a8b2-6fda-4a27-8d6a-3c4e4c74c5a1}",
+            "strict_min_version": "140.0",
+            "data_collection_permissions": {
+                "required": [
+                    "none"
+                ]
+            }
+        }
+    }
+}

@@ -2,6 +2,14 @@
  * @file Webpack configuration for the Power-Toolkit project.
  * @description This file configures how the source code is bundled, transpiled,
  * and optimized for both development and production environments.
+ * 
+ * Supports multiple browsers via the --env webpack CLI flag:
+ * - webpack --env browser=chrome (default): Builds for Chrome/Edge with service_worker background
+ * - webpack --env browser=firefox: Builds for Firefox with background scripts
+ * 
+ * Usage examples:
+ * - npm run build (defaults to Chrome/Edge)
+ * - npm run build:firefox (uses --env browser=firefox)
  */
 
 const path = require('path');
@@ -11,11 +19,28 @@ const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 module.exports = (env, argv) => {
     const isProduction = argv.mode === 'production';
+    const targetBrowser = env?.browser || 'chrome';
+
+    // Determine output directory based on target browser
+    const getOutputPath = () => {
+        if (targetBrowser === 'firefox') {
+            return path.resolve(__dirname, 'dist-firefox');
+        }
+        return path.resolve(__dirname, 'dist');
+    };
+
+    // Get the appropriate manifest file
+    const getManifestSource = () => {
+        if (targetBrowser === 'firefox') {
+            return 'extension/manifest.firefox.json';
+        }
+        return 'extension/manifest.json';
+    };
 
     return {
         entry: './src/Main.js',
         output: {
-            path: path.resolve(__dirname, 'dist'),
+            path: getOutputPath(),
             filename: 'extension/power-toolkit.js',
             clean: true,
         },
@@ -54,7 +79,10 @@ module.exports = (env, argv) => {
         plugins: [
             new CopyPlugin({
                 patterns: [
-                    { from: 'extension/manifest.json', to: 'extension/manifest.json' },
+                    {
+                        from: getManifestSource(),
+                        to: 'extension/manifest.json'
+                    },
                     { from: 'extension/background.js', to: 'extension/background.js' },
                     { from: 'extension/icons', to: 'extension/icons' }
                 ],
