@@ -50,7 +50,9 @@
             "id": "{c9c9a8b2-6fda-4a27-8d6a-3c4e4c74c5a1}",
             "strict_min_version": "140.0",
             "data_collection_permissions": {
-                "required": ["none"]
+                "required": [
+                    "none"
+                ]
             }
         }
     }

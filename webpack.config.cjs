@@ -79,9 +79,9 @@ module.exports = (env, argv) => {
         plugins: [
             new CopyPlugin({
                 patterns: [
-                    { 
-                        from: getManifestSource(), 
-                        to: 'extension/manifest.json' 
+                    {
+                        from: getManifestSource(),
+                        to: 'extension/manifest.json'
                     },
                     { from: 'extension/background.js', to: 'extension/background.js' },
                     { from: 'extension/icons', to: 'extension/icons' }

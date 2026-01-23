@@ -62,37 +62,37 @@ describe('Background Script - Browser Compatibility', () => {
     describe('Browser Detection', () => {
         it('should detect Chrome environment', () => {
             global.chrome = mockChrome;
-            
+
             const isChrome = typeof chrome !== 'undefined' && !!chrome.runtime;
             expect(isChrome).toBe(true);
         });
 
         it('should detect Firefox environment', () => {
             global.browser = mockBrowser;
-            
-            const isFirefox = typeof browser !== 'undefined' && 
-                             typeof browser.runtime?.getBrowserInfo === 'function';
+
+            const isFirefox = typeof browser !== 'undefined' &&
+                typeof browser.runtime?.getBrowserInfo === 'function';
             expect(isFirefox).toBe(true);
         });
 
         it('should prefer browser namespace over chrome in Firefox', () => {
             global.chrome = mockChrome;
             global.browser = mockBrowser;
-            
-            const browserAPI = typeof browser !== 'undefined' && browser.runtime 
-                ? browser 
+
+            const browserAPI = typeof browser !== 'undefined' && browser.runtime
+                ? browser
                 : chrome;
-            
+
             expect(browserAPI).toBe(mockBrowser);
         });
 
         it('should fallback to chrome namespace when browser is undefined', () => {
             global.chrome = mockChrome;
-            
-            const browserAPI = typeof browser !== 'undefined' && browser.runtime 
-                ? browser 
+
+            const browserAPI = typeof browser !== 'undefined' && browser.runtime
+                ? browser
                 : chrome;
-            
+
             expect(browserAPI).toBe(mockChrome);
         });
     });
@@ -162,21 +162,21 @@ describe('Background Script - Browser Compatibility', () => {
                     // Fails silently on cross-origin iframes
                 }
             };
-            
+
             cleanup(window);
             for (let i = 0; i < window.frames.length; i++) {
                 cleanup(window.frames[i]);
             }
 
             const isModelDrivenApp = (win) => typeof win.Xrm?.Utility !== 'undefined';
-            
+
             if (isModelDrivenApp(window)) return 'CAN_LOAD';
             for (let i = 0; i < window.frames.length; i++) {
                 try {
                     if (isModelDrivenApp(window.frames[i])) return 'CAN_LOAD';
                 } catch (e) { /* ignore */ }
             }
-            
+
             const isMakerPortal = () => !!window.MsCrmMscrmControls;
             if (isMakerPortal()) {
                 return 'CAN_LOAD';
@@ -198,14 +198,14 @@ describe('Background Script - Browser Compatibility', () => {
 
         it('should return CAN_LOAD when Xrm.Utility exists in main window', () => {
             global.window.Xrm = { Utility: {} };
-            
+
             const result = probeAndShow();
             expect(result).toBe('CAN_LOAD');
         });
 
         it('should return CAN_LOAD when MsCrmMscrmControls exists (Maker Portal)', () => {
             global.window.MsCrmMscrmControls = {};
-            
+
             const result = probeAndShow();
             expect(result).toBe('CAN_LOAD');
         });
@@ -218,13 +218,13 @@ describe('Background Script - Browser Compatibility', () => {
         it('should cleanup existing toolkit instances', () => {
             const mockDialog = { remove: vi.fn() };
             const mockScript = { remove: vi.fn() };
-            
+
             global.window.document.querySelector = vi.fn(() => mockDialog);
             global.window.document.getElementById = vi.fn(() => mockScript);
             global.window.PDT_INITIALIZED = true;
-            
+
             probeAndShow();
-            
+
             expect(mockDialog.remove).toHaveBeenCalled();
             expect(mockScript.remove).toHaveBeenCalled();
             expect(global.window.PDT_INITIALIZED).toBe(false);
@@ -235,9 +235,9 @@ describe('Background Script - Browser Compatibility', () => {
         it('should use chrome.runtime.getURL in Chrome', () => {
             global.chrome = mockChrome;
             const browserAPI = chrome;
-            
+
             const url = browserAPI.runtime.getURL('power-toolkit.js');
-            
+
             expect(mockChrome.runtime.getURL).toHaveBeenCalledWith('power-toolkit.js');
             expect(url).toBe('chrome-extension://mock-id/power-toolkit.js');
         });
@@ -245,9 +245,9 @@ describe('Background Script - Browser Compatibility', () => {
         it('should use browser.runtime.getURL in Firefox', () => {
             global.browser = mockBrowser;
             const browserAPI = browser;
-            
+
             const url = browserAPI.runtime.getURL('power-toolkit.js');
-            
+
             expect(mockBrowser.runtime.getURL).toHaveBeenCalledWith('power-toolkit.js');
             expect(url).toBe('moz-extension://mock-id/power-toolkit.js');
         });
@@ -255,26 +255,26 @@ describe('Background Script - Browser Compatibility', () => {
         it('should use chrome.scripting.executeScript in Chrome', async () => {
             global.chrome = mockChrome;
             const browserAPI = chrome;
-            
+
             await browserAPI.scripting.executeScript({
                 target: { tabId: 1 },
                 world: 'MAIN',
                 func: () => 'test'
             });
-            
+
             expect(mockChrome.scripting.executeScript).toHaveBeenCalled();
         });
 
         it('should use browser.scripting.executeScript in Firefox', async () => {
             global.browser = mockBrowser;
             const browserAPI = browser;
-            
+
             await browserAPI.scripting.executeScript({
                 target: { tabId: 1 },
                 world: 'MAIN',
                 func: () => 'test'
             });
-            
+
             expect(mockBrowser.scripting.executeScript).toHaveBeenCalled();
         });
     });
@@ -283,9 +283,9 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set badge text using chrome API', async () => {
             global.chrome = mockChrome;
             const browserAPI = chrome;
-            
+
             await browserAPI.action.setBadgeText({ tabId: 1, text: '!' });
-            
+
             expect(mockChrome.action.setBadgeText).toHaveBeenCalledWith({
                 tabId: 1,
                 text: '!'
@@ -295,9 +295,9 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set badge text using browser API', async () => {
             global.browser = mockBrowser;
             const browserAPI = browser;
-            
+
             await browserAPI.action.setBadgeText({ tabId: 1, text: '!' });
-            
+
             expect(mockBrowser.action.setBadgeText).toHaveBeenCalledWith({
                 tabId: 1,
                 text: '!'
@@ -307,12 +307,12 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set badge background color using chrome API', async () => {
             global.chrome = mockChrome;
             const browserAPI = chrome;
-            
+
             await browserAPI.action.setBadgeBackgroundColor({
                 tabId: 1,
                 color: '#f44336'
             });
-            
+
             expect(mockChrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({
                 tabId: 1,
                 color: '#f44336'
@@ -322,12 +322,12 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set badge background color using browser API', async () => {
             global.browser = mockBrowser;
             const browserAPI = browser;
-            
+
             await browserAPI.action.setBadgeBackgroundColor({
                 tabId: 1,
                 color: '#f44336'
             });
-            
+
             expect(mockBrowser.action.setBadgeBackgroundColor).toHaveBeenCalledWith({
                 tabId: 1,
                 color: '#f44336'
@@ -337,12 +337,12 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set action title using chrome API', async () => {
             global.chrome = mockChrome;
             const browserAPI = chrome;
-            
+
             await browserAPI.action.setTitle({
                 tabId: 1,
                 title: 'Power-Toolkit'
             });
-            
+
             expect(mockChrome.action.setTitle).toHaveBeenCalledWith({
                 tabId: 1,
                 title: 'Power-Toolkit'
@@ -352,12 +352,12 @@ describe('Background Script - Browser Compatibility', () => {
         it('should set action title using browser API', async () => {
             global.browser = mockBrowser;
             const browserAPI = browser;
-            
+
             await browserAPI.action.setTitle({
                 tabId: 1,
                 title: 'Power-Toolkit'
             });
-            
+
             expect(mockBrowser.action.setTitle).toHaveBeenCalledWith({
                 tabId: 1,
                 title: 'Power-Toolkit'
@@ -400,16 +400,16 @@ describe('Background Script - Browser Compatibility', () => {
 
         it('should handle script injection failure', async () => {
             global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
-            
-            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-            
+
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => { });
+
             try {
                 const response = await fetch('power-toolkit.js');
                 await response.text();
             } catch (e) {
                 expect(e.message).toBe('Network error');
             }
-            
+
             consoleError.mockRestore();
         });
     });

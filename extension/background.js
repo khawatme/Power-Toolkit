@@ -80,24 +80,24 @@ function probeAndShow() {
             // Fails silently on cross-origin iframes, which is expected.
         }
     };
-    
+
     cleanup(window);
     for (let i = 0; i < window.frames.length; i++) {
         cleanup(window.frames[i]);
     }
 
     const isModelDrivenApp = (win) => typeof win.Xrm?.Utility !== 'undefined';
-    
+
     if (isModelDrivenApp(window)) return 'CAN_LOAD';
     for (let i = 0; i < window.frames.length; i++) {
         try {
             if (isModelDrivenApp(window.frames[i])) return 'CAN_LOAD';
         } catch (e) { /* ignore */ }
     }
-    
+
     const isMakerPortal = () => !!window.MsCrmMscrmControls;
-    if(isMakerPortal()){
-          return 'CAN_LOAD';
+    if (isMakerPortal()) {
+        return 'CAN_LOAD';
     }
 
     return 'CANNOT_LOAD';

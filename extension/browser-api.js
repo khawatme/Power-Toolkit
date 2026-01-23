@@ -50,9 +50,9 @@ const browserAPI = (() => {
  * @returns {boolean} True if running in Firefox.
  */
 function isFirefox() {
-    return typeof browser !== 'undefined' && 
-           typeof browser.runtime !== 'undefined' &&
-           typeof browser.runtime.getBrowserInfo === 'function';
+    return typeof browser !== 'undefined' &&
+        typeof browser.runtime !== 'undefined' &&
+        typeof browser.runtime.getBrowserInfo === 'function';
 }
 
 /**
@@ -86,19 +86,19 @@ function getExtensionURL(path) {
  */
 async function executeScript(options) {
     const { tabId, allFrames = false, func, args = [], world = 'MAIN' } = options;
-    
+
     const scriptOptions = {
         target: { tabId, allFrames },
         func,
         args
     };
-    
+
     // Firefox 128+ supports world: 'MAIN', older versions don't
     // Chrome has had this since MV3 launch
     if (world === 'MAIN') {
         scriptOptions.world = 'MAIN';
     }
-    
+
     try {
         return await browserAPI.scripting.executeScript(scriptOptions);
     } catch (error) {
