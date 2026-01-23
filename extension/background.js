@@ -1,8 +1,23 @@
 /**
- * @file Chrome extension service worker.
+ * @file Browser extension background script (Service Worker for Chrome/Edge, Event Page for Firefox).
  * @description Handles the extension's action button click, intelligently deciding whether to
  * inject the tool for the first time or simply un-hide the existing UI.
+ * 
+ * Cross-browser compatible: Works with Chrome, Edge, and Firefox.
  */
+
+/**
+ * Unified browser API - uses `browser` namespace (Firefox) or `chrome` namespace (Chrome/Edge).
+ * Firefox supports the `chrome` namespace for compatibility, but `browser` is preferred.
+ * @type {typeof chrome}
+ */
+const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+
+/**
+ * Detect if running in Firefox.
+ * @returns {boolean} True if Firefox.
+ */
+const isFirefox = () => typeof browser !== 'undefined' && typeof browser.runtime?.getBrowserInfo === 'function';
 
 /**
  * Injects the main toolkit script into the page.
@@ -10,9 +25,9 @@
  */
 async function launchToolkit(tabId) {
     try {
-        const response = await fetch(chrome.runtime.getURL('power-toolkit.js'));
+        const response = await fetch(browserAPI.runtime.getURL('power-toolkit.js'));
         const scriptContent = await response.text();
-        await chrome.scripting.executeScript({
+        await browserAPI.scripting.executeScript({
             target: { tabId: tabId },
             world: 'MAIN',
             func: (code) => {
@@ -27,7 +42,7 @@ async function launchToolkit(tabId) {
             args: [scriptContent]
         });
     } catch (e) {
-        console.error("power-Toolkit: Failed to load or inject the main script.", e);
+        console.error("Power-Toolkit: Failed to load or inject the main script.", e);
     }
 }
 
@@ -36,12 +51,12 @@ async function launchToolkit(tabId) {
  * @param {number} tabId - The ID of the tab to show the feedback on.
  */
 async function showInactiveError(tabId) {
-    await chrome.action.setBadgeText({ tabId: tabId, text: '!' });
-    await chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#f44336' });
-    await chrome.action.setTitle({ tabId: tabId, title: 'Power-Toolkit: Not a valid Power Apps page.' });
+    await browserAPI.action.setBadgeText({ tabId: tabId, text: '!' });
+    await browserAPI.action.setBadgeBackgroundColor({ tabId: tabId, color: '#f44336' });
+    await browserAPI.action.setTitle({ tabId: tabId, title: 'Power-Toolkit: Not a valid Power Apps page.' });
     setTimeout(async () => {
-        await chrome.action.setBadgeText({ tabId: tabId, text: '' });
-        await chrome.action.setTitle({ tabId: tabId, title: 'Launch Power-Toolkit' });
+        await browserAPI.action.setBadgeText({ tabId: tabId, text: '' });
+        await browserAPI.action.setTitle({ tabId: tabId, title: 'Launch Power-Toolkit' });
     }, 3000);
 }
 
@@ -89,18 +104,33 @@ function probeAndShow() {
 }
 
 /**
+ * Check if a URL is a restricted browser page.
+ * @param {string} url - The URL to check.
+ * @returns {boolean} True if the URL is restricted.
+ */
+function isRestrictedUrl(url) {
+    if (!url) return true;
+    // Chrome/Edge restricted pages
+    if (url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return true;
+    if (url.startsWith('edge://') || url.startsWith('extension://')) return true;
+    // Firefox restricted pages
+    if (url.startsWith('about:') || url.startsWith('moz-extension://')) return true;
+    return false;
+}
+
+/**
  * The main listener for when the user clicks the extension's toolbar icon.
  * It injects the `probeAndShow` function to check the page's validity and then
  * either launches the toolkit or shows a temporary error badge.
  */
-chrome.action.onClicked.addListener(async (tab) => {
-    if (!tab.url || tab.url.startsWith('chrome://')) {
+browserAPI.action.onClicked.addListener(async (tab) => {
+    if (isRestrictedUrl(tab.url)) {
         await showInactiveError(tab.id);
         return;
     }
 
     try {
-        const results = await chrome.scripting.executeScript({
+        const results = await browserAPI.scripting.executeScript({
             target: { tabId: tab.id, allFrames: true },
             world: 'MAIN',
             func: probeAndShow

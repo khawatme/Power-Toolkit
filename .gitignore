@@ -3,6 +3,7 @@
 
 # Build output
 /dist
+/dist-firefox
 
 # OS-specific files
 .DS_Store

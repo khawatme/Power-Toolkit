@@ -50,15 +50,26 @@ Install directly from your browser's extension store:
 #### Google Chrome
 [Install from Chrome Web Store](https://chromewebstore.google.com/detail/power-toolkit-for-power-a/pohgckfkhjeahcjnmihobcoccpccgpca)
 
+#### Mozilla Firefox
+[Install from Firefox Add-ons](https://addons.mozilla.org/) *(Firefox 140+)*
+
 ### Option 2: Load Unpacked (Development)
 
+#### Chrome & Edge
 1. Download or clone this repository
 2. Run `npm install` and `npm run build`
 3. Open your browser's extension management page:
    - **Edge:** `edge://extensions/`
    - **Chrome:** `chrome://extensions/`
 4. Enable "Developer mode"
-5. Click "Load unpacked" and select the `extension/` folder
+5. Click "Load unpacked" and select the `dist/extension/` folder
+
+#### Firefox
+1. Download or clone this repository
+2. Run `npm install` and `npm run build:firefox`
+3. Open `about:debugging#/runtime/this-firefox`
+4. Click "Load Temporary Add-on"
+5. Select the `dist-firefox/extension/manifest.json` file
 
 ---
 
@@ -96,13 +107,22 @@ Contributions are welcome! Whether you want to fix a bug, add a new feature, or 
 3. **Development Mode:**
    Watch for changes and auto-rebuild:
    ```bash
-   npm run dev
+   npm run dev              # Chrome/Edge
+   npm run dev:firefox      # Firefox
    ```
 
 4. **Build for Production:**
-   Create optimized bundle:
+   Create optimized bundles:
    ```bash
-   npm run build
+   npm run build            # Chrome/Edge → dist/extension/
+   npm run build:firefox    # Firefox → dist-firefox/extension/
+   npm run build:all        # Build both versions
+   ```
+
+5. **Run Tests:**
+   ```bash
+   npm test                 # Run all tests
+   npm run test:coverage    # Run with coverage report
    ```
 
 ### Project Structure
@@ -127,10 +147,14 @@ Power-Toolkit/
 │   ├── App.js             # Main application entry point
 │   └── Main.js            # Bootstrap and initialization
 ├── extension/
-│   ├── manifest.json      # Extension manifest
-│   ├── background.cjs      # Service worker
+│   ├── manifest.json      # Chrome/Edge manifest
+│   ├── manifest.firefox.json  # Firefox manifest
+│   ├── background.js      # Cross-browser background script
 │   └── icons/             # Extension icons
-├── webpack.config.js      # Webpack configuration
+├── tests/                 # Comprehensive test suite
+├── dist/                  # Chrome/Edge build output
+├── dist-firefox/          # Firefox build output
+├── webpack.config.cjs     # Webpack configuration
 └── package.json           # Dependencies and scripts
 ```
 
