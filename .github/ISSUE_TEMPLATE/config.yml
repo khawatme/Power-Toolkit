@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Community Discussions
+    url: https://github.com/khawatme/Power-Toolkit/discussions
+    about: Ask questions, share ideas, and connect with other Power-Toolkit users
+  - name: 📖 Documentation
+    url: https://github.com/khawatme/Power-Toolkit#readme
+    about: Check out the README for installation and usage instructions
+  - name: 🔒 Security Vulnerability
+    url: https://github.com/khawatme/Power-Toolkit/security/policy
+    about: Report security vulnerabilities privately
