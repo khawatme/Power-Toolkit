@@ -1,0 +1,31 @@
+labels: ["general"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 💬 General Discussion
+        
+        This is a space for open-ended discussions about Power-Toolkit, Power Platform development, and related topics.
+        
+        **Some ideas:**
+        - Discuss Power Platform development practices
+        - Share resources and learning materials
+        - Connect with other developers
+        - Talk about the future of the project
+
+  - type: textarea
+    id: discussion
+    attributes:
+      label: What's on your mind?
+      description: Start the conversation
+      placeholder: "I wanted to discuss..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any relevant background or links
+    validations:
+      required: false
