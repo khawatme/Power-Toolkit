@@ -1,0 +1,132 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for Power-Toolkit
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! We love hearing ideas from the community.
+
+  - type: checkboxes
+    id: existing-request
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues and this feature has not been requested
+          required: true
+        - label: This feature aligns with Power-Toolkit's goal of helping Power Apps/Dynamics 365 developers
+          required: true
+
+  - type: dropdown
+    id: feature-type
+    attributes:
+      label: Feature Type
+      description: What type of feature are you requesting?
+      options:
+        - New Tab/Tool
+        - Enhancement to existing tab
+        - UI/UX improvement
+        - Performance improvement
+        - Accessibility improvement
+        - Documentation/Help
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: related-tab
+    attributes:
+      label: Related Tab (if applicable)
+      description: Which existing tab does this relate to?
+      options:
+        - Not applicable (new feature)
+        - Inspector Tab
+        - Form Columns Tab
+        - User Context Tab
+        - Impersonate Tab
+        - Automation Tab
+        - Plugin Trace Log Tab
+        - Plugin Context Tab
+        - Solution Layers Tab
+        - Environment Variables Tab
+        - Metadata Browser Tab
+        - FetchXML Tester Tab
+        - Web API Explorer Tab
+        - Event Monitor Tab
+        - Performance Tab
+        - Code Hub Tab
+        - Settings Tab
+        - Multiple tabs
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like
+      placeholder: "I would like to see..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered
+      placeholder: "I've also thought about..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe specific scenarios where this feature would be useful
+      placeholder: |
+        1. When debugging form scripts, I need to...
+        2. During plugin development, it would help to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Mockups/Examples
+      description: If you have any mockups, screenshots, or examples from other tools
+      placeholder: "Drag and drop images or describe the UI..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How important is this feature to you?
+      options:
+        - Nice to have
+        - Would improve my workflow
+        - Critical for my work
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context or information about the feature request
+      placeholder: "Add any other context..."
+    validations:
+      required: false
