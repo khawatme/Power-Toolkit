@@ -1,0 +1,75 @@
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ❓ Ask a Question
+        
+        Have a question about Power-Toolkit? You're in the right place!
+        
+        **Before asking:**
+        - 📖 Check the [Help Tab] in Power-Toolkit
+        - 🔍 Search existing discussions for similar questions
+        - 📚 Review the [README](https://github.com/khawatme/Power-Toolkit/blob/main/README.md)
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What area does your question relate to?
+      options:
+        - Installation & Setup
+        - Using a specific tab/feature
+        - Troubleshooting
+        - Power Apps/Dynamics 365 integration
+        - Extension settings
+        - Contributing to the project
+        - Best practices
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: "How do I..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any relevant context that might help answer your question
+      placeholder: |
+        - What are you trying to accomplish?
+        - What have you already tried?
+        - Any error messages?
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (if relevant)
+      description: Your setup details
+      placeholder: |
+        - Browser: Edge/Chrome/Firefox
+        - Power-Toolkit version: 
+        - Power Platform environment type:
+      render: markdown
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing discussions and issues
+          required: true
+        - label: I have checked the Help tab in Power-Toolkit
+          required: false
