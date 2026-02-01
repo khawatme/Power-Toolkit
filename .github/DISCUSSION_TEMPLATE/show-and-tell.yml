@@ -1,0 +1,54 @@
+title: "[Show & Tell]: "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🎉 Show and Tell
+        
+        Share how you're using Power-Toolkit!:
+        - Interesting use cases
+        - Tips and tricks you've discovered
+        - Workflows you've developed
+        - Screenshots of Power-Toolkit in action
+
+  - type: dropdown
+    id: share-type
+    attributes:
+      label: What are you sharing?
+      options:
+        - Interesting use case
+        - Tip or trick
+        - Workflow or process
+        - Screenshot/demo
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: share
+    attributes:
+      label: Your Story
+      description: Tell us about it!
+      placeholder: |
+        I wanted to share how I use Power-Toolkit to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or Media
+      description: Share any relevant images, GIFs, or videos
+      placeholder: "Drag and drop images here..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: tips
+    attributes:
+      label: Tips for Others
+      description: Any advice for others who might want to do something similar?
+      placeholder: "If you're trying this, keep in mind..."
+    validations:
+      required: false
