@@ -1,0 +1,63 @@
+title: "[Idea]: "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 💡 Share an Idea
+        
+        Have an idea for Power-Toolkit? We'd love to hear it!
+        
+        Ideas shared here can be discussed by the community before becoming formal feature requests.
+
+  - type: dropdown
+    id: idea-type
+    attributes:
+      label: Idea Type
+      description: What kind of idea is this?
+      options:
+        - New tool/tab
+        - Enhancement to existing feature
+        - Workflow improvement
+        - UI/UX improvement
+        - Community/documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your Idea
+      description: Describe your idea in detail
+      placeholder: "I think Power-Toolkit should..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why This Would Be Valuable
+      description: Who would benefit and how?
+      placeholder: |
+        This would help developers who...
+        It would save time when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or Inspiration
+      description: Have you seen this elsewhere? Share links or screenshots
+      placeholder: "I saw something similar in..."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution Interest
+      description: Would you be interested in contributing to this idea?
+      options:
+        - label: I might be interested in helping implement this
