@@ -1,0 +1,156 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior in Power-Toolkit
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below to help us understand and fix the issue.
+
+  - type: checkboxes
+    id: existing-issue
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched the existing issues and this bug has not been reported
+          required: true
+        - label: I am using the latest version of Power-Toolkit
+          required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser are you using?
+      options:
+        - Microsoft Edge
+        - Google Chrome
+        - Mozilla Firefox
+        - Other (please specify in description)
+    validations:
+      required: true
+
+  - type: input
+    id: browser-version
+    attributes:
+      label: Browser Version
+      description: What version of the browser are you using?
+      placeholder: "e.g., 120.0.2210.91"
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Power-Toolkit Version
+      description: What version of Power-Toolkit are you using? (Found in About Tab)
+      placeholder: "e.g., 4.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Power Platform Environment Type
+      description: What type of environment are you experiencing the issue in?
+      options:
+        - Production
+        - Sandbox
+        - Developer
+        - Trial
+        - Default
+        - Not applicable
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-tab
+    attributes:
+      label: Affected Tab/Feature
+      description: Which tab or feature is affected?
+      options:
+        - Inspector Tab
+        - Form Columns Tab
+        - User Context Tab
+        - Impersonate Tab
+        - Automation Tab
+        - Plugin Trace Log Tab
+        - Plugin Context Tab
+        - Solution Layers Tab
+        - Environment Variables Tab
+        - Metadata Browser Tab
+        - FetchXML Tester Tab
+        - Web API Explorer Tab
+        - Event Monitor Tab
+        - Performance Tab
+        - Code Hub Tab
+        - Settings Tab
+        - Help Tab
+        - About Tab
+        - Extension Popup
+        - Other/Multiple
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: "Describe what happened..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: "Describe what you expected..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Open Power-Toolkit on a Model-Driven App
+        2. Navigate to '...'
+        3. Click on '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: console-errors
+    attributes:
+      label: Console Errors
+      description: Any errors in the browser console? (Press F12 → Console tab)
+      render: shell
+      placeholder: "Paste any console errors here..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain your problem
+      placeholder: "Drag and drop screenshots here..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem
+      placeholder: "Add any other context..."
+    validations:
+      required: false
