@@ -237,6 +237,8 @@ export class FilterGroupManager {
                 async (attr) => {
                     attributeInput.value = attr.LogicalName;
                     await this.renderValueInput(attr, conditionGroup, this.getEntityContext);
+                    // Re-apply operator state to the new value input
+                    this._applyOperatorState(elements);
                     if (isFirst) {
                         this._updateRemoveButtonState(elements);
                     }
@@ -274,6 +276,8 @@ export class FilterGroupManager {
                         const attr = await this.getAttributeMetadata(attrName, entityName);
                         if (attr) {
                             await this.renderValueInput(attr, conditionGroup, this.getEntityContext);
+                            // Re-apply operator state to the new value input
+                            this._applyOperatorState(elements);
                             this.onUpdate();
                         }
                     }
@@ -392,6 +396,28 @@ export class FilterGroupManager {
     _updateRemoveButtonState(elements) {
         const { removeBtn } = elements;
         removeBtn.disabled = false;
+    }
+
+    /**
+     * Apply operator state to the value input (disabled for null operators).
+     * This should be called after the value input is re-rendered.
+     * @private
+     * @param {Object} elements - Condition elements
+     */
+    _applyOperatorState(elements) {
+        const { conditionGroup, operatorSelect } = elements;
+        const shouldShow = shouldShowOperatorValue(operatorSelect?.value);
+        const currentValueInput = conditionGroup.querySelector('[data-prop="value"]');
+
+        if (currentValueInput) {
+            currentValueInput.disabled = !shouldShow;
+            if (currentValueInput.tagName === 'INPUT') {
+                currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
+            }
+            if (!shouldShow) {
+                currentValueInput.value = '';
+            }
+        }
     }
 
     /**

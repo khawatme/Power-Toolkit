@@ -39,40 +39,57 @@ function _buildHttpError(resp, body) {
 
 /**
  * Resolve entity logical name to entity set name for Web API.
+ * If the input is already a valid entity set name, returns it unchanged.
+ * If the input is a logical name, converts it to the entity set name.
+ * Falls back to adding 's' only when metadata cache is not available.
  * @private
- * @param {string} logicalName - Entity logical name or path
- * @param {Function} getEntitySetName - Metadata service function
+ * @param {string} nameOrPath - Entity logical name, entity set name, or path
+ * @param {Function} getEntitySetName - Maps logical name to entity set name
+ * @param {Function} getLogicalName - Maps entity set name to logical name (reverse lookup)
  * @returns {string} Resolved entity set name or path
  */
-function _resolveEntitySetName(logicalName, getEntitySetName) {
-    const isSpecialCall = Config.DATAVERSE_SPECIAL_ENDPOINTS.some(e => logicalName.startsWith(e));
+function _resolveEntitySetName(nameOrPath, getEntitySetName, getLogicalName) {
+    const isSpecialCall = Config.DATAVERSE_SPECIAL_ENDPOINTS.some(e => nameOrPath.startsWith(e));
     if (isSpecialCall) {
-        return logicalName;
+        return nameOrPath;
     }
 
-    const hasRecordId = logicalName.includes('(') && logicalName.includes(')');
+    const hasRecordId = nameOrPath.includes('(') && nameOrPath.includes(')');
 
     if (!hasRecordId) {
-        const resolvedSetName = getEntitySetName(logicalName);
+        // First check if it's already a valid entity set name (requires metadata to be loaded)
+        if (getLogicalName && getLogicalName(nameOrPath)) {
+            return nameOrPath;
+        }
+        // Try to resolve as logical name
+        const resolvedSetName = getEntitySetName?.(nameOrPath);
         if (resolvedSetName) {
             return resolvedSetName;
         }
-        return logicalName.endsWith('s') ? logicalName : `${logicalName}s`;
+        // Fallback: add 's' if doesn't already end with 's' (metadata not loaded yet)
+        return nameOrPath.endsWith('s') ? nameOrPath : `${nameOrPath}s`;
     }
 
-    const match = logicalName.match(/^([^(]+)(\(.+\))$/);
+    const match = nameOrPath.match(/^([^(]+)(\(.+\))$/);
     if (!match) {
-        return logicalName;
+        return nameOrPath;
     }
 
     const [, entityName, idPart] = match;
-    const resolvedSetName = getEntitySetName(entityName);
 
+    // First check if entity name is already a valid entity set name
+    if (getLogicalName && getLogicalName(entityName)) {
+        return nameOrPath;
+    }
+
+    // Try to resolve as logical name
+    const resolvedSetName = getEntitySetName?.(entityName);
     if (resolvedSetName) {
         return `${resolvedSetName}${idPart}`;
     }
 
-    return entityName.endsWith('s') ? logicalName : `${entityName}s${idPart}`;
+    // Fallback: add 's' if doesn't already end with 's' (metadata not loaded yet)
+    return entityName.endsWith('s') ? nameOrPath : `${entityName}s${idPart}`;
 }
 
 /**
@@ -153,19 +170,20 @@ export const WebApiService = {
     /**
      * Core Web API fetch with impersonation support.
      * @param {string} method - HTTP method (GET, POST, PATCH, DELETE)
-     * @param {string} logicalName - Entity logical name or special endpoint
+     * @param {string} nameOrPath - Entity logical name, entity set name, or special endpoint
      * @param {string} queryString - Query string (e.g., '?$select=name')
      * @param {object|null} data - Request body for POST/PATCH
      * @param {HeadersInit} customHeaders - Additional headers
-     * @param {Function} getEntitySetName - Metadata service function
+     * @param {Function} getEntitySetName - Maps logical name to entity set name
+     * @param {Function} getLogicalName - Maps entity set name to logical name (reverse lookup)
      * @param {string|null} impersonatedUserId - User ID for impersonation
      * @returns {Promise<object>}
      */
-    async webApiFetch(method, logicalName, queryString = '', data = null, customHeaders = {}, getEntitySetName, impersonatedUserId = null) {
+    async webApiFetch(method, nameOrPath, queryString = '', data = null, customHeaders = {}, getEntitySetName, getLogicalName, impersonatedUserId = null) {
         const globalContext = PowerAppsApiService.getGlobalContext();
         const baseUrl = `${globalContext.getClientUrl()}/api/data/v9.2`;
 
-        const resource = _resolveEntitySetName(logicalName, getEntitySetName);
+        const resource = _resolveEntitySetName(nameOrPath, getEntitySetName, getLogicalName);
         const url = _buildApiUrl(baseUrl, resource, queryString);
         const headers = _buildRequestHeaders(customHeaders, impersonatedUserId);
 

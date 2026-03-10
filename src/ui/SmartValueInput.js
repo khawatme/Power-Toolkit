@@ -586,14 +586,15 @@ export class SmartValueInput {
 
         if (context === 'post') {
             try {
-                const { EntitySetName } = await DataService.retrieveEntityDefinition(targetEntity);
-                const entitySetName = EntitySetName || targetEntity + 's';
+                const entityDef = await DataService.getEntityDefinition(targetEntity);
+                const entitySetName = entityDef?.EntitySetName || targetEntity;
                 const placeholder = `Insert GUID between () - e.g., /${entitySetName}(12345678-1234-1234-1234-123456789012)`;
                 const title = `Paste the record GUID inside the parentheses. Format: /${entitySetName}(YOUR-GUID-HERE)`;
                 const defaultValue = `/${entitySetName}(GUID)`;
                 return `<input type="text" class="pdt-input" data-prop="${dataProp}" data-type="lookup" data-target-entity="${targetEntity}" data-entity-set="${entitySetName}" placeholder="${placeholder}" value="${defaultValue}" title="${title}"${spanStyle}>`;
             } catch (_error) {
-                const fallbackEntitySet = targetEntity + 's';
+                // Use target entity name as-is (do not append 's' - EntitySetName must come from metadata)
+                const fallbackEntitySet = targetEntity;
                 const fallbackPlaceholder = `Insert GUID between () - e.g., /${fallbackEntitySet}(12345678-1234-1234-1234-123456789012)`;
                 const fallbackTitle = `Paste the record GUID inside the parentheses. Format: /${fallbackEntitySet}(YOUR-GUID-HERE)`;
                 const fallbackValue = `/${fallbackEntitySet}(GUID)`;

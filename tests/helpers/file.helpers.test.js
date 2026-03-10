@@ -385,6 +385,53 @@ describe('FileHelpers', () => {
             await expect(FileHelpers.readJsonFile(mockFile)).rejects.toThrow('Failed to read file');
         });
     });
+
+    describe('readTextFile', () => {
+        it('should reject when no file provided', async () => {
+            await expect(FileHelpers.readTextFile(null)).rejects.toThrow('No file provided');
+        });
+
+        it('should read text file content', async () => {
+            const mockContent = 'function hello() { return "world"; }';
+
+            class MockFileReader {
+                constructor() {
+                    this.onload = null;
+                    this.onerror = null;
+                    this.result = mockContent;
+                }
+                readAsText() {
+                    setTimeout(() => {
+                        this.onload({ target: { result: this.result } });
+                    }, 0);
+                }
+            }
+            global.FileReader = MockFileReader;
+
+            const mockFile = { name: 'script.js', type: 'text/javascript' };
+            const result = await FileHelpers.readTextFile(mockFile);
+
+            expect(result).toBe(mockContent);
+        });
+
+        it('should reject on read error', async () => {
+            class MockFileReader {
+                constructor() {
+                    this.onload = null;
+                    this.onerror = null;
+                }
+                readAsText() {
+                    setTimeout(() => {
+                        this.onerror();
+                    }, 0);
+                }
+            }
+            global.FileReader = MockFileReader;
+
+            const mockFile = { name: 'broken.js', type: 'text/javascript' };
+            await expect(FileHelpers.readTextFile(mockFile)).rejects.toThrow('Failed to read file');
+        });
+    });
 });
 
 // Also export the standalone function for compatibility

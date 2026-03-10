@@ -139,6 +139,25 @@ export const FileHelpers = {
     },
 
     /**
+     * Reads a file as plain text using Promise-based FileReader.
+     * @param {File} file - The file object to read.
+     * @returns {Promise<string>} - Promise that resolves with the file text content.
+     */
+    readTextFile(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                reject(new Error('No file provided'));
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => resolve(event.target.result);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    },
+
+    /**
      * Reads a file and parses it as JSON using Promise-based FileReader.
      * @param {File} file - The file object to read.
      * @returns {Promise<any>} - Promise that resolves with parsed JSON data.

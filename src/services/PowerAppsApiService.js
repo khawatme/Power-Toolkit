@@ -174,6 +174,36 @@ export const PowerAppsApiService = {
     },
 
     /**
+     * Adds a handler to a field's OnChange event.
+     * @param {string} attributeName - The logical name of the attribute.
+     * @param {(context: Xrm.Events.EventContext) => void} handler - The function to add.
+     * @returns {void}
+     */
+    addOnChange: (attributeName, handler) => {
+        if (PowerAppsApiService.isFormContextAvailable) {
+            const attr = _getCorrectXrmContext().Page.getAttribute(attributeName);
+            if (attr) {
+                attr.addOnChange(handler);
+            }
+        }
+    },
+
+    /**
+     * Removes a handler from a field's OnChange event.
+     * @param {string} attributeName - The logical name of the attribute.
+     * @param {(context: Xrm.Events.EventContext) => void} handler - The function to remove.
+     * @returns {void}
+     */
+    removeOnChange: (attributeName, handler) => {
+        if (PowerAppsApiService.isFormContextAvailable) {
+            const attr = _getCorrectXrmContext().Page.getAttribute(attributeName);
+            if (attr) {
+                attr.removeOnChange(handler);
+            }
+        }
+    },
+
+    /**
      * Gets the global context object, which contains user, client, and organization details.
      * @returns {Xrm.GlobalContext} The global context.
      */

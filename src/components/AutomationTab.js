@@ -2,7 +2,8 @@
  * @file Form Automation component.
  * @module components/AutomationTab
  * @description This component allows users to view and manage Business Rules for any table in the environment.
- * It also displays the statically-defined Form Event Handlers if the tool is opened on a record form.
+ * It also displays the statically-defined Form Event Handlers if the tool is opened on a record form,
+ * with the ability to view and edit web resource content.
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
@@ -10,6 +11,7 @@ import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { Config } from '../constants/index.js';
 import { escapeHtml } from '../helpers/index.js';
+import { FileHelpers } from '../helpers/file.helpers.js';
 import { DialogService } from '../services/DialogService.js';
 import { UIFactory } from '../ui/UIFactory.js';
 import { NotificationService } from '../services/NotificationService.js';
@@ -39,6 +41,7 @@ export class AutomationTab extends BaseComponent {
         /** @private */ this._onEntityKeyup = null;
         /** @private */ this._onListClick = null;
         /** @private */ this._onResize = null;
+        /** @private */ this._onEventsClick = null;
     }
 
     /**
@@ -118,6 +121,9 @@ export class AutomationTab extends BaseComponent {
         };
         this.ui.brListContainer.addEventListener('click', this._onListClick);
 
+        this._onEventsClick = (e) => this._handleEventsClick(e);
+        this.ui.eventsContainer.addEventListener('click', this._onEventsClick);
+
         // keep expanded panels sized correctly on viewport changes
         this._onResize = () => {
             this.ui.brListContainer
@@ -141,6 +147,9 @@ export class AutomationTab extends BaseComponent {
             }
             if (this.ui?.brListContainer && this._onListClick) {
                 this.ui.brListContainer.removeEventListener('click', this._onListClick);
+            }
+            if (this.ui?.eventsContainer && this._onEventsClick) {
+                this.ui.eventsContainer.removeEventListener('click', this._onEventsClick);
             }
             if (this._onResize) {
                 window.removeEventListener('resize', this._onResize);
@@ -210,9 +219,10 @@ export class AutomationTab extends BaseComponent {
             const name = `<span>${escapeHtml(r.name)}</span>`;
             const id = `<span class="code-like">${escapeHtml(r.id)}</span>`;
             const description = r.description ? `<div class="pdt-list-item-description">${escapeHtml(r.description)}</div>` : '';
+            const openButton = `<button class="pdt-list-action-btn action-open" data-action="open" data-rule-id="${escapeHtml(r.id)}" title="${Config.MESSAGES.AUTOMATION.openInEditor}">Open</button>`;
             const actionButtons = r.isActive
-                ? `<button class="pdt-list-action-btn action-deactivate" data-action="deactivate" data-rule-id="${escapeHtml(r.id)}">Deactivate</button>`
-                : `<button class="pdt-list-action-btn action-activate" data-action="activate" data-rule-id="${escapeHtml(r.id)}">Activate</button><button class="pdt-list-action-btn action-delete" data-action="delete" data-rule-id="${escapeHtml(r.id)}">Delete</button>`;
+                ? `${openButton}<button class="pdt-list-action-btn action-deactivate" data-action="deactivate" data-rule-id="${escapeHtml(r.id)}">Deactivate</button>`
+                : `${openButton}<button class="pdt-list-action-btn action-activate" data-action="activate" data-rule-id="${escapeHtml(r.id)}">Activate</button><button class="pdt-list-action-btn action-delete" data-action="delete" data-rule-id="${escapeHtml(r.id)}">Delete</button>`;
 
             itemContainer.innerHTML = `
                 <div class="pdt-br-header" role="button" aria-expanded="false">
@@ -305,6 +315,11 @@ export class AutomationTab extends BaseComponent {
         const action = button.dataset.action;
         const ruleId = button.dataset.ruleId;
 
+        if (action === 'open') {
+            this._openBusinessRuleInEditor(ruleId);
+            return;
+        }
+
         if (action === 'delete') {
             DialogService.show(
                 Config.DIALOG_TITLES.confirmDelete,
@@ -350,6 +365,24 @@ export class AutomationTab extends BaseComponent {
                 button.disabled = false;
             }
         })();
+    }
+
+    /**
+     * Opens a business rule in the Dynamics 365 workflow editor.
+     * @param {string} ruleId - The GUID of the business rule.
+     * @private
+     */
+    _openBusinessRuleInEditor(ruleId) {
+        try {
+            const clientUrl = PowerAppsApiService.getGlobalContext()?.getClientUrl?.();
+            if (clientUrl) {
+                const bracedId = ruleId.includes('{') ? ruleId : `{${ruleId}}`;
+                const url = `${clientUrl}/tools/systemcustomization/businessrules/businessRulesDesigner.aspx?BRlaunchpoint=BRGrid&appSolutionId=${encodeURIComponent(Config.WELL_KNOWN_SOLUTIONS.DEFAULT)}&id=${encodeURIComponent(bracedId)}`;
+                window.open(url, '_blank');
+            }
+        } catch {
+            NotificationService.show(Config.MESSAGES.AUTOMATION.openEditorFailed, 'error');
+        }
     }
 
     /**
@@ -439,9 +472,9 @@ export class AutomationTab extends BaseComponent {
     }
 
     /**
-     * Renders the lists of OnLoad and OnSave event handlers.
+     * Renders the lists of OnLoad, OnSave, and OnChange event handlers with edit buttons.
      * @param {HTMLElement} container - The container element.
-     * @param {object|null} events - The object containing OnLoad and OnSave handlers.
+     * @param {object|null} events - The object containing OnLoad, OnSave, and OnChange handlers.
      * @private
      */
     _renderFormEvents(container, events) {
@@ -450,24 +483,306 @@ export class AutomationTab extends BaseComponent {
             return;
         }
 
-        const renderHandlers = (handlerList) => {
+        const renderHandlers = (handlerList, _eventType) => {
             if (!handlerList || handlerList.length === 0) {
                 return '<p class="pdt-note">No handlers configured.</p>';
             }
-            return `<ul class="pdt-list">${handlerList.map(h => {
+            return `<ul class="pdt-handler-list">${handlerList.map((h, _index) => {
                 const fn = escapeHtml(h.function ?? '');
                 const lib = escapeHtml(h.library ?? '');
-                return `<li class="pdt-list-item-condensed"><span><strong>${fn}</strong> from <span class="code-like">${lib}</span></span></li>`;
+                const field = escapeHtml(h.field ?? '');
+                const enabledClass = h.enabled ? 'enabled' : 'disabled-in-form';
+
+                // Field badge for OnChange handlers
+                const fieldBadge = h.field ? `<span class="pdt-field-badge" title="Field: ${field}">${field}</span>` : '';
+
+                // Edit button for web resources
+                const editButton = `
+                    <button class="pdt-handler-edit-btn" 
+                            data-action="edit-webresource"
+                            data-library="${escapeHtml(lib)}"
+                            title="${Config.MESSAGES.AUTOMATION.editWebResource}">
+                        ${ICONS.settings}
+                    </button>`;
+
+                const statusBadge = !h.enabled ? '<span class="pdt-status-badge inactive" title="Disabled in form definition">Off</span>' : '';
+
+                return `
+                    <li class="pdt-handler-item ${enabledClass}">
+                        <div class="pdt-handler-info">
+                            <div class="pdt-handler-details">
+                                <strong class="pdt-handler-function">${fn}</strong>
+                                ${fieldBadge}
+                                <span class="pdt-handler-library code-like">${lib}</span>
+                            </div>
+                            ${statusBadge}
+                        </div>
+                        <div class="pdt-handler-actions">
+                            ${editButton}
+                        </div>
+                    </li>`;
             }).join('')}</ul>`;
         };
 
+        // Check if all handler lists are empty
+        const hasAnyHandlers = (events.OnLoad && events.OnLoad.length > 0) ||
+                              (events.OnSave && events.OnSave.length > 0) ||
+                              (events.OnChange && events.OnChange.length > 0);
+
+        const helpNote = !hasAnyHandlers
+            ? `<p class="pdt-note mt-15">⚠️ ${Config.MESSAGES.AUTOMATION.noHandlersHelpInfo}</p>`
+            : '<p class="pdt-note mt-15">💡 Click the edit button to view or modify web resource code.</p>';
+
         const content = `
             <h4 class="pdt-section-header">OnLoad</h4>
-            ${renderHandlers(events.OnLoad)}
+            ${renderHandlers(events.OnLoad, 'onload')}
             <h4 class="pdt-section-header mt-15">OnSave</h4>
-            ${renderHandlers(events.OnSave)}
-            <p class="pdt-note mt-15">Note: This list shows handlers from the table's main form definition.</p>`;
+            ${renderHandlers(events.OnSave, 'onsave')}
+            <h4 class="pdt-section-header mt-15">OnChange</h4>
+            ${renderHandlers(events.OnChange, 'onchange')}`;
 
-        container.innerHTML = `<div class="section-title">Form Event Handlers</div>${content}`;
+        container.innerHTML = `<div class="section-title">Form Event Handlers</div>${helpNote}${content}`;
+    }
+
+    /**
+     * Handles click events in the events container.
+     * @param {Event} e - The click event.
+     * @private
+     */
+    _handleEventsClick(e) {
+        const editBtn = e.target.closest('[data-action="edit-webresource"]');
+        if (editBtn) {
+            const library = editBtn.dataset.library;
+            this._openWebResourceEditor(library);
+        }
+    }
+
+    /**
+     * Opens the web resource editor dialog.
+     * @param {string} libraryName - The name of the web resource to edit.
+     * @private
+     */
+    async _openWebResourceEditor(libraryName) {
+        try {
+            NotificationService.show(Config.MESSAGES.AUTOMATION.loadingWebResource, 'info');
+            const webResource = await DataService.getWebResourceByName(libraryName);
+
+            if (!webResource) {
+                NotificationService.show(Config.MESSAGES.AUTOMATION.webResourceNotFound, 'error');
+                return;
+            }
+
+            const isReadOnly = webResource.isHidden || !webResource.isCustomizable;
+            let formattedCode = webResource.content;
+            try {
+                formattedCode = js_beautify(webResource.content, { indent_size: 2 });
+            } catch {
+                // Use unformatted if beautify fails
+            }
+
+            this._showWebResourceEditorDialog(webResource, formattedCode, isReadOnly);
+        } catch (error) {
+            NotificationService.show(Config.MESSAGES.AUTOMATION.webResourceLoadFailed(error.message), 'error');
+        }
+    }
+
+    /**
+     * Shows the web resource editor dialog.
+     * @param {object} webResource - The web resource data.
+     * @param {string} formattedCode - The formatted code content.
+     * @param {boolean} isReadOnly - Whether the web resource is read-only (hidden or not customizable).
+     * @private
+     */
+    _showWebResourceEditorDialog(webResource, formattedCode, isReadOnly = false) {
+        const readOnlyBanner = isReadOnly
+            ? `<p class="pdt-note pdt-read-only-banner">🔒 ${Config.MESSAGES.AUTOMATION.webResourceReadOnly}</p>`
+            : '';
+
+        const uploadZone = isReadOnly ? '' : `
+                <div class="pdt-editor-upload-zone" id="pdt-wr-upload-zone" role="button" tabindex="0" aria-label="${Config.MESSAGES.AUTOMATION.uploadFile}">
+                    <span class="pdt-upload-icon">${ICONS.upload}</span>
+                    <span class="pdt-upload-text">${Config.MESSAGES.AUTOMATION.uploadFileHint}</span>
+                    <input type="file" id="pdt-wr-file-input" accept="${Config.MESSAGES.AUTOMATION.uploadFileAccept}" style="display:none">
+                </div>
+                <div class="pdt-editor-upload-separator">${Config.MESSAGES.AUTOMATION.orSeparator}</div>`;
+
+        const dialogContent = `
+            <div class="pdt-webresource-editor">
+                ${readOnlyBanner}
+                ${uploadZone}
+                <textarea id="pdt-webresource-content" class="pdt-code-editor" spellcheck="false" ${isReadOnly ? 'readonly' : ''}>${escapeHtml(formattedCode)}</textarea>
+            </div>`;
+
+        const dialogController = DialogService.show(
+            Config.MESSAGES.AUTOMATION.editWebResource,
+            dialogContent
+        );
+
+        // Add Save/Publish buttons to dialog footer (before Close button)
+        const dialogFooter = document.querySelector(`.${Config.DIALOG_CLASSES.footer}`);
+        if (dialogFooter && !isReadOnly) {
+            const closeBtn = dialogFooter.querySelector(`.${Config.DIALOG_CLASSES.cancelBtn}`);
+            const saveBtn = document.createElement('button');
+            saveBtn.id = 'pdt-wr-save-btn';
+            saveBtn.className = 'modern-button secondary';
+            saveBtn.textContent = Config.MESSAGES.AUTOMATION.saveOnly;
+            const publishBtn = document.createElement('button');
+            publishBtn.id = 'pdt-wr-publish-btn';
+            publishBtn.className = 'modern-button primary';
+            publishBtn.textContent = Config.MESSAGES.AUTOMATION.publishAndSave;
+            dialogFooter.insertBefore(publishBtn, closeBtn);
+            dialogFooter.insertBefore(saveBtn, closeBtn);
+        }
+
+        // Attach event handlers after dialog is shown
+        setTimeout(() => {
+            const saveBtn = document.getElementById('pdt-wr-save-btn');
+            const publishBtn = document.getElementById('pdt-wr-publish-btn');
+            const textarea = document.getElementById('pdt-webresource-content');
+
+            if (saveBtn) {
+                saveBtn.addEventListener('click', async () => {
+                    await this._saveWebResource(webResource.id, textarea.value, false, dialogController, saveBtn, publishBtn);
+                });
+            }
+
+            if (publishBtn) {
+                publishBtn.addEventListener('click', async () => {
+                    await this._saveWebResource(webResource.id, textarea.value, true, dialogController, saveBtn, publishBtn);
+                });
+            }
+
+            // File upload handlers
+            if (!isReadOnly) {
+                this._attachUploadHandlers(textarea);
+            }
+        }, 100);
+    }
+
+    /**
+     * Attaches drag-and-drop and file input handlers to the upload zone in the editor dialog.
+     * @param {HTMLTextAreaElement} textarea - The code editor textarea to populate.
+     * @private
+     */
+    _attachUploadHandlers(textarea) {
+        const uploadZone = document.getElementById('pdt-wr-upload-zone');
+        const fileInput = document.getElementById('pdt-wr-file-input');
+        if (!uploadZone || !fileInput) {
+            return;
+        }
+
+        // Click to browse
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        // Keyboard accessibility
+        uploadZone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+
+        // File selected via input
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files?.[0];
+            if (file) {
+                this._loadFileIntoEditor(file, textarea, uploadZone);
+            }
+            fileInput.value = '';
+        });
+
+        // Drag and drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('pdt-drag-over');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('pdt-drag-over');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('pdt-drag-over');
+            const file = e.dataTransfer?.files?.[0];
+            if (file) {
+                this._loadFileIntoEditor(file, textarea, uploadZone);
+            }
+        });
+    }
+
+    /**
+     * Reads a file's text content and loads it into the editor textarea.
+     * @param {File} file - The file to read.
+     * @param {HTMLTextAreaElement} textarea - The textarea to populate.
+     * @param {HTMLElement} uploadZone - The upload zone element for visual feedback.
+     * @private
+     */
+    async _loadFileIntoEditor(file, textarea, uploadZone) {
+        try {
+            const content = await FileHelpers.readTextFile(file);
+            let formatted = content;
+            try {
+                formatted = js_beautify(content, { indent_size: 2 });
+            } catch {
+                // Use unformatted if beautify fails
+            }
+            textarea.value = formatted;
+            NotificationService.show(Config.MESSAGES.AUTOMATION.fileLoaded(file.name), 'success');
+
+            // Update zone text to show loaded file name
+            const textSpan = uploadZone.querySelector('.pdt-upload-text');
+            if (textSpan) {
+                textSpan.textContent = `✓ ${file.name}`;
+            }
+        } catch (error) {
+            NotificationService.show(Config.MESSAGES.AUTOMATION.fileReadFailed(error.message), 'error');
+        }
+    }
+
+    /**
+     * Saves the web resource content and optionally publishes it.
+     * @param {string} webResourceId - The GUID of the web resource.
+     * @param {string} content - The new content.
+     * @param {boolean} publish - Whether to publish after saving.
+     * @param {object} dialogController - The dialog controller with close method.
+     * @param {HTMLButtonElement} saveBtn - The save button element.
+     * @param {HTMLButtonElement} publishBtn - The publish button element.
+     * @private
+     */
+    async _saveWebResource(webResourceId, content, publish, dialogController, saveBtn, publishBtn) {
+        if (saveBtn) {
+            saveBtn.disabled = true;
+        }
+        if (publishBtn) {
+            publishBtn.disabled = true;
+        }
+
+        try {
+            await DataService.updateWebResourceContent(webResourceId, content);
+            NotificationService.show(Config.MESSAGES.AUTOMATION.webResourceSaved, 'success');
+
+            if (publish) {
+                await DataService.publishWebResource(webResourceId);
+                NotificationService.show(Config.MESSAGES.AUTOMATION.webResourcePublished, 'success');
+            }
+
+            if (dialogController && dialogController.close) {
+                dialogController.close();
+            }
+        } catch (error) {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+            }
+            if (publishBtn) {
+                publishBtn.disabled = false;
+            }
+
+            if (publish) {
+                NotificationService.show(Config.MESSAGES.AUTOMATION.webResourcePublishFailed(error.message), 'error');
+            } else {
+                NotificationService.show(Config.MESSAGES.AUTOMATION.webResourceSaveFailed(error.message), 'error');
+            }
+        }
     }
 }

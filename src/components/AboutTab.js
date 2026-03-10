@@ -84,22 +84,43 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li><strong>Server-Side Pagination:</strong> Handle 5000+ record queries with automatic pagination in both WebAPI Explorer and FetchXML Tester. Load more incrementally or fetch all records at once.</li>
-                        <li><strong>Smart Value Inputs:</strong> Intelligent input controls that auto-detect attribute types (boolean dropdowns, picklists, date pickers, lookups) for easier query building.</li>
-                        <li><strong>Filter Group Manager:</strong> Build complex queries with multiple filter groups using AND/OR/NOT logic across WebAPI and FetchXML tabs.</li>
-                        <li><strong>Bulk Operations (WebAPI):</strong> Update, delete, or touch multiple records at once with filter conditions and progress tracking.</li>
-                        <li><strong>File Upload Service:</strong> Upload files to Dataverse file columns with chunked upload support for files of any size.</li>
-                        <li><strong>Field Builder Mode (WebAPI):</strong> Visual field editor as an alternative to JSON mode for POST/PATCH operations with auto-populated required fields.</li>
-                        <li><strong>Nested Joins (FetchXML):</strong> Build multi-level relationship chains with parent-child join management.</li>
-                        <li><strong>Show Logical Names:</strong> New Inspector button to display logical names for tabs, sections, and controls directly on forms with click-to-copy functionality.</li>
-                        <li><strong>Advanced Security Analysis (Impersonate):</strong> Deep-dive into user permissions with security role comparison, field security profiles, privilege analysis, and business unit hierarchy visualization to troubleshoot access issues.</li>
-                        <li><strong>Command Bar Visibility Comparison (Impersonate):</strong> Analyze and compare which command bar buttons are visible between different users to troubleshoot permission issues on forms and grids.</li>
-                        <li><strong>Comprehensive Testing:</strong> Full test coverage with Vitest framework ensuring code quality and reliability.</li>
+                        <li><strong>Power Automate Flows Tab:</strong> New tab to browse, activate/deactivate, delete, and open cloud flows directly from the toolkit with solution-based filtering and flow visualization.</li>
+                        <li><strong>Web Resource Editing (Automation):</strong> Form event handlers in the Automation tab now allow editing web resources directly, enabling quick script updates without leaving the toolkit.</li>
+                        <li><strong>Aggregate Queries (FetchXML):</strong> Build aggregate queries with count, sum, avg, min, max using the aggregate and groupby options.</li>
+                        <li><strong>FetchXML Converter:</strong> Convert FetchXML to C# QueryExpression, JavaScript Xrm, OData, SQL, Power Automate, and Web API URL formats.</li>
+                        <li><strong>Open Record Button:</strong> Result tables in FetchXML Tester and WebAPI Explorer now include an Open button to navigate directly to records.</li>
+                        <li><strong>Record Selection (FetchXML):</strong> Select specific records from FetchXML results for export or touch operations.</li>
+                        <li><strong>In Operator Fix (FetchXML):</strong> The "In" operator now correctly generates separate value elements for comma-separated values.</li>
+                        <li><strong>Case-Insensitive Entity/Column Names:</strong> FetchXML and WebAPI Explorer now auto-resolve PascalCase names to correct logical names, preventing errors with mixed-case input.</li>
+                        <li><strong>Solution Layers – Plugin Packages:</strong> Solution Layers tab now displays unmanaged layers for plugin packages.</li>
                     </ul>
                     <details class="pdt-changelog-details" style="cursor: pointer;">
                         <summary style="cursor: pointer; user-select: none;"><strong> Previous Releases</strong></summary>
                         <div style="margin-top: 1rem;">
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem;">
+                                <summary style="cursor: pointer; user-select: none;"><strong>Version 4.1.0</strong></summary>
+                                <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
+                                    <li>Firefox Extension: Cross-browser support with Firefox add-on alongside Chrome and Edge.</li>
+                                    <li>Browser API Abstraction: Unified browser extension API layer for seamless Chrome/Edge/Firefox compatibility.</li>
+                                </ul>
+                            </details>
+                            <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
+                                <summary style="cursor: pointer; user-select: none;"><strong>Version 4.0.0</strong></summary>
+                                <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
+                                    <li>Server-Side Pagination: Handle 5000+ record queries with automatic pagination in both WebAPI Explorer and FetchXML Tester.</li>
+                                    <li>Smart Value Inputs: Auto-detect attribute types (boolean dropdowns, picklists, date pickers, lookups) for easier query building.</li>
+                                    <li>Filter Group Manager: Build complex queries with multiple filter groups using AND/OR/NOT logic.</li>
+                                    <li>Bulk Operations (WebAPI): Update, delete, or touch multiple records at once with progress tracking.</li>
+                                    <li>File Upload Service: Upload files to Dataverse file columns with chunked upload support.</li>
+                                    <li>Field Builder Mode (WebAPI): Visual field editor as an alternative to JSON mode for POST/PATCH.</li>
+                                    <li>Nested Joins (FetchXML): Build multi-level relationship chains with parent-child join management.</li>
+                                    <li>Show Logical Names: Inspector button to display and copy logical names for form elements.</li>
+                                    <li>Advanced Security Analysis (Impersonate): Deep-dive into user permissions with role comparison, field security profiles, and privilege analysis.</li>
+                                    <li>Command Bar Visibility Comparison (Impersonate): Compare command bar buttons between users to troubleshoot permissions.</li>
+                                    <li>Comprehensive Testing: Full test coverage with Vitest framework.</li>
+                                </ul>
+                            </details>
+                            <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
                                 <summary style="cursor: pointer; user-select: none;"><strong>Version 3.0.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Solution Layers Tab: New tab to view and manage solution components with active customizations.</li>

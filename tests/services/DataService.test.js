@@ -498,7 +498,13 @@ describe('DataService', () => {
         it('should clear all cache when key is null', () => {
             DataService.clearCache();
 
-            expect(MetadataService.clearCache).toHaveBeenCalled();
+            expect(MetadataService.clearCache).toHaveBeenCalledWith(null, false);
+        });
+
+        it('should clear cache preserving entity names when flag is set', () => {
+            DataService.clearCache(null, true);
+
+            expect(MetadataService.clearCache).toHaveBeenCalledWith(null, true);
         });
 
         it('should clear specific cache when key is provided', () => {
@@ -1081,22 +1087,22 @@ describe('DataService', () => {
     });
 
     describe('impersonation advanced scenarios', () => {
-        it('should clear cache when setting impersonation', () => {
+        it('should clear cache preserving entity names when setting impersonation', () => {
             const clearCacheSpy = vi.spyOn(DataService, 'clearCache');
 
             DataService.setImpersonation('user-123', 'John Doe');
 
-            expect(clearCacheSpy).toHaveBeenCalled();
+            expect(clearCacheSpy).toHaveBeenCalledWith(null, true);
             clearCacheSpy.mockRestore();
         });
 
-        it('should clear cache when clearing impersonation', () => {
+        it('should clear cache preserving entity names when clearing impersonation', () => {
             DataService.setImpersonation('user-123', 'John Doe');
             const clearCacheSpy = vi.spyOn(DataService, 'clearCache');
 
             DataService.clearImpersonation();
 
-            expect(clearCacheSpy).toHaveBeenCalled();
+            expect(clearCacheSpy).toHaveBeenCalledWith(null, true);
             clearCacheSpy.mockRestore();
         });
 

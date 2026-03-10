@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Power-Toolkit for Power Apps",
-    "version": "4.0.0",
+    "version": "4.2.0",
     "description": "A client-side toolkit for Power Apps and Dynamics365 developers to inspect, debug, and manipulate data.",
     "author": "Mohammed Khawatme",
     "icons": {
@@ -47,7 +47,7 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "{c9c9a8b2-6fda-4a27-8d6a-3c4e4c74c5a1}",
+            "id": "power-toolkit@khawatme",
             "strict_min_version": "140.0",
             "data_collection_permissions": {
                 "required": [

@@ -7,7 +7,7 @@
  * The current version number of the toolkit.
  * @type {string}
  */
-export const TOOL_VERSION = '4.0.0';
+export const TOOL_VERSION = '4.2.0';
 
 /**
  * The name of the application's author.
@@ -21,7 +21,7 @@ export const DEVELOPER_NAME = 'Mohammed Khawatme';
  */
 export const LICENSE_TEXT = `MIT License
 
-Copyright (c) 2025 Mohammed Khawatme
+Copyright (c) 2026 Mohammed Khawatme
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

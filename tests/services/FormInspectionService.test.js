@@ -951,4 +951,380 @@ describe('FormInspectionService', () => {
             expect(result[0].children[0].children).toEqual([]);
         });
     });
+
+    describe('getWebResourceByName', () => {
+        it('should return null for empty web resource name', async () => {
+            const retrieveMultiple = vi.fn();
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, '');
+
+            expect(result).toBeNull();
+            expect(retrieveMultiple).not.toHaveBeenCalled();
+        });
+
+        it('should return null for null web resource name', async () => {
+            const retrieveMultiple = vi.fn();
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, null);
+
+            expect(result).toBeNull();
+        });
+
+        it('should return null when web resource not found', async () => {
+            const retrieveMultiple = vi.fn(() => Promise.resolve({ entities: [] }));
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'nonexistent.js');
+
+            expect(result).toBeNull();
+        });
+
+        it('should return web resource data when found', async () => {
+            const mockContent = globalThis.btoa('function test() {}');
+            const retrieveMultiple = vi.fn(() => Promise.resolve({
+                entities: [{
+                    webresourceid: 'wr-123',
+                    name: 'test.js',
+                    displayname: 'Test Script',
+                    content: mockContent,
+                    webresourcetype: 3
+                }]
+            }));
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'test.js');
+
+            expect(result).toEqual({
+                id: 'wr-123',
+                name: 'test.js',
+                displayName: 'Test Script',
+                content: 'function test() {}',
+                webresourcetype: 3,
+                isCustomizable: true,
+                isHidden: false,
+                isManaged: false
+            });
+        });
+
+        it('should use name as displayName when displayname is not set', async () => {
+            const retrieveMultiple = vi.fn(() => Promise.resolve({
+                entities: [{
+                    webresourceid: 'wr-123',
+                    name: 'test.js',
+                    displayname: null,
+                    content: globalThis.btoa(''),
+                    webresourcetype: 3
+                }]
+            }));
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'test.js');
+
+            expect(result.displayName).toBe('test.js');
+        });
+
+        it('should return empty string for content when not set', async () => {
+            const retrieveMultiple = vi.fn(() => Promise.resolve({
+                entities: [{
+                    webresourceid: 'wr-123',
+                    name: 'test.js',
+                    displayname: 'Test',
+                    content: null,
+                    webresourcetype: 3
+                }]
+            }));
+
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'test.js');
+
+            expect(result.content).toBe('');
+        });
+    });
+
+    describe('updateWebResourceContent', () => {
+        it('should call updateRecord with base64 encoded content', async () => {
+            const updateRecord = vi.fn(() => Promise.resolve());
+
+            await FormInspectionService.updateWebResourceContent(updateRecord, 'wr-123', 'function test() {}');
+
+            expect(updateRecord).toHaveBeenCalledWith('webresource', 'wr-123', {
+                content: expect.any(String)
+            });
+        });
+
+        it('should properly encode UTF-8 characters', async () => {
+            const updateRecord = vi.fn(() => Promise.resolve());
+
+            await FormInspectionService.updateWebResourceContent(updateRecord, 'wr-123', 'Hello 世界');
+
+            const call = updateRecord.mock.calls[0];
+            const encodedContent = call[2].content;
+            const decodedContent = decodeURIComponent(escape(globalThis.atob(encodedContent)));
+
+            expect(decodedContent).toBe('Hello 世界');
+        });
+    });
+
+    describe('publishWebResource', () => {
+        it('should call PublishXml with correct parameters', async () => {
+            const webApiFetch = vi.fn(() => Promise.resolve());
+
+            await FormInspectionService.publishWebResource(webApiFetch, 'wr-123');
+
+            expect(webApiFetch).toHaveBeenCalledWith(
+                'POST',
+                'PublishXml',
+                '',
+                { ParameterXml: expect.stringContaining('wr-123') }
+            );
+        });
+
+        it('should include webresource in the publish XML', async () => {
+            const webApiFetch = vi.fn(() => Promise.resolve());
+
+            await FormInspectionService.publishWebResource(webApiFetch, 'test-guid');
+
+            const call = webApiFetch.mock.calls[0];
+            expect(call[3].ParameterXml).toContain('<webresource>{test-guid}</webresource>');
+        });
+    });
+
+    describe('getFormEventHandlers passContext and parameters', () => {
+        it('should include passContext in handler data', async () => {
+            const formXml = `<form>
+                <events>
+                    <event name="onload">
+                        <Handler libraryName="test.js" functionName="onLoad" enabled="true" passExecutionContext="true" parameters="param1,param2"/>
+                    </event>
+                </events>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            // Mock the form ID
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-123'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnLoad[0].passContext).toBe(true);
+            expect(result.OnLoad[0].parameters).toBe('param1,param2');
+        });
+
+        it('should include formId in the returned object', async () => {
+            const formXml = `<form><events></events></form>`;
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-456'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.formId).toBe('form-456');
+        });
+    });
+
+    describe('getFormEventHandlers field-level events', () => {
+        it('should parse OnChange handlers from field cells', async () => {
+            const formXml = `<form>
+                <events></events>
+                <tabs>
+                    <tab>
+                        <columns>
+                            <column>
+                                <sections>
+                                    <section>
+                                        <rows>
+                                            <row>
+                                                <cell>
+                                                    <control id="name" datafieldname="name" />
+                                                    <events>
+                                                        <event name="onchange">
+                                                            <Handler libraryName="custom.js" functionName="onNameChange" enabled="true" passExecutionContext="true" />
+                                                        </event>
+                                                    </events>
+                                                </cell>
+                                            </row>
+                                        </rows>
+                                    </section>
+                                </sections>
+                            </column>
+                        </columns>
+                    </tab>
+                </tabs>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-789'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnChange).toBeDefined();
+            expect(result.OnChange.length).toBe(1);
+            expect(result.OnChange[0].function).toBe('onNameChange');
+            expect(result.OnChange[0].library).toBe('custom.js');
+            expect(result.OnChange[0].field).toBe('name');
+            expect(result.OnChange[0].passContext).toBe(true);
+        });
+
+        it('should return empty OnChange array when no field events', async () => {
+            const formXml = `<form>
+                <events>
+                    <event name="onload">
+                        <Handler libraryName="test.js" functionName="onLoad" enabled="true" />
+                    </event>
+                </events>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-123'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnChange).toBeDefined();
+            expect(result.OnChange.length).toBe(0);
+        });
+
+        it('should handle multiple OnChange handlers across different fields', async () => {
+            const formXml = `<form>
+                <events></events>
+                <tabs>
+                    <tab>
+                        <columns>
+                            <column>
+                                <sections>
+                                    <section>
+                                        <rows>
+                                            <row>
+                                                <cell>
+                                                    <control id="firstname" datafieldname="firstname" />
+                                                    <events>
+                                                        <event name="onchange">
+                                                            <Handler libraryName="custom.js" functionName="onFirstNameChange" enabled="true" />
+                                                        </event>
+                                                    </events>
+                                                </cell>
+                                                <cell>
+                                                    <control id="lastname" datafieldname="lastname" />
+                                                    <events>
+                                                        <event name="onchange">
+                                                            <Handler libraryName="custom.js" functionName="onLastNameChange" enabled="true" />
+                                                        </event>
+                                                    </events>
+                                                </cell>
+                                            </row>
+                                        </rows>
+                                    </section>
+                                </sections>
+                            </column>
+                        </columns>
+                    </tab>
+                </tabs>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-123'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnChange.length).toBe(2);
+            expect(result.OnChange[0].field).toBe('firstname');
+            expect(result.OnChange[1].field).toBe('lastname');
+        });
+
+        it('should use control datafieldname as fallback when id is not set', async () => {
+            const formXml = `<form>
+                <events></events>
+                <tabs>
+                    <tab>
+                        <columns>
+                            <column>
+                                <sections>
+                                    <section>
+                                        <rows>
+                                            <row>
+                                                <cell>
+                                                    <control datafieldname="accountid" />
+                                                    <events>
+                                                        <event name="onchange">
+                                                            <Handler libraryName="custom.js" functionName="onAccountChange" enabled="true" />
+                                                        </event>
+                                                    </events>
+                                                </cell>
+                                            </row>
+                                        </rows>
+                                    </section>
+                                </sections>
+                            </column>
+                        </columns>
+                    </tab>
+                </tabs>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-123'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnChange[0].field).toBe('accountid');
+        });
+    });
 });

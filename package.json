@@ -1,6 +1,6 @@
 {
     "name": "power-toolkit",
-    "version": "4.0.0",
+    "version": "4.2.0",
     "type": "module",
     "description": "A comprehensive, client-side toolkit for Power Apps Model-Driven App developers.",
     "private": true,
@@ -23,7 +23,11 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "test:ui": "vitest --ui",
-        "test:coverage": "vitest run --coverage"
+        "test:coverage": "vitest run --coverage",
+        "dashboard": "npx serve .github -p 3000 -C",
+        "metrics": "node .github/scripts/collect-metrics.js report",
+        "metrics:init": "node .github/scripts/collect-metrics.js init",
+        "validate:prompts": "node .github/scripts/validate-prompts.js"
     },
     "devDependencies": {
         "@babel/core": "^7.28.3",

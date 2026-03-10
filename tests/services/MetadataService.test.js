@@ -617,6 +617,20 @@ describe('MetadataService', () => {
             expect(MetadataService.getEntitySetName('account')).toBeNull();
         });
 
+        it('should preserve entity name caches when preserveEntityNames is true', () => {
+            expect(MetadataService.isMetadataLoaded()).toBe(true);
+            expect(MetadataService.getEntitySetName('account')).toBe('accounts');
+            expect(MetadataService.getLogicalName('accounts')).toBe('account');
+
+            MetadataService.clearCache(null, true);
+
+            // Entity name mappings should be preserved
+            expect(MetadataService.getEntitySetName('account')).toBe('accounts');
+            expect(MetadataService.getLogicalName('accounts')).toBe('account');
+            // isMetadataLoaded stays true since we didn't clear entity names
+            expect(MetadataService.isMetadataLoaded()).toBe(true);
+        });
+
         it('should clear specific cache key when provided', async () => {
             // First load entity definitions to cache them
             await MetadataService.getEntityDefinitions(mockWebApiFetch);

@@ -1246,7 +1246,7 @@ describe('ImpersonateTab', () => {
             );
 
             expect(html).toContain('account');
-            expect(html).toContain('pdt-privilege-row');
+            expect(html).toContain('pdt-priv-row');
         });
 
         it('should highlight differences in privileges', async () => {
@@ -1263,7 +1263,7 @@ describe('ImpersonateTab', () => {
                 comparisonPrivileges
             );
 
-            expect(html).toContain('pdt-privilege-row--different');
+            expect(html).toContain('pdt-priv-row--different');
         });
 
         it('should mark both-have and both-lack rows', async () => {
@@ -1280,8 +1280,78 @@ describe('ImpersonateTab', () => {
                 comparisonPrivileges
             );
 
-            expect(html).toContain('pdt-privilege-row--both-have');
-            expect(html).toContain('pdt-privilege-row--both-lack');
+            expect(html).toContain('pdt-priv-row--both-have');
+            expect(html).toContain('pdt-priv-row--both-lack');
+        });
+
+        it('should display roles that grant each privilege', async () => {
+            component = new ImpersonateTab();
+
+            const targetPrivileges = {
+                read: { hasPrivilege: true, depth: 'Global', roles: ['System Administrator', 'Sales Manager'] },
+                create: { hasPrivilege: true, depth: 'Local', roles: ['Sales Manager'] }
+            };
+
+            const comparisonPrivileges = {
+                read: { hasPrivilege: true, depth: 'Basic', roles: ['Basic User'] },
+                create: { hasPrivilege: false, roles: [] }
+            };
+
+            const html = component._renderEntityPrivileges(
+                'account',
+                'Target User',
+                'You',
+                targetPrivileges,
+                comparisonPrivileges
+            );
+
+            expect(html).toContain('System Administrator');
+            expect(html).toContain('Sales Manager');
+            expect(html).toContain('Basic User');
+            expect(html).toContain('pdt-priv-role');
+            expect(html).toContain('pdt-priv-roles');
+        });
+    });
+
+    describe('_renderPrivilegeRoles', () => {
+        it('should return empty string for no roles', () => {
+            component = new ImpersonateTab();
+
+            expect(component._renderPrivilegeRoles([])).toBe('');
+            expect(component._renderPrivilegeRoles(null)).toBe('');
+            expect(component._renderPrivilegeRoles(undefined)).toBe('');
+        });
+
+        it('should render single role badge', () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderPrivilegeRoles(['System Administrator']);
+
+            expect(html).toContain('pdt-priv-role');
+            expect(html).toContain('System Administrator');
+            expect(html).toContain('pdt-priv-roles');
+        });
+
+        it('should render multiple roles with more badge', () => {
+            component = new ImpersonateTab();
+
+            const roles = ['Role 1', 'Role 2', 'Role 3', 'Role 4', 'Role 5'];
+            const html = component._renderPrivilegeRoles(roles);
+
+            expect(html).toContain('Role 1');
+            expect(html).toContain('Role 2');
+            expect(html).toContain('Role 3');
+            expect(html).toContain('pdt-priv-role--more');
+            expect(html).toContain('+2 more');
+        });
+
+        it('should escape HTML in role names', () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderPrivilegeRoles(['<script>alert("xss")</script>']);
+
+            expect(html).not.toContain('<script>');
+            expect(html).toContain('&lt;script&gt;');
         });
     });
 

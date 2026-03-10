@@ -141,11 +141,6 @@ export class HelpTab extends BaseComponent {
                 summary: 'A searchable table of all data columns on the form or in the record.',
                 content: "This tab provides a flat table of every data column (attribute). The <strong>'Form Columns'</strong> view shows live data from the `Xrm.Page` context, allowing for real-time editing. The <strong>'Record Columns'</strong> view shows all attributes for the saved record, fetched via the Web API. You can sort, search, and hover over a row to **highlight the control** on the main form."
             },
-            automation: {
-                title: 'Form Automation',
-                summary: 'View, manage, and inspect Business Rules and JavaScript event handlers.',
-                content: 'This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer.'
-            },
             eventMonitor: {
                 title: 'Event Monitor',
                 summary: 'A live console that logs form events like OnLoad, OnSave, and OnChange.',
@@ -155,6 +150,21 @@ export class HelpTab extends BaseComponent {
                 title: 'Plugin Context',
                 summary: 'Simulate the data context (Target, Pre/Post Images) sent to server-side plugins.',
                 content: 'This tool simulates the data context that would be sent to a server-side plugin for `Create`, `Update`, or `Delete` operations. Based on the current form data, it generates the JSON for `InputParameters["Target"]`, `PreEntityImages["preimage"]`, and `PostEntityImages["postimage"]`. It also includes a button to generate a complete C# unit test snippet for the **FakeXrmEasy** framework.'
+            },
+            performance: {
+                title: 'Performance',
+                summary: 'Analyze the form load time and see a breakdown of the form\'s complexity.',
+                content: 'This tab displays key performance metrics for the current form load, including the total load time and a breakdown of server, network, and client processing time. It also shows a summary of the form\'s composition, such as the number of controls and events.'
+            },
+            automation: {
+                title: 'Form Automation',
+                summary: 'View, manage, and inspect Business Rules and JavaScript event handlers.',
+                content: 'This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer.'
+            },
+            powerAutomateFlows: {
+                title: 'Power Automate Flows',
+                summary: 'View, manage, and control Power Automate cloud flows in the environment.',
+                content: 'This tab displays all solution-aware <strong>Power Automate cloud flows</strong> in your Dataverse environment. For each flow, you can see its name, owner, status (On/Off/Suspended), creation and modification dates.<br><br><strong>Turn On/Off:</strong> Toggle a flow\'s state directly from the card. Managed flows cannot be modified.<br><strong>View Definition:</strong> Opens the flow definition in a dialog with two views: a <strong>Visual</strong> flowchart showing triggers, actions, conditions, loops and branches in a structured diagram, and a <strong>JSON</strong> view with the raw definition and copy support.<br><strong>Open in Power Automate:</strong> Opens the flow in the Power Automate maker portal for full editing.<br><strong>Delete:</strong> Permanently delete an unmanaged flow (with confirmation).<br><br><strong>💡 Tip:</strong> Use the search bar to filter flows by name, status, or owner.'
             },
             impersonate: {
                 title: 'Impersonate',
@@ -178,8 +188,8 @@ export class HelpTab extends BaseComponent {
             },
             fetchXmlTester: {
                 title: 'FetchXML Tester',
-                summary: 'Build, edit, and execute FetchXML queries with joins and filter groups.',
-                content: 'A dedicated tester for FetchXML queries with both visual building and XML editing capabilities.<br><br><strong>Builder Mode:</strong> Start with the simple Builder for basic queries. Select a table, add columns with the <strong>Add Column</strong> button, and use <strong>Add Filter Group</strong> to create conditions with AND/OR logic. Add <strong>linked entities (joins)</strong> with the builder—it automatically detects lookup relationships.<br><br><strong>Nested Joins:</strong> Click on a linked entity to add child joins, building multi-level relationship chains (e.g., Account → Contact → SystemUser).<br><br><strong>XML Editor:</strong> Switch to the <strong>XML Editor</strong> for complex queries or to paste FetchXML from other tools. The editor provides syntax highlighting and <strong>Format XML</strong> for proper indentation.<br><strong>Templates:</strong> Use built-in templates to quickly start with common query patterns.<br><br><strong>Pagination:</strong> For large result sets, use <strong>Load More</strong> or <strong>Load All</strong> to fetch additional pages beyond the 5000 record limit.<br><br><strong>💡 Tip:</strong> Enable <strong>Hide System Fields</strong> to filter out OData annotations and focus on your data. Click column headers to sort results.'
+                summary: 'Build, edit, execute, and convert FetchXML queries with joins, filter groups, and aggregate queries.',
+                content: 'A dedicated tester for FetchXML queries with both visual building and XML editing capabilities.<br><br><strong>Builder Mode:</strong> Start with the simple Builder for basic queries. Select a table, add columns with the <strong>Add Column</strong> button, and use <strong>Add Filter Group</strong> to create conditions with AND/OR logic. Add <strong>linked entities (joins)</strong> with the builder—it automatically detects lookup relationships.<br><br><strong>Nested Joins:</strong> Click on a linked entity to add child joins, building multi-level relationship chains (e.g., Account → Contact → SystemUser).<br><br><strong>Aggregate Queries:</strong> Use <strong>Add Aggregate</strong> to add aggregate columns (count, sum, avg, min, max) and <strong>Add Group By</strong> to group results. When aggregate or group-by rows are present, the builder automatically generates aggregate FetchXML with the <code>aggregate="true"</code> attribute. Use the Order field with an alias to sort aggregate results.<br><br><strong>Record Selection &amp; Touch:</strong> Results include checkboxes for selecting records. Use the <strong>Touch</strong> button to perform bulk touch operations on selected records. The <strong>Export</strong> button exports only selected records when a selection is active.<br><br><strong>XML Editor:</strong> Switch to the <strong>XML Editor</strong> for complex queries or to paste FetchXML from other tools. The editor provides syntax highlighting and <strong>Format XML</strong> for proper indentation.<br><strong>Templates:</strong> Use built-in templates including aggregate query examples to quickly start with common query patterns.<br><br><strong>Convert To:</strong> In the XML Editor, click the <strong>Convert To</strong> button in the toolbar to open the conversion panel. Convert your FetchXML to <strong>C# QueryExpression</strong> (uses FetchExpression for aggregate queries), <strong>JavaScript Xrm.WebApi</strong> (OData for simple queries, FetchXML for complex), <strong>OData</strong> query strings, <strong>SQL</strong> (T-SQL with JOINs and GROUP BY), <strong>Power Automate</strong> ("List rows" action configuration), or <strong>Web API URL</strong> (ready-to-use URL with encoded FetchXML). Click a format button and copy the output with one click.<br><br><strong>Pagination:</strong> For large result sets, use <strong>Load More</strong> or <strong>Load All</strong> to fetch additional pages beyond the 5000 record limit.<br><br><strong>💡 Tip:</strong> Enable <strong>Hide System Fields</strong> to filter out OData annotations and focus on your data. Click column headers to sort results.'
             },
             traces: {
                 title: 'Plugin Traces',
@@ -200,11 +210,6 @@ export class HelpTab extends BaseComponent {
                 title: 'Code Hub',
                 summary: 'A searchable library of useful JavaScript code snippets for Power Apps.',
                 content: 'A static library of commonly used JavaScript snippets for form scripting and Web API calls. You can quickly search for snippets and copy them directly to your clipboard.'
-            },
-            performance: {
-                title: 'Performance',
-                summary: 'Analyze the form load time and see a breakdown of the form\'s complexity.',
-                content: 'This tab displays key performance metrics for the current form load, including the total load time and a breakdown of server, network, and client processing time. It also shows a summary of the form\'s composition, such as the number of controls and events.'
             },
             settings: {
                 title: 'Settings',

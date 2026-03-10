@@ -154,6 +154,30 @@ describe('ODataQueryBuilder', () => {
             expect(result2).toContain('$filter=name ne null');
         });
 
+        it('should handle null and not null operators for lookup fields', () => {
+            const result1 = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [
+                        { attr: 'ownerid', op: 'eq null' }
+                    ]
+                }],
+                attrMap
+            });
+            expect(result1).toContain('$filter=_ownerid_value eq null');
+
+            const result2 = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [
+                        { attr: 'parentaccountid', op: 'ne null' }
+                    ]
+                }],
+                attrMap
+            });
+            expect(result2).toContain('$filter=_parentaccountid_value ne null');
+        });
+
         it('should combine multiple filters with AND', () => {
             const result = ODataQueryBuilder.build({
                 filterGroups: [{
@@ -376,10 +400,10 @@ describe('ODataQueryBuilder', () => {
             expect(result).toEqual(['name', 'age']);
         });
 
-        it('should handle columns not found in attrMap', () => {
+        it('should handle columns not found in attrMap (lowercased)', () => {
             const attrMap = new Map([['name', { type: 'string' }]]);
             const result = ODataQueryBuilder._buildSelectPart(['name', 'unknownField'], attrMap);
-            expect(result).toEqual(['name', 'unknownField']);
+            expect(result).toEqual(['name', 'unknownfield']);
         });
     });
 
