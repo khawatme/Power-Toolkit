@@ -16,7 +16,8 @@ export class EntityContextResolver {
      * @returns {Promise<{ entitySet: string, logicalName: string }>}
      */
     static async resolve(input) {
-        const def = await DataService.getEntityByAny(input);
+        const normalizedInput = input?.toLowerCase?.() || input;
+        const def = await DataService.getEntityByAny(normalizedInput);
         if (!def) {
             throw new Error(`Could not resolve entity for '${input}'.`);
         }

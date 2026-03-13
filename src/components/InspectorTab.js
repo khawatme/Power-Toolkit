@@ -59,6 +59,11 @@ export class InspectorTab extends BaseComponent {
 
         try {
             this.hierarchy = await DataService.getFormHierarchy(true);
+
+            if (this.hierarchy.length > 0 && this.hierarchy.every(tab => !tab.logicalName)) {
+                this.hierarchy = [];
+            }
+
             if (this.hierarchy.length === 0) {
                 container.innerHTML += `<p class='pdt-note'>${Config.MESSAGES.INSPECTOR.hierarchyLoadFailed}</p>`;
             } else {
@@ -288,8 +293,10 @@ export class InspectorTab extends BaseComponent {
         const valueStr = formatDisplayValue(node.value, node.editableAttr, node.controlType);
         const isEditable = !!node.editableAttr && !node.controlType?.includes('subgrid');
 
+        // Omit `title` from the inline HTML – it will be set via setAttribute below to
+        // avoid HTML attribute injection when valueStr contains double-quote characters.
         const valueHtml = node.value !== undefined
-            ? `<div class="item-value ${isEditable ? 'editable' : ''}" title="${escapeHtml(valueStr)}">
+            ? `<div class="item-value ${isEditable ? 'editable' : ''}">
                 ${isEditable ? `<span class="edit-icon">${ICONS.edit}</span>` : ''}
                 ${escapeHtml(valueStr)}
               </div>`
@@ -307,6 +314,11 @@ export class InspectorTab extends BaseComponent {
       </div>
       ${valueHtml}
     </div>`;
+
+        // Set the value tooltip via DOM API so any characters in the value are safely handled.
+        if (node.value !== undefined) {
+            listItem.querySelector('.item-value')?.setAttribute('title', valueStr);
+        }
 
         return listItem;
     }

@@ -125,7 +125,7 @@ export const NOTIFICATION_TIMINGS = {
  * @type {Object.<string, string|number>}
  */
 export const NOTIFICATION_STYLES = {
-    zIndex: 10002,
+    zIndex: 10003,
     padding: '20px',
     gap: '10px'
 };

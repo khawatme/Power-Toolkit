@@ -171,8 +171,8 @@ describe('App', () => {
 
         it('should register all components before initializing UI', () => {
             App.init();
-            // 18 components should be registered
-            expect(ComponentRegistry.register).toHaveBeenCalledTimes(18);
+            // 19 components should be registered
+            expect(ComponentRegistry.register).toHaveBeenCalledTimes(19);
         });
 
         it('should set window initialized flag', () => {
@@ -348,6 +348,7 @@ describe('App', () => {
             expect(registeredIds).toContain('pluginTrace');
             expect(registeredIds).toContain('userContext');
             expect(registeredIds).toContain('codeHub');
+            expect(registeredIds).toContain('powerAutomateFlows');
         });
 
         it('should register utility components', () => {
@@ -362,10 +363,10 @@ describe('App', () => {
             expect(registeredIds).toContain('about');
         });
 
-        it('should register exactly 18 components', () => {
+        it('should register exactly 19 components', () => {
             App.init();
 
-            expect(ComponentRegistry.register).toHaveBeenCalledTimes(18);
+            expect(ComponentRegistry.register).toHaveBeenCalledTimes(19);
         });
 
         it('should register components with proper structure', () => {

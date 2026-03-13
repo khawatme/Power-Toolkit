@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WebApiExplorerTab } from '../../src/components/WebApiExplorerTab.js';
 import { DataService } from '../../src/services/DataService.js';
+import { BulkTouchService } from '../../src/services/BulkTouchService.js';
 
 // Mock dependencies
 vi.mock('../../src/services/DataService.js', () => ({
@@ -96,6 +97,14 @@ vi.mock('../../src/utils/ui/PreferencesHelper.js', () => ({
     PreferencesHelper: {
         load: vi.fn((key, defaultValue) => defaultValue),
         save: vi.fn()
+    }
+}));
+
+vi.mock('../../src/services/BulkTouchService.js', () => ({
+    BulkTouchService: {
+        showTouchConfigDialog: vi.fn(() => Promise.resolve(null)),
+        prepareTouchOperations: vi.fn(() => ({ allOperations: [], totalFailCount: 0, allErrors: [] })),
+        executeBatchOperations: vi.fn(() => Promise.resolve({ successCount: 0, failCount: 0, errors: [] }))
     }
 }));
 
@@ -3280,7 +3289,7 @@ describe('WebApiExplorerTab', () => {
                 expect(component.ui.preview.innerHTML).toContain('accounts');
             });
 
-            it('should update entity input with resolved entity set', async () => {
+            it('should not update entity input during preview (prevents premature autocomplete)', async () => {
                 const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
                 EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'contacts', logicalName: 'contact' });
                 EntityContextResolver.getAttrMap.mockResolvedValue(new Map());
@@ -3290,7 +3299,7 @@ describe('WebApiExplorerTab', () => {
 
                 await component._updateGetPreview();
 
-                expect(component.ui.getEntityInput.value).toBe('contacts');
+                expect(component.ui.getEntityInput.value).toBe('contact');
             });
 
             it('should use fallback when resolution fails', async () => {
@@ -3303,117 +3312,6 @@ describe('WebApiExplorerTab', () => {
                 await component._updateGetPreview();
 
                 expect(component.ui.preview.innerHTML).toContain('unknownentity');
-            });
-        });
-
-        describe('_updatePostPreview', () => {
-            it('should display POST method and entity target', () => {
-                component.ui.postEntityInput.value = 'accounts';
-
-                component._updatePostPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('POST');
-                expect(component.ui.preview.innerHTML).toContain('accounts');
-            });
-
-            it('should show placeholder when entity not set', () => {
-                component.ui.postEntityInput.value = '';
-
-                component._updatePostPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(table?)');
-            });
-
-            it('should handle entity name in output', () => {
-                // Note: escapeHtml is mocked in test environment
-                component.ui.postEntityInput.value = 'test_entity';
-
-                component._updatePostPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('test_entity');
-            });
-        });
-
-        describe('_updatePatchPreview', () => {
-            it('should display PATCH method with entity and record ID', () => {
-                component.ui.patchEntityInput.value = 'accounts';
-                component.ui.patchIdInput.value = 'abc-123';
-
-                component._updatePatchPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('PATCH');
-                expect(component.ui.preview.innerHTML).toContain('accounts');
-                expect(component.ui.preview.innerHTML).toContain('abc-123');
-            });
-
-            it('should show entity placeholder when not set', () => {
-                component.ui.patchEntityInput.value = '';
-                component.ui.patchIdInput.value = 'some-id';
-
-                component._updatePatchPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(table?)');
-            });
-
-            it('should show ID placeholder when not set', () => {
-                component.ui.patchEntityInput.value = 'contacts';
-                component.ui.patchIdInput.value = '';
-
-                component._updatePatchPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(id?)');
-            });
-
-            it('should show both placeholders when neither set', () => {
-                component.ui.patchEntityInput.value = '';
-                component.ui.patchIdInput.value = '';
-
-                component._updatePatchPreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(table?)');
-                expect(component.ui.preview.innerHTML).toContain('(id?)');
-            });
-        });
-
-        describe('_updateDeletePreview', () => {
-            it('should display DELETE method with entity and record ID', () => {
-                component.ui.deleteEntityInput.value = 'leads';
-                component.ui.deleteIdInput.value = 'lead-456';
-
-                component._updateDeletePreview();
-
-                expect(component.ui.preview.innerHTML).toContain('DELETE');
-                expect(component.ui.preview.innerHTML).toContain('leads');
-                expect(component.ui.preview.innerHTML).toContain('lead-456');
-            });
-
-            it('should show entity placeholder when not set', () => {
-                component.ui.deleteEntityInput.value = '';
-                component.ui.deleteIdInput.value = 'some-id';
-
-                component._updateDeletePreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(table?)');
-            });
-
-            it('should show ID placeholder when not set', () => {
-                component.ui.deleteEntityInput.value = 'opportunities';
-                component.ui.deleteIdInput.value = '';
-
-                component._updateDeletePreview();
-
-                expect(component.ui.preview.innerHTML).toContain('(id?)');
-            });
-
-            it('should handle entity name and ID in output', () => {
-                // Note: escapeHtml is mocked in test environment
-                component.ui.deleteEntityInput.value = 'test_entity';
-                component.ui.deleteIdInput.value = 'test_id';
-
-                component._updateDeletePreview();
-
-                expect(component.ui.preview.innerHTML).toContain('test_entity');
-                expect(component.ui.preview.innerHTML).toContain('test_id');
             });
         });
 
@@ -4889,6 +4787,8 @@ describe('WebApiExplorerTab', () => {
                 expect(result[0].Total).toBe(10);
                 expect(result[0].Succeeded).toBe(10);
                 expect(result[0].Failed).toBe(0);
+                expect(result[0]['Record ID']).toBe('');
+                expect(result[0]['Record Name']).toBe('');
             });
 
             it('should include error details when failures occur', async () => {
@@ -4902,6 +4802,49 @@ describe('WebApiExplorerTab', () => {
 
                 expect(result.length).toBeGreaterThan(1);
                 expect(result[0].Failed).toBe(2);
+            });
+
+            it('should include record ID and name when recordContext is provided', async () => {
+                await setupComponent();
+                const records = [
+                    { accountid: 'abc-123', name: 'Contoso' },
+                    { accountid: 'def-456', name: 'Fabrikam' }
+                ];
+                const errors = [
+                    { index: 0, error: 'Permission denied' },
+                    { index: 1, error: 'Record locked' }
+                ];
+
+                const result = component._formatBulkOperationResult('Bulk Update', 2, 0, 2, errors, {
+                    records,
+                    primaryKey: 'accountid',
+                    primaryNameAttr: 'name'
+                });
+
+                // Summary + separator + 2 error rows = 4
+                expect(result.length).toBe(4);
+                expect(result[2]['Record ID']).toBe('abc-123');
+                expect(result[2]['Record Name']).toBe('Contoso');
+                expect(result[3]['Record ID']).toBe('def-456');
+                expect(result[3]['Record Name']).toBe('Fabrikam');
+                expect(result[2]['Error Details']).toBe('Permission denied');
+            });
+
+            it('should handle missing record in recordContext gracefully', async () => {
+                await setupComponent();
+                const records = [{ accountid: 'abc-123', name: 'Contoso' }];
+                const errors = [
+                    { index: 5, error: 'Unknown record' }
+                ];
+
+                const result = component._formatBulkOperationResult('Bulk Delete', 1, 0, 1, errors, {
+                    records,
+                    primaryKey: 'accountid',
+                    primaryNameAttr: 'name'
+                });
+
+                expect(result[2]['Record ID']).toBe('');
+                expect(result[2]['Record Name']).toBe('');
             });
         });
 
@@ -5402,43 +5345,6 @@ describe('WebApiExplorerTab', () => {
             });
         });
 
-        describe('_buildTouchData', () => {
-            it('should build data object from touch config with current values', async () => {
-                await setupComponent();
-                const record = { name: 'Test Account', revenue: 1000 };
-                const touchConfig = [
-                    { field: 'name', useCustomValue: false }
-                ];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.name).toBe('Test Account');
-            });
-
-            it('should use custom value when specified', async () => {
-                await setupComponent();
-                const record = { name: 'Test Account' };
-                const touchConfig = [
-                    { field: 'name', useCustomValue: true, customValue: 'New Name' }
-                ];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.name).toBe('New Name');
-            });
-
-            it('should handle missing field values gracefully', async () => {
-                await setupComponent();
-                const record = { name: 'Test' };
-                const touchConfig = [
-                    { field: 'nonexistent', useCustomValue: false }
-                ];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.nonexistent).toBeNull();
-            });
-        });
     });
 
     describe('Preview URL', () => {
@@ -5985,7 +5891,7 @@ describe('WebApiExplorerTab', () => {
                     PrimaryNameAttribute: 'name'
                 });
 
-                vi.spyOn(component, '_showTouchConfigDialog').mockResolvedValue(null);
+                BulkTouchService.showTouchConfigDialog.mockResolvedValue(null);
 
                 await component._handleBulkTouch([{ accountid: '1', name: 'Test' }]);
 
@@ -6005,7 +5911,7 @@ describe('WebApiExplorerTab', () => {
                     PrimaryNameAttribute: 'name'
                 });
 
-                vi.spyOn(component, '_showTouchConfigDialog').mockResolvedValue([]);
+                BulkTouchService.showTouchConfigDialog.mockResolvedValue([]);
 
                 await component._handleBulkTouch([{ accountid: '1', name: 'Test' }]);
 
@@ -6013,107 +5919,6 @@ describe('WebApiExplorerTab', () => {
                     expect.stringContaining('cancelled'),
                     'info'
                 );
-            });
-        });
-
-        describe('_prepareTouchOperations', () => {
-            it('should prepare operations for records with primary key', async () => {
-                await setupComponent();
-                const records = [
-                    { accountid: 'id-1', name: 'Account 1' },
-                    { accountid: 'id-2', name: 'Account 2' }
-                ];
-                const touchConfig = [{ field: 'name', useCustomValue: false }];
-
-                const result = component._prepareTouchOperations(records, 'accountid', touchConfig, 'accounts');
-
-                expect(result.allOperations.length).toBe(2);
-                expect(result.totalFailCount).toBe(0);
-                expect(result.allErrors.length).toBe(0);
-            });
-
-            it('should track failures for records without primary key', async () => {
-                await setupComponent();
-                const records = [
-                    { name: 'No ID Record' }
-                ];
-                const touchConfig = [{ field: 'name', useCustomValue: false }];
-
-                const result = component._prepareTouchOperations(records, 'accountid', touchConfig, 'accounts');
-
-                expect(result.allOperations.length).toBe(0);
-                expect(result.totalFailCount).toBe(1);
-                expect(result.allErrors.length).toBe(1);
-            });
-
-            it('should create PATCH operations with correct data', async () => {
-                await setupComponent();
-                const records = [{ contactid: 'c-1', firstname: 'John' }];
-                const touchConfig = [{ field: 'firstname', useCustomValue: true, customValue: 'Jane' }];
-
-                const result = component._prepareTouchOperations(records, 'contactid', touchConfig, 'contacts');
-
-                expect(result.allOperations[0].method).toBe('PATCH');
-                expect(result.allOperations[0].entitySet).toBe('contacts');
-                expect(result.allOperations[0].id).toBe('c-1');
-                expect(result.allOperations[0].data.firstname).toBe('Jane');
-            });
-        });
-
-        describe('_buildTouchData edge cases', () => {
-            it('should handle null field values', async () => {
-                await setupComponent();
-                const record = { name: null };
-                const touchConfig = [{ field: 'name', useCustomValue: false }];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.name).toBeNull();
-            });
-
-            it('should handle undefined field values', async () => {
-                await setupComponent();
-                const record = {};
-                const touchConfig = [{ field: 'missingfield', useCustomValue: false }];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.missingfield).toBeNull();
-            });
-
-            it('should use custom value even when field exists', async () => {
-                await setupComponent();
-                const record = { status: 'Active' };
-                const touchConfig = [{ field: 'status', useCustomValue: true, customValue: 'Inactive' }];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.status).toBe('Inactive');
-            });
-
-            it('should handle multiple fields in config', async () => {
-                await setupComponent();
-                const record = { name: 'Test', revenue: 1000 };
-                const touchConfig = [
-                    { field: 'name', useCustomValue: false },
-                    { field: 'revenue', useCustomValue: true, customValue: 2000 }
-                ];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                expect(result.name).toBe('Test');
-                expect(result.revenue).toBe(2000);
-            });
-
-            it('should handle lowercase field lookup', async () => {
-                await setupComponent();
-                const record = { NAME: 'UpperCase' };
-                const touchConfig = [{ field: 'name', useCustomValue: false }];
-
-                const result = component._buildTouchData(record, touchConfig);
-
-                // Should fall back to lowercase lookup
-                expect(result.name).toBeNull();
             });
         });
 
@@ -6204,6 +6009,8 @@ describe('WebApiExplorerTab', () => {
 
                 expect(result.length).toBe(1);
                 expect(result[0].Succeeded).toBe(100);
+                expect(result[0]['Record ID']).toBe('');
+                expect(result[0]['Record Name']).toBe('');
             });
 
             it('should format multiple errors', async () => {
@@ -6229,6 +6036,32 @@ describe('WebApiExplorerTab', () => {
                 const result = component._formatBulkOperationResult('Test', 1, 0, 1, errors);
 
                 expect(result[2]['Error Details']).toBe('Unknown error');
+            });
+
+            it('should format multiple errors with recordContext', async () => {
+                await setupComponent();
+                const records = [
+                    { contactid: 'id-0', fullname: 'Alice' },
+                    { contactid: 'id-1', fullname: 'Bob' },
+                    { contactid: 'id-2', fullname: 'Charlie' }
+                ];
+                const errors = [
+                    { index: 0, error: 'Error A' },
+                    { index: 1, error: 'Error B' },
+                    { index: 2, error: 'Error C' }
+                ];
+
+                const result = component._formatBulkOperationResult('Bulk Update', 10, 7, 3, errors, {
+                    records,
+                    primaryKey: 'contactid',
+                    primaryNameAttr: 'fullname'
+                });
+
+                expect(result.length).toBe(5);
+                expect(result[2]['Record ID']).toBe('id-0');
+                expect(result[2]['Record Name']).toBe('Alice');
+                expect(result[4]['Record ID']).toBe('id-2');
+                expect(result[4]['Record Name']).toBe('Charlie');
             });
         });
     });
@@ -6433,25 +6266,26 @@ describe('WebApiExplorerTab', () => {
 
             it('should return placeholder with resolved entity set', async () => {
                 await setupComponent();
-                DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
+                DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
 
                 const result = await component._getLookupPlaceholderValue({ Targets: ['systemuser'] });
 
                 expect(result).toBe('/systemusers(00000000-0000-0000-0000-000000000000)');
             });
 
-            it('should fallback on entity resolution error', async () => {
+            it('should return entity name as-is on resolution error (no pluralization)', async () => {
                 await setupComponent();
-                DataService.retrieveEntityDefinition = vi.fn().mockRejectedValue(new Error('Not found'));
+                DataService.getEntityDefinition = vi.fn().mockRejectedValue(new Error('Not found'));
 
                 const result = await component._getLookupPlaceholderValue({ Targets: ['customentity'] });
 
-                expect(result).toBe('/customentitys(00000000-0000-0000-0000-000000000000)');
+                // New behavior: fallback returns entity name as-is
+                expect(result).toBe('/customentity(00000000-0000-0000-0000-000000000000)');
             });
 
             it('should handle empty targets array', async () => {
                 await setupComponent();
-                DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
+                DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
 
                 const result = await component._getLookupPlaceholderValue({ Targets: [] });
 
@@ -7000,365 +6834,6 @@ describe('WebApiExplorerTab', () => {
         });
     });
 
-    describe('Touch Dialog Creation and Interaction', () => {
-        describe('_createTouchDialogOverlay', () => {
-            it('should create dialog with pdt-dialog-overlay class', async () => {
-                await setupComponent();
-
-                const overlay = component._createTouchDialogOverlay('name');
-
-                expect(overlay.className).toContain('pdt-dialog-overlay');
-            });
-
-            it('should include touch fields container', async () => {
-                await setupComponent();
-
-                const overlay = component._createTouchDialogOverlay('name');
-
-                expect(overlay.querySelector('#touch-fields-container')).toBeTruthy();
-            });
-
-            it('should include add field button', async () => {
-                await setupComponent();
-
-                const overlay = component._createTouchDialogOverlay('name');
-
-                expect(overlay.querySelector('#touch-add-field-btn')).toBeTruthy();
-            });
-
-            it('should include confirm and cancel buttons', async () => {
-                await setupComponent();
-
-                const overlay = component._createTouchDialogOverlay('name');
-
-                expect(overlay.querySelector('#touch-confirm-btn')).toBeTruthy();
-                expect(overlay.querySelector('#touch-cancel-btn')).toBeTruthy();
-            });
-
-            it('should add light-mode class when theme is light', async () => {
-                const { Store } = await import('../../src/core/Store.js');
-                Store.getState.mockReturnValue({ theme: 'light' });
-                await setupComponent();
-
-                const overlay = component._createTouchDialogOverlay('name');
-
-                expect(overlay.classList.contains('light-mode')).toBe(true);
-            });
-        });
-
-        describe('_createTouchFieldRowHTML', () => {
-            it('should create field row with input elements', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', 'fieldName', 'current', '', true);
-
-                expect(row.querySelector('.field-name-input')).toBeTruthy();
-                expect(row.querySelector('.field-name-input').value).toBe('fieldName');
-            });
-
-            it('should include radio buttons for value mode', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-
-                expect(row.querySelectorAll('input[type="radio"]').length).toBe(2);
-            });
-
-            it('should include remove button for non-first rows', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-
-                expect(row.querySelector('.pdt-touch-remove-btn')).toBeTruthy();
-            });
-
-            it('should not include remove button for first row', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', true);
-
-                expect(row.querySelector('.pdt-touch-remove-btn')).toBeNull();
-            });
-
-            it('should disable custom value input when mode is current', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-
-                expect(row.querySelector('.custom-value-input').disabled).toBe(true);
-            });
-
-            it('should enable custom value input when mode is custom', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'custom', 'value', false);
-
-                expect(row.querySelector('.custom-value-input').disabled).toBe(false);
-            });
-        });
-
-        describe('_addTouchFieldRow', () => {
-            it('should append row to fields container', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                component._addTouchFieldRow('account', container, 'name', 'current', '', true);
-
-                expect(container.children.length).toBe(1);
-            });
-
-            it('should add multiple rows when called multiple times', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-
-                component._addTouchFieldRow('account', container, 'name', 'current', '', true);
-                component._addTouchFieldRow('account', container, 'revenue', 'custom', '1000', false);
-
-                expect(container.children.length).toBe(2);
-            });
-        });
-
-        describe('_bindTouchFieldRowHandlers', () => {
-            it('should bind radio button change handlers', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-                container.appendChild(row);
-
-                component._bindTouchFieldRowHandlers('account', container, row, 'row-1', false);
-
-                const customRadio = row.querySelector('input[value="custom"]');
-                customRadio.checked = true;
-                customRadio.dispatchEvent(new Event('change'));
-
-                expect(row.querySelector('.custom-value-input').disabled).toBe(false);
-            });
-
-            it('should bind browse button handler', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-                container.appendChild(row);
-
-                component._bindTouchFieldRowHandlers('account', container, row, 'row-1', false);
-
-                const browseBtn = row.querySelector('.browse-field-btn');
-                expect(() => browseBtn.click()).not.toThrow();
-            });
-
-            it('should bind remove button handler for non-first rows', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = component._createTouchFieldRowHTML(container, 'row-1', '', 'current', '', false);
-                container.appendChild(row);
-
-                component._bindTouchFieldRowHandlers('account', container, row, 'row-1', false);
-
-                const removeBtn = row.querySelector('.pdt-touch-remove-btn');
-                removeBtn.click();
-
-                expect(container.children.length).toBe(0);
-            });
-        });
-
-        describe('_handleTouchFieldBrowse', () => {
-            it('should call showColumnBrowser', async () => {
-                const { showColumnBrowser } = await import('../../src/helpers/index.js');
-                await setupComponent();
-                const fieldInput = document.createElement('input');
-
-                component._handleTouchFieldBrowse('account', fieldInput);
-
-                expect(showColumnBrowser).toHaveBeenCalled();
-            });
-        });
-
-        describe('_handleTouchFieldRemove', () => {
-            it('should remove row from container', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                const row1 = document.createElement('div');
-                row1.className = 'pdt-builder-group';
-                row1.innerHTML = '<div class="pdt-section-header">Field 1</div>';
-                const row2 = document.createElement('div');
-                row2.className = 'pdt-builder-group';
-                row2.innerHTML = '<div class="pdt-section-header">Field 2</div>';
-                container.appendChild(row1);
-                container.appendChild(row2);
-
-                component._handleTouchFieldRemove(container, row1);
-
-                expect(container.children.length).toBe(1);
-            });
-
-            it('should renumber remaining rows after removal', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                for (let i = 1; i <= 3; i++) {
-                    const row = document.createElement('div');
-                    row.className = 'pdt-builder-group';
-                    row.innerHTML = `<div class="pdt-section-header">Field ${i}</div>`;
-                    container.appendChild(row);
-                }
-
-                component._handleTouchFieldRemove(container, container.children[0]);
-
-                // First remaining row should now be "Field 1"
-                expect(container.children.length).toBe(2);
-            });
-        });
-
-        describe('_handleTouchDialogConfirm', () => {
-            it('should show warning when field name is empty', async () => {
-                const { NotificationService } = await import('../../src/services/NotificationService.js');
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = document.createElement('div');
-                row.className = 'pdt-builder-group';
-                row.dataset.rowId = 'row-1';
-                row.innerHTML = `
-                    <input class="field-name-input" value="" />
-                    <input type="radio" name="value-mode-row-1" value="current" checked />
-                    <input class="custom-value-input" value="" />
-                `;
-                container.appendChild(row);
-                const overlay = document.createElement('div');
-                const resolve = vi.fn();
-
-                component._handleTouchDialogConfirm(container, overlay, resolve);
-
-                expect(NotificationService.show).toHaveBeenCalledWith(
-                    expect.any(String),
-                    'warning'
-                );
-                expect(resolve).not.toHaveBeenCalled();
-            });
-
-            it('should show warning when custom value is empty but custom mode selected', async () => {
-                const { NotificationService } = await import('../../src/services/NotificationService.js');
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = document.createElement('div');
-                row.className = 'pdt-builder-group';
-                row.dataset.rowId = 'row-1';
-                row.innerHTML = `
-                    <input class="field-name-input" value="name" />
-                    <input type="radio" name="value-mode-row-1" value="custom" checked />
-                    <input class="custom-value-input" value="" />
-                `;
-                container.appendChild(row);
-                const overlay = document.createElement('div');
-                const resolve = vi.fn();
-
-                component._handleTouchDialogConfirm(container, overlay, resolve);
-
-                expect(NotificationService.show).toHaveBeenCalledWith(
-                    expect.any(String),
-                    'warning'
-                );
-            });
-
-            it('should resolve with field configs on valid input', async () => {
-                await setupComponent();
-                const container = document.createElement('div');
-                const row = document.createElement('div');
-                row.className = 'pdt-builder-group';
-                row.dataset.rowId = 'row-1';
-                row.innerHTML = `
-                    <input class="field-name-input" value="name" />
-                    <input type="radio" name="value-mode-row-1" value="current" checked />
-                    <input class="custom-value-input" value="" disabled />
-                `;
-                container.appendChild(row);
-                const overlay = document.createElement('div');
-                document.body.appendChild(overlay);
-                const resolve = vi.fn();
-
-                component._handleTouchDialogConfirm(container, overlay, resolve);
-
-                expect(resolve).toHaveBeenCalledWith([
-                    expect.objectContaining({ field: 'name', useCustomValue: false })
-                ]);
-            });
-
-            it('should show warning when no fields configured', async () => {
-                const { NotificationService } = await import('../../src/services/NotificationService.js');
-                await setupComponent();
-                const container = document.createElement('div');
-                const overlay = document.createElement('div');
-                const resolve = vi.fn();
-
-                component._handleTouchDialogConfirm(container, overlay, resolve);
-
-                expect(NotificationService.show).toHaveBeenCalledWith(
-                    expect.any(String),
-                    'warning'
-                );
-            });
-        });
-
-        describe('_bindTouchDialogCancelHandlers', () => {
-            it('should resolve with null on cancel button click', async () => {
-                await setupComponent();
-                const overlay = document.createElement('div');
-                document.body.appendChild(overlay);
-                const cancelBtn = document.createElement('button');
-                const resolve = vi.fn();
-
-                component._bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve);
-                cancelBtn.click();
-
-                expect(resolve).toHaveBeenCalledWith(null);
-            });
-
-            it('should resolve with null on overlay click', async () => {
-                await setupComponent();
-                const overlay = document.createElement('div');
-                document.body.appendChild(overlay);
-                const cancelBtn = document.createElement('button');
-                const resolve = vi.fn();
-
-                component._bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve);
-                overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-                expect(resolve).toHaveBeenCalledWith(null);
-            });
-
-            it('should resolve with null on ESC key press', async () => {
-                await setupComponent();
-                const overlay = document.createElement('div');
-                document.body.appendChild(overlay);
-                const cancelBtn = document.createElement('button');
-                const resolve = vi.fn();
-
-                component._bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve);
-                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-
-                expect(resolve).toHaveBeenCalledWith(null);
-            });
-
-            it('should only call resolve once on multiple cancel attempts', async () => {
-                await setupComponent();
-                const overlay = document.createElement('div');
-                document.body.appendChild(overlay);
-                const cancelBtn = document.createElement('button');
-                const resolve = vi.fn();
-
-                component._bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve);
-                cancelBtn.click();
-                cancelBtn.click();
-
-                expect(resolve).toHaveBeenCalledTimes(1);
-            });
-        });
-    });
-
     describe('Touch Result Handling', () => {
         describe('_handleTouchResult', () => {
             it('should reload records on success', async () => {
@@ -7504,7 +6979,7 @@ describe('WebApiExplorerTab', () => {
             it('should use navigation property for lookups', async () => {
                 await setupComponent();
                 component.ui.methodSelect.value = 'POST';
-                DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'accounts' });
+                DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'accounts' });
                 const requiredAttrs = [
                     { LogicalName: 'primarycontactid', AttributeType: 'Lookup', Targets: ['contact'] }
                 ];
@@ -8929,13 +8404,6 @@ describe('WebApiExplorerTab', () => {
     });
 
     describe('Touch Dialog Complete Flow', () => {
-        describe('_showTouchConfigDialog', () => {
-            it('should be a defined async function', async () => {
-                await setupComponent();
-                expect(typeof component._showTouchConfigDialog).toBe('function');
-            });
-        });
-
         describe('_handleTouchResult complete paths', () => {
             let NotificationService;
 
@@ -8984,7 +8452,7 @@ describe('WebApiExplorerTab', () => {
                     { LogicalName: 'primarycontactid', AttributeType: 'Lookup', Targets: ['contact'] }
                 ];
                 const navPropMap = new Map([['primarycontactid', 'primarycontact']]);
-                DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'contacts' });
+                DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'contacts' });
 
                 vi.spyOn(component, '_renderValueInput').mockResolvedValue();
 
@@ -9391,22 +8859,6 @@ describe('WebApiExplorerTab', () => {
         });
     });
 
-    describe('Touch Field Row Handlers', () => {
-        describe('_addTouchFieldRow', () => {
-            it('should be a defined function', async () => {
-                await setupComponent();
-                expect(typeof component._addTouchFieldRow).toBe('function');
-            });
-        });
-
-        describe('_bindTouchFieldRowHandlers', () => {
-            it('should be a defined function', async () => {
-                await setupComponent();
-                expect(typeof component._bindTouchFieldRowHandlers).toBe('function');
-            });
-        });
-    });
-
     describe('Display Touch Errors', () => {
         describe('_displayTouchErrors formatting', () => {
             it('should format errors with record info', async () => {
@@ -9475,24 +8927,6 @@ describe('WebApiExplorerTab', () => {
                 component._methodSelectHandler();
 
                 expect(component._restoreMethodState).toHaveBeenCalledWith('DELETE');
-            });
-        });
-    });
-
-    describe('Build Touch Data', () => {
-        describe('_buildTouchData with various field configurations', () => {
-            it('should be a defined function', async () => {
-                await setupComponent();
-                expect(typeof component._buildTouchData).toBe('function');
-            });
-        });
-    });
-
-    describe('Prepare Touch Operations', () => {
-        describe('_prepareTouchOperations validation', () => {
-            it('should be a defined function', async () => {
-                await setupComponent();
-                expect(typeof component._prepareTouchOperations).toBe('function');
             });
         });
     });
@@ -10186,37 +9620,6 @@ describe('WebApiExplorerTab', () => {
         });
     });
 
-    describe('_handleTouchDialogConfirm - lines 2713-2717', () => {
-        let NotificationService;
-
-        beforeEach(async () => {
-            NotificationService = (await import('../../src/services/NotificationService.js')).NotificationService;
-            vi.clearAllMocks();
-        });
-
-        it('should show warning when no fields configured', async () => {
-            await setupComponent();
-
-            const overlay = document.createElement('div');
-            overlay.innerHTML = '<div class="touch-field-row"></div>';
-            document.body.appendChild(overlay);
-
-            const fieldsContainer = overlay.querySelector('.touch-field-row').parentElement;
-            fieldsContainer.innerHTML = ''; // No field rows
-
-            const resolve = vi.fn();
-
-            component._handleTouchDialogConfirm(fieldsContainer, overlay, resolve);
-
-            expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.any(String),
-                'warning'
-            );
-
-            document.body.removeChild(overlay);
-        });
-    });
-
     describe('_displayTouchErrors - lines 2882-2883, 2958-2961', () => {
         it('should display touch errors in result panel', async () => {
             await setupComponent();
@@ -10273,73 +9676,6 @@ describe('WebApiExplorerTab', () => {
             const result = component._getEntityInputForMethod();
 
             expect(result).toBe('opportunities');
-        });
-    });
-
-    describe('_prepareTouchOperations - lines 2849-2850', () => {
-        it('should skip records without primary key', async () => {
-            await setupComponent();
-
-            const records = [
-                { accountid: 'guid-1', name: 'Test' },
-                { name: 'No ID' }, // Missing primary key
-                { accountid: 'guid-2', name: 'Test 2' }
-            ];
-            const touchConfig = [{ field: 'name', useCustomValue: false }];
-
-            const result = component._prepareTouchOperations(
-                records,
-                'accountid',
-                touchConfig,
-                'accounts'
-            );
-
-            expect(result.allOperations.length).toBe(2);
-            expect(result.totalFailCount).toBe(1);
-            expect(result.allErrors.length).toBe(1);
-        });
-    });
-
-    describe('_buildTouchData - lines 2839', () => {
-        it('should build touch data with custom value', async () => {
-            await setupComponent();
-
-            const record = { name: 'Original', modifiedon: '2025-01-01' };
-            const touchConfig = [
-                { field: 'name', useCustomValue: true, customValue: 'Updated' }
-            ];
-
-            const result = component._buildTouchData(record, touchConfig);
-
-            expect(result.name).toBe('Updated');
-        });
-
-        it('should build touch data with current value', async () => {
-            await setupComponent();
-
-            const record = { name: 'Keep This', status: 1 };
-            const touchConfig = [
-                { field: 'name', useCustomValue: false },
-                { field: 'status', useCustomValue: false }
-            ];
-
-            const result = component._buildTouchData(record, touchConfig);
-
-            expect(result.name).toBe('Keep This');
-            expect(result.status).toBe(1);
-        });
-
-        it('should handle lowercase field lookup fallback', async () => {
-            await setupComponent();
-
-            const record = { NAME: 'Uppercase Field' };
-            const touchConfig = [
-                { field: 'name', useCustomValue: false }
-            ];
-
-            const result = component._buildTouchData(record, touchConfig);
-
-            expect(result.name).toBe(null); // Falls back to null if not found
         });
     });
 
@@ -10630,25 +9966,27 @@ describe('WebApiExplorerTab', () => {
 
         it('should return entitySet placeholder from API', async () => {
             await setupComponent();
-            DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'contacts' });
+            DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'contacts' });
 
             const result = await component._getLookupPlaceholderValue({ Targets: ['contact'] });
 
             expect(result).toContain('/contacts(');
         });
 
-        it('should fallback to pluralized name on error', async () => {
+        it('should fallback to entity name as-is on error (no pluralization)', async () => {
             await setupComponent();
-            DataService.retrieveEntityDefinition = vi.fn().mockRejectedValue(new Error('Not found'));
+            DataService.getEntityDefinition = vi.fn().mockRejectedValue(new Error('Not found'));
 
             const result = await component._getLookupPlaceholderValue({ Targets: ['account'] });
 
-            expect(result).toContain('/accounts(');
+            // New behavior: fallback uses entity name as-is (EntitySetName must come from metadata)
+            expect(result).toContain('/account(');
+            expect(result).not.toContain('/accounts(');
         });
 
         it('should use default systemuser when no targets', async () => {
             await setupComponent();
-            DataService.retrieveEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
+            DataService.getEntityDefinition = vi.fn().mockResolvedValue({ EntitySetName: 'systemusers' });
 
             const result = await component._getLookupPlaceholderValue({ Targets: [] });
 
@@ -11991,3 +11329,4 @@ describe('WebApiExplorerTab', () => {
         });
     });
 });
+

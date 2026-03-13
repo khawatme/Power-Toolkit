@@ -54,7 +54,29 @@ export const AUTOMATION = {
     loadingRules: (entity) => `Loading rules for ${entity}...`,
     loadingHandlers: (entity) => `Loading form handlers for ${entity}...`,
     loadAutomationsFailed: (error) => `Error loading automations: ${error}`,
-    noFormDefinition: 'Could not retrieve form definition or no main form found.'
+    noFormDefinition: 'Could not retrieve form definition or no main form found.',
+    noHandlersFound: 'No event handlers found on this form.',
+    noHandlersHelpInfo: 'If your handlers are configured but not appearing: Ensure <strong>Async onLoad/onSave handler</strong> features are enabled in <strong>App Settings → Features</strong>.',
+    openInEditor: 'Open in Editor',
+    openEditorFailed: 'Unable to open business rule editor.',
+    editWebResource: 'Edit Web Resource',
+    webResourceSaved: 'Web resource saved successfully.',
+    webResourceSaveFailed: (error) => `Failed to save web resource: ${error}`,
+    webResourceLoadFailed: (error) => `Failed to load web resource: ${error}`,
+    webResourceNotFound: 'Web resource not found.',
+
+    webResourceReadOnly: 'Read-only — this web resource is managed or not customizable.',
+    webResourcePublished: 'Web resource published successfully.',
+    webResourcePublishFailed: (error) => `Failed to publish web resource: ${error}`,
+    publishAndSave: 'Save & Publish',
+    saveOnly: 'Save',
+    loadingWebResource: 'Loading web resource...',
+    uploadFile: 'Upload File',
+    uploadFileHint: 'Drag & drop a file here, or click to browse',
+    uploadFileAccept: '.js,.ts,.html,.htm,.css,.xml,.json,.txt',
+    fileLoaded: (name) => `File "${name}" loaded into editor.`,
+    fileReadFailed: (error) => `Failed to read file: ${error}`,
+    orSeparator: 'or'
 };
 
 /**
@@ -80,7 +102,47 @@ export const FETCHXML = {
     loadAllSuccess: (count, pages) => `Loaded all ${count} records (${pages} page${pages > 0 ? 's' : ''}).`,
     bannerTitle: '⚠️ More Records Available',
     bannerLoadingTitle: '⏳ Loading All Records...',
-    resolveEntityFailed: (error) => `Could not resolve entity name: ${error}`
+    resolveEntityFailed: (error) => `Could not resolve entity name: ${error}`,
+    // Touch operations
+    touchProgress: (current, total) => `Touching records... (${current}/${total})`,
+    touchSuccess: (count) => `Successfully touched ${count} record${count !== 1 ? 's' : ''}.`,
+    touchFailed: (success, failed, total) => `Touched ${success}/${total} records. ${failed} failed.`,
+    touchCancelled: 'Touch operation cancelled.',
+    touchReloadSuccess: (count) => `Successfully touched ${count} record${count !== 1 ? 's' : ''}. Re-executing query to show updated data.`,
+    noRecordsSelected: 'No records selected. Please select at least one record.',
+    // Aggregate queries
+    addAggregate: 'Add Aggregate',
+    addGroupBy: 'Add Group By',
+    addSection: 'Add...',
+    addFilter: 'Filter',
+    addJoin: 'Join',
+    addAggregateMenu: 'Aggregate',
+    addGroupByMenu: 'Group By',
+    removeAggregate: 'Remove',
+    removeGroupBy: 'Remove',
+    aggregateColumnPlaceholder: 'e.g., revenue',
+    aggregateAliasPlaceholder: 'e.g., TotalRevenue',
+    groupByColumnPlaceholder: 'e.g., address1_city',
+    groupByAliasPlaceholder: 'e.g., City',
+    aggregateColumnRequired: 'Please enter a column name for all aggregate rows.',
+    aggregateAliasRequired: 'Please enter an alias for all aggregate rows.',
+    groupByAliasRequired: 'Please enter an alias for all group by rows.',
+    groupByRequiresAggregate: 'Please add at least one aggregate column before adding a Group By.',
+    removeSection: 'Remove Section',
+    aggregateSectionTitle: 'Aggregate Columns',
+    groupBySectionTitle: 'Group By Columns',
+    // Converter
+    convertTo: 'Convert',
+    convertPlaceholder: 'Converted output will appear here. Select a format above.',
+    convertCopied: 'Converted code copied to clipboard.',
+    convertNoXml: 'Please enter or generate FetchXML first.',
+    convertFailed: (error) => `Conversion failed: ${error}`,
+    convertFormatCSharp: 'C# QueryExpression',
+    convertFormatJavaScript: 'JavaScript Xrm',
+    convertFormatOData: 'OData',
+    convertFormatSQL: 'SQL',
+    convertFormatPowerAutomate: 'Power Automate',
+    convertFormatWebApiUrl: 'Web API URL'
 };
 
 /**
@@ -140,6 +202,8 @@ export const WEB_API = {
     bulkUpdateInfo: 'Add filter conditions to update multiple records at once.',
     bulkDeleteInfo: 'Add filter conditions to delete multiple records at once.',
     idOrConditionsRequired: 'Either provide a Record ID or add filter conditions for bulk operation.',
+    openRecord: 'Open',
+    openRecordTitle: 'Open record in Dynamics 365',
     // Touch dialog
     touchDialogTitle: 'Configure Bulk Touch Operation',
     touchDialogInstructions: 'Select which fields to update. This will trigger <strong>modifiedon/modifiedby</strong> updates and any associated plugins or workflows.',
@@ -206,8 +270,11 @@ export const UI = {
     pleaseWait: 'Loading, please wait…',
     execute: 'Execute',
     noRecords: 'No records returned.',
+    openRecord: 'Open',
+    openRecordTitle: 'Open record in Dynamics 365',
     noSearchResults: 'No results match your search.',
-    hideSystemTooltip: 'Hides system-generated fields (e.g., @odata.*, metadata) from results.'
+    hideSystemTooltip: 'Hides system-generated fields (e.g., @odata.*, metadata) from results.',
+    resultHint: 'Select records to touch or export. Click Open to view a record in Dynamics 365.'
 };
 
 /**
@@ -327,6 +394,7 @@ export const PERFORMANCE = {
  * Impersonate tab messages.
  */
 export const IMPERSONATE = {
+    searchPlaceholder: 'Search for a user by ID, name, or email...',
     searching: 'Searching...',
     searchFailed: (error) => `Error searching for users: ${error}`,
     noUsersFound: 'No active users found matching your search.',
@@ -362,6 +430,8 @@ export const IMPERSONATE = {
     privilegeShare: 'Share',
     privilegeAllowed: 'Allowed',
     privilegeNotAllowed: 'Not Allowed',
+    privilegeGrantedBy: 'Granted by:',
+    privilegeMultipleRoles: (count) => `+${count} more`,
     noEntityContext: 'Open a record form to see entity-specific privileges.',
     // Field security
     fieldSecurityTitle: 'Field Security',
@@ -462,6 +532,85 @@ export const LIVE_IMPERSONATION = {
 export const EVENT_MONITOR = {
     monitoring: 'Monitoring form events...',
     cleared: 'Event log cleared.'
+};
+
+/**
+ * Power Automate Flows tab messages.
+ */
+export const POWER_AUTOMATE_FLOWS = {
+    loading: 'Loading cloud flows...',
+    loadFailed: (error) => `Failed to load cloud flows: ${error}`,
+    noFlowsFound: 'No cloud flows found in this solution.',
+    flowActivated: 'Flow turned on successfully.',
+    flowDeactivated: 'Flow turned off successfully.',
+    flowDeleted: 'Flow deleted successfully.',
+    flowSaved: 'Flow definition saved successfully.',
+    flowSaveFailed: (error) => `Failed to save flow definition: ${error}`,
+    activateFailed: (error) => `Failed to turn on flow: ${error}`,
+    deactivateFailed: (error) => `Failed to turn off flow: ${error}`,
+    deleteFailed: (error) => `Failed to delete flow: ${error}`,
+    deleteConfirm: (name) => `<p>Delete flow <strong>${name}</strong>?</p><p class="pdt-text-error">This action cannot be undone.</p>`,
+    deleteConfirmTitle: 'Confirm Delete Flow',
+    managedFlowWarning: 'This flow is managed and cannot be modified.',
+    managedEditWarning: '⚠️ This is a managed flow. Changes will create an unmanaged solution layer.',
+    expandAll: 'Expand All',
+    collapseAll: 'Collapse All',
+    statusOn: 'On',
+    statusOff: 'Off',
+    statusSuspended: 'Suspended',
+    statusDraft: 'Draft',
+    typeAutomated: 'Automated',
+    typeInstant: 'Instant',
+    typeScheduled: 'Scheduled',
+    openInPortal: 'Open in Power Automate',
+    viewDefinition: 'View/Edit Definition',
+    turnOn: 'Turn On',
+    turnOff: 'Turn Off',
+    flowDefinitionTitle: (name) => `Flow Definition: ${name}`,
+    tabJson: 'JSON',
+    tabVisual: 'Visual',
+    triggerLabel: 'Trigger',
+    actionLabel: 'Action',
+    conditionLabel: 'Condition',
+    scopeLabel: 'Scope',
+    foreachLabel: 'For Each',
+    switchLabel: 'Switch',
+    doUntilLabel: 'Do Until',
+    composeLabel: 'Compose',
+    httpLabel: 'HTTP Request',
+    responseLabel: 'Response',
+    terminateLabel: 'Terminate',
+    waitLabel: 'Delay',
+    initVarLabel: 'Initialize Variable',
+    setVarLabel: 'Set Variable',
+    incrementVarLabel: 'Increment Variable',
+    appendStringLabel: 'Append to String',
+    appendArrayLabel: 'Append to Array',
+    parseJsonLabel: 'Parse JSON',
+    connectorLabel: 'Connector',
+    scopeActionsCount: (count) => `${count} action${count !== 1 ? 's' : ''}`,
+    branchesCount: (count) => `${count} branch${count !== 1 ? 'es' : ''}`,
+    caseLabel: 'Case',
+    defaultCaseLabel: 'Default',
+    parallelBranch: 'Parallel Branch',
+    runAfterLabel: 'Run after',
+    noDefinition: 'No flow definition available.',
+    refreshFlows: 'Refresh',
+    selectSolution: 'Select a solution to view its flows.',
+    loadingSolutions: 'Loading solutions...',
+    loadSolutionsFailed: (error) => `Failed to load solutions: ${error}`,
+    noSolutions: 'No solutions with cloud flows found.',
+    deleteFlow: 'Delete',
+    editDefinition: 'Edit JSON',
+    saveDefinition: 'Save',
+    undoChanges: 'Undo',
+    cancelEdit: 'Cancel',
+    invalidJson: 'Invalid JSON. Please fix syntax errors before saving.',
+    unmanagedLabel: 'Unmanaged',
+    managedLabel: 'Managed',
+    nodeInputsLabel: 'Inputs',
+    nodeNoInputs: 'No editable inputs',
+    clickToEdit: 'Click to edit'
 };
 
 /**

@@ -10,6 +10,7 @@ import { PowerAppsApiService } from './PowerAppsApiService.js';
 import { MetadataService } from './MetadataService.js';
 import { EnvironmentVariableService } from './EnvironmentVariableService.js';
 import { FormInspectionService } from './FormInspectionService.js';
+import { FlowService } from './FlowService.js';
 import { AutomationService } from './AutomationService.js';
 import { WebApiService } from './WebApiService.js';
 import { NotificationService } from './NotificationService.js';
@@ -57,15 +58,23 @@ let _impersonatedUserName = null;
  * @param {HeadersInit} customHeaders - Custom headers
  * @returns {Promise<object>}
  */
-// eslint-disable-next-line require-await
 async function _webApiFetch(method, logicalName, queryString = '', data = null, customHeaders = {}) {
-    // Use arrow function to defer DataService reference until runtime
+    // Ensure entity metadata is loaded for name resolution.
+    // Skip only for EntityDefinitions to avoid recursion
+    if (!logicalName.startsWith('EntityDefinitions')) {
+        await MetadataService.loadEntityMetadata(_webApiFetch, _impersonatedUserId);
+    }
+
+    // Use arrow functions to defer DataService reference until runtime
     const getEntitySetName = (name) => {
         // eslint-disable-next-line no-use-before-define
         return DataService?.getEntitySetName
             // eslint-disable-next-line no-use-before-define
             ? DataService.getEntitySetName(name)
             : MetadataService.getEntitySetName(name);
+    };
+    const getLogicalName = (setName) => {
+        return MetadataService.getLogicalName(setName);
     };
     return WebApiService.webApiFetch(
         method,
@@ -74,6 +83,7 @@ async function _webApiFetch(method, logicalName, queryString = '', data = null, 
         data,
         customHeaders,
         getEntitySetName,
+        getLogicalName,
         _impersonatedUserId
     );
 }
@@ -184,7 +194,8 @@ export const DataService = {
         _impersonatedUserName = userName;
         UIManager.showImpersonationIndicator(userName);
         NotificationService.show(Config.MESSAGES.DATA_SERVICE.impersonationStarted, 'success');
-        this.clearCache();
+        // Preserve entity set name mappings - they're system-level metadata, not user-specific
+        this.clearCache(null, true);
         Store.setState({ impersonationUserId: userId });
     },
 
@@ -196,7 +207,8 @@ export const DataService = {
         _impersonatedUserName = null;
         UIManager.showImpersonationIndicator(null);
         NotificationService.show(Config.MESSAGES.DATA_SERVICE.impersonationEnded, 'info');
-        this.clearCache();
+        // Preserve entity set name mappings - they're system-level metadata, not user-specific
+        this.clearCache(null, true);
         Store.setState({ impersonationUserId: null });
     },
 
@@ -225,6 +237,69 @@ export const DataService = {
      */
     deleteBusinessRule(ruleId) {
         return AutomationService.deleteBusinessRule(this.deleteRecord.bind(this), ruleId);
+    },
+
+    /**
+     * Retrieves all solutions that contain cloud flows.
+     * @returns {Promise<Array<{solutionid: string, friendlyname: string, uniquename: string, ismanaged: boolean}>>}
+     */
+    getSolutionsWithFlows() {
+        return FlowService.getSolutionsWithFlows(_webApiFetch);
+    },
+
+    /**
+     * Retrieves cloud flows belonging to a specific solution.
+     * @param {string} solutionId - The solution GUID.
+     * @returns {Promise<import('./FlowService.js').CloudFlow[]>}
+     */
+    getCloudFlowsBySolution(solutionId) {
+        return FlowService.getCloudFlowsBySolution(this.executeFetchXml.bind(this), _webApiFetch, solutionId);
+    },
+
+    /**
+     * Retrieves all cloud flows (Modern Flows, category=5) from the environment.
+     * @returns {Promise<import('./FlowService.js').CloudFlow[]>}
+     */
+    getCloudFlows() {
+        return FlowService.getCloudFlows(this.executeFetchXml.bind(this));
+    },
+
+    /**
+     * Retrieves the full flow definition (clientdata) for a specific flow.
+     * @param {string} flowId - The workflow GUID.
+     * @returns {Promise<string|null>}
+     */
+    getFlowDefinition(flowId) {
+        return FlowService.getFlowDefinition(this.executeFetchXml.bind(this), flowId);
+    },
+
+    /**
+     * Activates or deactivates a cloud flow.
+     * @param {string} flowId - The workflow GUID.
+     * @param {boolean} activate - True to turn on, false to turn off.
+     * @returns {Promise<object>}
+     */
+    setFlowState(flowId, activate) {
+        return FlowService.setFlowState(this.updateRecord.bind(this), flowId, activate);
+    },
+
+    /**
+     * Deletes a cloud flow.
+     * @param {string} flowId - The workflow GUID.
+     * @returns {Promise<object>}
+     */
+    deleteFlow(flowId) {
+        return FlowService.deleteFlow(this.deleteRecord.bind(this), flowId);
+    },
+
+    /**
+     * Updates the flow definition (clientdata) for an unmanaged flow.
+     * @param {string} flowId - The workflow GUID.
+     * @param {string} clientData - The new clientdata JSON string.
+     * @returns {Promise<object>}
+     */
+    updateFlowDefinition(flowId, clientData) {
+        return FlowService.updateFlowDefinition(this.updateRecord.bind(this), flowId, clientData);
     },
 
     /**
@@ -473,13 +548,14 @@ export const DataService = {
     /**
      * Clears all internal data and metadata caches.
      * @param {string|null} [key=null]
+     * @param {boolean} [preserveEntityNames=false] - When true, preserves entity set name mappings
      */
-    clearCache(key = null) {
+    clearCache(key = null, preserveEntityNames = false) {
         if (key) {
             _cache.delete(key);
         } else {
             _cache.clear();
-            MetadataService.clearCache();
+            MetadataService.clearCache(null, preserveEntityNames);
         }
     },
 
@@ -542,6 +618,44 @@ export const DataService = {
             this.retrieveMultipleRecords.bind(this),
             this.retrieveRecord.bind(this),
             entityName
+        );
+    },
+
+    /**
+     * Gets a web resource by its name.
+     * @param {string} webResourceName - The name of the web resource (e.g., 'new_/scripts/account.js')
+     * @returns {Promise<{id: string, name: string, content: string, webresourcetype: number}|null>} Web resource data or null
+     */
+    getWebResourceByName(webResourceName) {
+        return FormInspectionService.getWebResourceByName(
+            this.retrieveMultipleRecords.bind(this),
+            webResourceName
+        );
+    },
+
+    /**
+     * Updates a web resource's content.
+     * @param {string} webResourceId - The GUID of the web resource
+     * @param {string} content - The new content (plain text)
+     * @returns {Promise<void>}
+     */
+    updateWebResourceContent(webResourceId, content) {
+        return FormInspectionService.updateWebResourceContent(
+            this.updateRecord.bind(this),
+            webResourceId,
+            content
+        );
+    },
+
+    /**
+     * Publishes a web resource.
+     * @param {string} webResourceId - The GUID of the web resource
+     * @returns {Promise<void>}
+     */
+    publishWebResource(webResourceId) {
+        return FormInspectionService.publishWebResource(
+            _webApiFetch,
+            webResourceId
         );
     },
 

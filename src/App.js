@@ -31,6 +31,7 @@ import { AboutTab } from './components/AboutTab.js';
 import { ImpersonateTab } from './components/ImpersonateTab.js';
 import { MetadataBrowserTab } from './components/MetadataBrowserTab.js';
 import { SolutionLayersTab } from './components/SolutionLayersTab.js';
+import { PowerAutomateFlowsTab } from './components/PowerAutomateFlowsTab.js';
 
 /**
  * The main application object.
@@ -84,12 +85,13 @@ export const App = {
         // Form-Specific Components
         ComponentRegistry.register(new InspectorTab());
         ComponentRegistry.register(new FormColumnsTab());
-        ComponentRegistry.register(new AutomationTab());
         ComponentRegistry.register(new EventMonitorTab());
         ComponentRegistry.register(new PluginContextTab());
         ComponentRegistry.register(new PerformanceTab());
 
         // Global Components
+        ComponentRegistry.register(new AutomationTab());
+        ComponentRegistry.register(new PowerAutomateFlowsTab());
         ComponentRegistry.register(new ImpersonateTab());
         ComponentRegistry.register(new MetadataBrowserTab());
         ComponentRegistry.register(new SolutionLayersTab());

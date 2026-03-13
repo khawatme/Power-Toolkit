@@ -912,6 +912,50 @@ describe('FilterGroupManager', () => {
             // After selecting a column, remove button should still be enabled
             expect(removeBtn.disabled).toBe(false);
         });
+
+        it('should apply operator state to new value input after column selection when operator is null', async () => {
+            const { MetadataHelpers } = await import('../../src/helpers/metadata.helpers.js');
+
+            MetadataHelpers.showColumnBrowser.mockImplementation(async (getEntity, callback) => {
+                await callback({ LogicalName: 'lookupfield', AttributeType: 'Lookup' });
+            });
+
+            manager.addFilterGroup(container, true);
+
+            // Set operator to null before selecting column (use 'null' for fetch operatorFilter)
+            const operatorSelect = container.querySelector('[data-prop="operator"]');
+            operatorSelect.value = 'null';
+
+            const browseBtn = container.querySelector('.browse-condition-attr');
+            await browseBtn.click();
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // The new value input should be disabled because operator is null
+            const valueInput = container.querySelector('[data-prop="value"]');
+            expect(valueInput.disabled).toBe(true);
+        });
+
+        it('should keep value input enabled after column selection when operator is not null', async () => {
+            const { MetadataHelpers } = await import('../../src/helpers/metadata.helpers.js');
+
+            MetadataHelpers.showColumnBrowser.mockImplementation(async (getEntity, callback) => {
+                await callback({ LogicalName: 'lookupfield', AttributeType: 'Lookup' });
+            });
+
+            manager.addFilterGroup(container, true);
+
+            // Keep operator at default (eq)
+            const operatorSelect = container.querySelector('[data-prop="operator"]');
+            expect(operatorSelect.value).not.toContain('null');
+
+            const browseBtn = container.querySelector('.browse-condition-attr');
+            await browseBtn.click();
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // The new value input should be enabled
+            const valueInput = container.querySelector('[data-prop="value"]');
+            expect(valueInput.disabled).toBe(false);
+        });
     });
 
     describe('updateRemoveButtonState in addCondition', () => {

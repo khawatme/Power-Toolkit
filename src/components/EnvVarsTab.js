@@ -198,9 +198,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
 
         // Footer actions
         this._setCardFooter(card, [
+            { cls: 'modern-button secondary delete-btn', text: 'Delete', title: 'Delete variable' },
             { cls: 'modern-button secondary edit-default-btn', text: 'Edit Default', title: 'Edit default value' },
-            { cls: 'modern-button secondary edit-btn', text: 'Edit Current' },
-            { cls: 'modern-button delete-btn', text: 'Delete', title: 'Delete variable' }
+            { cls: 'modern-button secondary edit-btn', text: 'Edit Current' }
         ]);
 
         return card;
@@ -271,9 +271,9 @@ export class EnvironmentVariablesTab extends BaseComponent {
         wrapper.appendChild(this._formatValue(display, true));
 
         this._setCardFooter(card, [
+            { cls: 'modern-button secondary delete-btn', text: 'Delete', title: 'Delete variable' },
             { cls: 'modern-button secondary edit-default-btn', text: 'Edit Default', title: 'Edit default value' },
-            { cls: 'modern-button secondary edit-btn', text: 'Edit Current' },
-            { cls: 'modern-button delete-btn', text: 'Delete', title: 'Delete variable' }
+            { cls: 'modern-button secondary edit-btn', text: 'Edit Current' }
         ]);
 
         if (newValue !== undefined) {
@@ -579,7 +579,8 @@ export class EnvironmentVariablesTab extends BaseComponent {
         const footer = dlgEl?.querySelector('.pdt-dialog-footer');
 
         // createBtn
-        footer?.appendChild(createBtn);
+        const cancelBtn = footer?.querySelector('.pdt-dialog-cancel');
+        footer?.insertBefore(createBtn, cancelBtn);
 
         // Attach revalidate handlers to all inputs - store for cleanup
         content.querySelectorAll('input,textarea,select').forEach(el => {
@@ -730,7 +731,8 @@ export class EnvironmentVariablesTab extends BaseComponent {
         const dlgEl = pick.closest('.pdt-dialog');
         const footer = dlgEl?.querySelector('.pdt-dialog-footer');
         const apply = this._mkDialogFooterBtn('soln-apply', 'modern-button', 'Use this solution', true);
-        footer?.appendChild(apply);
+        const closeEl = footer?.querySelector('.pdt-dialog-cancel');
+        footer?.insertBefore(apply, closeEl);
 
         const sel = pick.querySelector('#soln-select');
 

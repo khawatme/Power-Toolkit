@@ -14,7 +14,7 @@ vi.mock('../../src/services/DataService.js', () => ({
             { value: 1, label: 'Active' },
             { value: 2, label: 'Inactive' }
         ]),
-        retrieveEntityDefinition: vi.fn().mockResolvedValue({ EntitySetName: 'accounts' })
+        getEntityDefinition: vi.fn().mockResolvedValue({ EntitySetName: 'accounts' })
     }
 }));
 
@@ -37,7 +37,7 @@ describe('SmartValueInput', () => {
             { value: 1, label: 'Active' },
             { value: 2, label: 'Inactive' }
         ]);
-        DataService.retrieveEntityDefinition.mockResolvedValue({ EntitySetName: 'accounts' });
+        DataService.getEntityDefinition.mockResolvedValue({ EntitySetName: 'accounts' });
     });
 
     describe('render', () => {
@@ -456,7 +456,7 @@ describe('SmartValueInput', () => {
         });
 
         it('should use fallback lookup input when entity definition fails', async () => {
-            DataService.retrieveEntityDefinition.mockRejectedValue(new Error('API Error'));
+            DataService.getEntityDefinition.mockRejectedValue(new Error('API Error'));
 
             const container = document.createElement('div');
             const attr = {
@@ -472,7 +472,9 @@ describe('SmartValueInput', () => {
                 context: 'post'
             });
 
-            expect(container.innerHTML).toContain('systemusers');
+            // New behavior: fallback uses entity name as-is (no 's' suffix)
+            expect(container.innerHTML).toContain('systemuser');
+            expect(container.innerHTML).not.toContain('systemusers');
         });
 
         it('should handle customer type as lookup', async () => {
@@ -1261,7 +1263,7 @@ describe('SmartValueInput', () => {
                 Targets: ['contact']
             };
 
-            DataService.retrieveEntityDefinition.mockResolvedValue({ EntitySetName: 'contacts' });
+            DataService.getEntityDefinition.mockResolvedValue({ EntitySetName: 'contacts' });
 
             await SmartValueInput.render({
                 valueContainer: container,
@@ -1715,7 +1717,7 @@ describe('SmartValueInput', () => {
         });
 
         it('should include title with format instructions for post context', async () => {
-            DataService.retrieveEntityDefinition.mockResolvedValue({ EntitySetName: 'contacts' });
+            DataService.getEntityDefinition.mockResolvedValue({ EntitySetName: 'contacts' });
 
             const container = document.createElement('div');
             const attr = {

@@ -4,7 +4,6 @@
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
-import { Store } from '../core/Store.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
@@ -22,6 +21,7 @@ import { SmartValueInput } from '../ui/SmartValueInput.js';
 import { Config } from '../constants/index.js';
 import { PreferencesHelper } from '../utils/ui/PreferencesHelper.js';
 import { ValidationService } from '../services/ValidationService.js';
+import { BulkTouchService } from '../services/BulkTouchService.js';
 
 /** @typedef {'GET'|'POST'|'PATCH'|'DELETE'} HttpMethod */
 /** @typedef {'table'|'json'} ResultView */
@@ -167,8 +167,10 @@ export class WebApiExplorerTab extends BaseComponent {
                         </div>
                     </div>
                 </div>
-                <div class="pdt-section-header mt-15">Filter</div>
-                <div id="api-get-filters-container" class="pdt-builder-group"></div>
+                <div id="api-get-filter-section" hidden>
+                    <div class="pdt-section-header mt-15">Filter</div>
+                    <div id="api-get-filters-container" class="pdt-builder-group"></div>
+                </div>
             </div>`;
     }
 
@@ -290,10 +292,10 @@ export class WebApiExplorerTab extends BaseComponent {
     _renderToolbarSection() {
         return `
             <div class="pdt-toolbar mt-15">
-                <button id="api-get-add-filter-group-btn" class="modern-button secondary">Add Filter Group</button>
-                <button id="api-patch-add-filter-group-btn" class="modern-button secondary" hidden>Add Filter Group</button>
-                <button id="api-delete-add-filter-group-btn" class="modern-button secondary" hidden>Add Filter Group</button>
                 <div class="pdt-toolbar-group ml-auto">
+                    <button id="api-get-add-filter-group-btn" class="modern-button secondary">Add Filter Group</button>
+                    <button id="api-patch-add-filter-group-btn" class="modern-button secondary" hidden>Add Filter Group</button>
+                    <button id="api-delete-add-filter-group-btn" class="modern-button secondary" hidden>Add Filter Group</button>
                     <button id="api-get-count-btn" class="modern-button secondary">Get Count</button>
                     <button id="api-format-json-btn" class="modern-button secondary" hidden>Format JSON</button>
                     <button id="api-execute-btn" class="modern-button">Execute</button>
@@ -319,6 +321,7 @@ export class WebApiExplorerTab extends BaseComponent {
             getEntityInput: root.querySelector('#api-get-entity'),
             getSelectInput: root.querySelector('#api-get-select'),
             getTopInput: root.querySelector('#api-get-top'),
+            getFilterSection: root.querySelector('#api-get-filter-section'),
             getFiltersContainer: root.querySelector('#api-get-filters-container'),
             addGetFilterGroupBtn: root.querySelector('#api-get-add-filter-group-btn'),
             getOrderByAttrInput: root.querySelector('#api-get-orderby-attribute'),
@@ -392,7 +395,8 @@ export class WebApiExplorerTab extends BaseComponent {
             },
             onBulkTouch: (records) => this._handleBulkTouch(records),
             enableSelection: true,
-            tableName: this.ui.getEntityInput?.value || ''
+            tableName: this.ui.getEntityInput?.value || '',
+            entityLogicalName: this.selectedEntityLogicalName || ''
         });
 
         // Store handlers for cleanup
@@ -493,7 +497,14 @@ export class WebApiExplorerTab extends BaseComponent {
             },
             showNotOperator: true,
             operatorFilter: 'odata',
-            onUpdate: () => this._updatePreview()
+            onUpdate: () => {
+                this._updatePreview();
+                // Hide filter section when all groups are removed
+                if (this.ui.getFilterSection && this.ui.getFiltersContainer) {
+                    const hasGroups = this.ui.getFiltersContainer.querySelectorAll('.pdt-filter-group').length > 0;
+                    this.ui.getFilterSection.hidden = !hasGroups;
+                }
+            }
         });
 
         // PATCH filter manager
@@ -1007,21 +1018,27 @@ export class WebApiExplorerTab extends BaseComponent {
     }
 
     /**
-     * Format bulk operation results with error details.
+     * Format bulk operation results with error details including record identifiers.
      * @private
      * @param {string} operationName - Name of the operation (e.g., 'Bulk Delete')
      * @param {number} total - Total records processed
      * @param {number} succeeded - Number of successful operations
      * @param {number} failed - Number of failed operations
      * @param {Array<{index: number, error: string}>} errors - Array of error objects
+     * @param {Object} [recordContext] - Optional context for identifying failed records
+     * @param {Array<Object>} [recordContext.records] - Original records array
+     * @param {string} [recordContext.primaryKey] - Primary key attribute name
+     * @param {string} [recordContext.primaryNameAttr] - Primary name attribute name
      * @returns {Array<Object>} - Array of summary rows for display
      */
-    _formatBulkOperationResult(operationName, total, succeeded, failed, errors) {
+    _formatBulkOperationResult(operationName, total, succeeded, failed, errors, recordContext) {
         const summaryRows = [{
             'Operation': operationName,
             'Total': total,
             'Succeeded': succeeded,
             'Failed': failed,
+            'Record ID': '',
+            'Record Name': '',
             'Error Details': ''
         }];
 
@@ -1032,14 +1049,29 @@ export class WebApiExplorerTab extends BaseComponent {
                 'Total': '',
                 'Succeeded': '',
                 'Failed': '',
+                'Record ID': '',
+                'Record Name': '',
                 'Error Details': ''
             });
             errors.forEach((err, idx) => {
+                let recordId = '';
+                let recordName = '';
+
+                if (recordContext?.records && err.index !== undefined) {
+                    const record = recordContext.records[err.index];
+                    if (record) {
+                        recordId = record[recordContext.primaryKey] || '';
+                        recordName = record[recordContext.primaryNameAttr] || '';
+                    }
+                }
+
                 summaryRows.push({
                     'Operation': `Error ${idx + 1}`,
                     'Total': '',
                     'Succeeded': '',
                     'Failed': '',
+                    'Record ID': recordId,
+                    'Record Name': recordName,
                     'Error Details': err.error || 'Unknown error'
                 });
             });
@@ -1327,6 +1359,10 @@ export class WebApiExplorerTab extends BaseComponent {
             ? this.lastResult.entities
             : (Array.isArray(this.lastResult) ? this.lastResult : (this.lastResult?.value || []));
 
+        // Update entity context for "Open Record" links
+        this.resultPanel.entityLogicalName = this.selectedEntityLogicalName || '';
+        this.resultPanel.tableName = this.ui.getEntityInput?.value || '';
+
         this.resultPanel.renderShell(entities.length, this.currentView, this.hideOdata);
         this.resultPanel.renderContent({
             data: entities || [],
@@ -1418,12 +1454,18 @@ export class WebApiExplorerTab extends BaseComponent {
                 if (method !== 'GET') {
                     return;
                 }
+                this.ui.addGetFilterGroupBtn.disabled = true;
                 try {
                     await this._ensureEntityContext();
+                    if (this.ui.getFilterSection) {
+                        this.ui.getFilterSection.hidden = false;
+                    }
                     const isFirst = this.ui.getFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.getFilterManager.addFilterGroup(this.ui.getFiltersContainer, isFirst);
                 } catch (_e) {
                     NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                } finally {
+                    this.ui.addGetFilterGroupBtn.disabled = false;
                 }
             };
             this.ui.addGetFilterGroupBtn.addEventListener('click', this._addGetFilterGroupHandler);
@@ -1432,12 +1474,15 @@ export class WebApiExplorerTab extends BaseComponent {
         // PATCH add filter group
         if (this.ui.addPatchFilterGroupBtn) {
             this._addPatchFilterGroupHandler = async () => {
+                this.ui.addPatchFilterGroupBtn.disabled = true;
                 try {
                     await this._ensureEntityContext(this.ui.patchEntityInput.value);
                     const isFirst = this.ui.patchFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.patchFilterManager.addFilterGroup(this.ui.patchFiltersContainer, isFirst);
                 } catch (_e) {
                     NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                } finally {
+                    this.ui.addPatchFilterGroupBtn.disabled = false;
                 }
             };
             this.ui.addPatchFilterGroupBtn.addEventListener('click', this._addPatchFilterGroupHandler);
@@ -1446,12 +1491,15 @@ export class WebApiExplorerTab extends BaseComponent {
         // DELETE add filter group
         if (this.ui.addDeleteFilterGroupBtn) {
             this._addDeleteFilterGroupHandler = async () => {
+                this.ui.addDeleteFilterGroupBtn.disabled = true;
                 try {
                     await this._ensureEntityContext(this.ui.deleteEntityInput.value);
                     const isFirst = this.ui.deleteFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.deleteFilterManager.addFilterGroup(this.ui.deleteFiltersContainer, isFirst);
                 } catch (_e) {
                     NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                } finally {
+                    this.ui.addDeleteFilterGroupBtn.disabled = false;
                 }
             };
             this.ui.addDeleteFilterGroupBtn.addEventListener('click', this._addDeleteFilterGroupHandler);
@@ -1985,11 +2033,18 @@ export class WebApiExplorerTab extends BaseComponent {
                 };
                 this.resultSortState = { column: null, direction: 'asc' };
 
+                // Clear pagination state for count results
+                this.nextLink = null;
+                this.allLoadedRecords = [];
+
                 if (this.ui.resultRoot.style.display === 'none') {
                     this.ui.resultRoot.style.display = '';
                 }
 
+                // Disable selection for count results (not real records)
+                this.resultPanel.enableSelection = false;
                 this._displayResult();
+                this.resultPanel.enableSelection = true;
                 this.ui.resultRoot?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
                 NotificationService.show(
@@ -3122,11 +3177,11 @@ export class WebApiExplorerTab extends BaseComponent {
         const targets = attr.Targets || attr.targets || [];
         const targetEntity = targets[0] || 'systemuser';
         try {
-            const { EntitySetName } = await DataService.retrieveEntityDefinition(targetEntity);
-            const entitySetName = EntitySetName || targetEntity + 's';
+            const entityDef = await DataService.getEntityDefinition(targetEntity);
+            const entitySetName = entityDef?.EntitySetName || targetEntity;
             return `/${entitySetName}(00000000-0000-0000-0000-000000000000)`;
         } catch {
-            return `/${targetEntity}s(00000000-0000-0000-0000-000000000000)`;
+            return `/${targetEntity}(00000000-0000-0000-0000-000000000000)`;
         }
     }
 
@@ -3258,7 +3313,9 @@ export class WebApiExplorerTab extends BaseComponent {
 
             const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
             const primaryKey = metadata.PrimaryIdAttribute;
-            const fieldsToSelect = [primaryKey, ...Object.keys(body)].filter((v, i, a) => a.indexOf(v) === i);
+            const primaryNameAttr = metadata.PrimaryNameAttribute || '';
+            const fieldsToSelect = [primaryKey, ...(primaryNameAttr ? [primaryNameAttr] : []), ...Object.keys(body)]
+                .filter((v, i, a) => a.indexOf(v) === i);
             const records = await this._fetchMatchingRecords(entitySet, filterGroups, fieldsToSelect);
 
             if (records.length === 0) {
@@ -3302,7 +3359,11 @@ export class WebApiExplorerTab extends BaseComponent {
 
             // Display summary in results with error details
             this.lastResult = {
-                entities: this._formatBulkOperationResult('Bulk Update', records.length, totalSuccessCount, totalFailCount, allErrors)
+                entities: this._formatBulkOperationResult('Bulk Update', records.length, totalSuccessCount, totalFailCount, allErrors, {
+                    records,
+                    primaryKey,
+                    primaryNameAttr
+                })
             };
             this.resultSortState = { column: null, direction: 'asc' };
 
@@ -3310,7 +3371,10 @@ export class WebApiExplorerTab extends BaseComponent {
                 this.ui.resultRoot.style.display = '';
             }
 
+            // Disable selection for bulk operation results (not real records)
+            this.resultPanel.enableSelection = false;
             this._displayResult();
+            this.resultPanel.enableSelection = true;
             this.ui.resultRoot?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         } catch (error) {
@@ -3322,318 +3386,6 @@ export class WebApiExplorerTab extends BaseComponent {
             }
         }
     }
-
-    /**
-     * Shows a dialog to configure bulk touch operation.
-     * @param {string} logicalName - Entity logical name
-     * @param {Object} metadata - Entity metadata
-     * @returns {Promise<Array<{field: string, useCustomValue: boolean, customValue: any}>|null>} Touch configurations or null if cancelled
-     * @private
-     */
-    _showTouchConfigDialog(logicalName, metadata) {
-        const primaryNameAttr = metadata.PrimaryNameAttribute || 'name';
-
-        return new Promise((resolve) => {
-            const overlay = this._createTouchDialogOverlay(primaryNameAttr);
-            document.body.appendChild(overlay);
-
-            const fieldsContainer = overlay.querySelector('#touch-fields-container');
-            const addFieldBtn = overlay.querySelector('#touch-add-field-btn');
-            const confirmBtn = overlay.querySelector('#touch-confirm-btn');
-            const cancelBtn = overlay.querySelector('#touch-cancel-btn');
-
-            this._addTouchFieldRow(logicalName, fieldsContainer, primaryNameAttr, 'current', '', true);
-
-            addFieldBtn.addEventListener('click', () => {
-                this._addTouchFieldRow(logicalName, fieldsContainer, '', 'current', '', false);
-            });
-
-            confirmBtn.addEventListener('click', () => {
-                this._handleTouchDialogConfirm(fieldsContainer, overlay, resolve);
-            });
-
-            this._bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve);
-
-            const focusDelay = Config.TOUCH_DIALOG?.focusDelay || 100;
-            setTimeout(() => {
-                const firstInput = overlay.querySelector('.field-name-input');
-                if (firstInput) {
-                    firstInput.select();
-                }
-            }, focusDelay);
-        });
-    }
-
-    /**
-     * Create the touch dialog overlay structure.
-     * @private
-     * @param {string} primaryNameAttr - Primary name attribute
-     * @returns {HTMLElement} - Dialog overlay element
-     */
-    _createTouchDialogOverlay(primaryNameAttr) {
-        const overlay = document.createElement('div');
-        overlay.id = 'pdt-touch-config-dialog';
-        overlay.className = 'pdt-dialog-overlay';
-
-        if (Store.getState().theme === 'light') {
-            overlay.classList.add('light-mode');
-        }
-
-        overlay.innerHTML = `
-            <div class="pdt-dialog pdt-dialog-large">
-                <div class="pdt-dialog-header">
-                    <h3>${Config.MESSAGES.WEB_API.touchDialogTitle}</h3>
-                </div>
-                <div class="pdt-dialog-body">
-                    <div class="pdt-note mb-15">
-                        <p>${Config.MESSAGES.WEB_API.touchDialogInstructions}</p>
-                        <p class="mt-5">${Config.MESSAGES.WEB_API.touchDialogTip(escapeHtml(primaryNameAttr))}</p>
-                    </div>
-
-                    <div id="touch-fields-container"></div>
-
-                    <div class="pdt-toolbar pdt-touch-add-toolbar">
-                        <button id="touch-add-field-btn" class="modern-button secondary">
-                            ${Config.MESSAGES.WEB_API.touchDialogAddButton}
-                        </button>
-                    </div>
-                </div>
-                <div class="pdt-dialog-footer">
-                    <button id="touch-confirm-btn" class="modern-button primary">${Config.MESSAGES.WEB_API.touchDialogConfirmButton}</button>
-                    <button id="touch-cancel-btn" class="modern-button secondary">${Config.MESSAGES.WEB_API.touchDialogCancelButton}</button>
-                </div>
-            </div>
-        `;
-        return overlay;
-    }
-
-    /**
-     * Add a field row to the touch configuration dialog.
-     * @private
-     * @param {string} logicalName - Entity logical name
-     * @param {HTMLElement} fieldsContainer - Container for field rows
-     * @param {string} fieldName - Initial field name
-     * @param {string} valueMode - Initial value mode ('current' or 'custom')
-     * @param {string} customValue - Initial custom value
-     * @param {boolean} isFirst - Whether this is the first row (cannot be removed)
-     */
-    _addTouchFieldRow(logicalName, fieldsContainer, fieldName = '', valueMode = 'current', customValue = '', isFirst = false) {
-        const rowId = `touch-row-${Date.now()}-${Math.random()}`;
-        const row = this._createTouchFieldRowHTML(fieldsContainer, rowId, fieldName, valueMode, customValue, isFirst);
-        fieldsContainer.appendChild(row);
-        this._bindTouchFieldRowHandlers(logicalName, fieldsContainer, row, rowId, isFirst);
-    }
-
-    /**
-     * Create the HTML structure for a touch field row.
-     * @private
-     * @param {HTMLElement} fieldsContainer - Container for field rows
-     * @param {string} rowId - Unique row ID
-     * @param {string} fieldName - Field name
-     * @param {string} valueMode - Value mode ('current' or 'custom')
-     * @param {string} customValue - Custom value
-     * @param {boolean} isFirst - Whether this is the first row
-     * @returns {HTMLElement} - Field row element
-     */
-    _createTouchFieldRowHTML(fieldsContainer, rowId, fieldName, valueMode, customValue, isFirst) {
-        const row = document.createElement('div');
-        row.className = 'pdt-builder-group mb-15';
-        row.dataset.rowId = rowId;
-        row.innerHTML = `
-            <div class="pdt-section-header">
-                ${Config.MESSAGES.WEB_API.touchDialogFieldLabel(fieldsContainer.children.length + 1)}
-                ${!isFirst ? `<button class="modern-button secondary pdt-touch-remove-btn" title="${Config.MESSAGES.WEB_API.touchDialogRemoveButton}">${Config.MESSAGES.WEB_API.touchDialogRemoveButton}</button>` : ''}
-            </div>
-            <div class="pdt-builder-content">
-                <div class="pdt-form-row">
-                    <label class="pdt-label">${Config.MESSAGES.WEB_API.touchDialogColumnLabel}</label>
-                    <div class="flex-1 gap-10">
-                        <input type="text" class="pdt-input field-name-input flex-1" value="${escapeHtml(fieldName)}" placeholder="${Config.MESSAGES.WEB_API.touchDialogPlaceholder}">
-                        <button class="pdt-input-btn browse-field-btn" title="${Config.MESSAGES.WEB_API.touchDialogBrowseTitle}">${ICONS.inspector}</button>
-                    </div>
-                </div>
-                <div class="pdt-form-row mt-10">
-                    <label class="pdt-label">${Config.MESSAGES.WEB_API.touchDialogValueModeLabel}</label>
-                    <div class="flex-1">
-                        <label class="pdt-radio-label">
-                            <input type="radio" name="value-mode-${rowId}" value="current" ${valueMode === 'current' ? 'checked' : ''}>
-                            <span>${Config.MESSAGES.WEB_API.touchDialogKeepValue}</span>
-                        </label>
-                        <label class="pdt-radio-label mt-5">
-                            <input type="radio" name="value-mode-${rowId}" value="custom" ${valueMode === 'custom' ? 'checked' : ''}>
-                            <span>${Config.MESSAGES.WEB_API.touchDialogSetValue}</span>
-                        </label>
-                        <input type="text" class="pdt-input custom-value-input mt-5" value="${escapeHtml(customValue)}" placeholder="${Config.MESSAGES.WEB_API.touchDialogCustomPlaceholder}" ${valueMode === 'current' ? 'disabled' : ''}>
-                    </div>
-                </div>
-            </div>
-        `;
-        return row;
-    }
-
-    /**
-     * Bind event handlers for a touch field row.
-     * @private
-     * @param {string} logicalName - Entity logical name
-     * @param {HTMLElement} fieldsContainer - Container for field rows
-     * @param {HTMLElement} row - Field row element
-     * @param {string} rowId - Unique row ID
-     * @param {boolean} isFirst - Whether this is the first row
-     */
-    _bindTouchFieldRowHandlers(logicalName, fieldsContainer, row, rowId, isFirst) {
-        const fieldInput = row.querySelector('.field-name-input');
-        const customValueInput = row.querySelector('.custom-value-input');
-        const browseBtn = row.querySelector('.browse-field-btn');
-        const radioButtons = row.querySelectorAll(`input[name="value-mode-${rowId}"]`);
-        const removeBtn = row.querySelector('.pdt-touch-remove-btn');
-
-        // Handle radio button changes
-        radioButtons.forEach(radio => {
-            radio.addEventListener('change', () => {
-                customValueInput.disabled = radio.value !== 'custom';
-                if (radio.value === 'custom') {
-                    customValueInput.focus();
-                }
-            });
-        });
-
-        browseBtn.addEventListener('click', () => {
-            this._handleTouchFieldBrowse(logicalName, fieldInput);
-        });
-
-        if (removeBtn && !isFirst) {
-            removeBtn.addEventListener('click', () => {
-                this._handleTouchFieldRemove(fieldsContainer, row);
-            });
-        }
-    }
-
-    /**
-     * Handle browse button click for touch field row.
-     * @private
-     * @param {string} logicalName - Entity logical name
-     * @param {HTMLElement} fieldInput - Field input element
-     */
-    _handleTouchFieldBrowse(logicalName, fieldInput) {
-        try {
-            showColumnBrowser(
-                async () => {
-                    await PowerAppsApiService.getEntityMetadata(logicalName);
-                    return logicalName;
-                },
-                (attr) => {
-                    fieldInput.value = attr.LogicalName;
-                }
-            );
-        } catch (err) {
-            NotificationService.show(err.message || Config.MESSAGES.WEB_API.touchDialogBrowseFailed, 'error');
-        }
-    }
-
-    /**
-     * Handle remove button click for touch field row.
-     * @private
-     * @param {HTMLElement} fieldsContainer - Container for field rows
-     * @param {HTMLElement} row - Field row to remove
-     */
-    _handleTouchFieldRemove(fieldsContainer, row) {
-        row.remove();
-        Array.from(fieldsContainer.children).forEach((r, idx) => {
-            const header = r.querySelector('.pdt-section-header');
-            const fieldNum = header.childNodes[0];
-            fieldNum.textContent = Config.MESSAGES.WEB_API.touchDialogFieldLabel(idx + 1);
-        });
-    }
-
-    /**
-     * Handle confirm button click for touch dialog.
-     * @private
-     * @param {HTMLElement} fieldsContainer - Container for field rows
-     * @param {HTMLElement} overlay - Dialog overlay element
-     * @param {Function} resolve - Promise resolve function
-     */
-    _handleTouchDialogConfirm(fieldsContainer, overlay, resolve) {
-        const rows = fieldsContainer.querySelectorAll('.pdt-builder-group');
-        const fields = [];
-
-        for (const row of rows) {
-            const fieldInput = row.querySelector('.field-name-input');
-            const field = fieldInput.value.trim();
-
-            if (!field) {
-                NotificationService.show(Config.MESSAGES.WEB_API.touchFieldNameRequired, 'warning');
-                fieldInput.focus();
-                return;
-            }
-
-            const rowId = row.dataset.rowId;
-            const selectedMode = row.querySelector(`input[name="value-mode-${rowId}"]:checked`).value;
-            const useCustomValue = selectedMode === 'custom';
-            const customValueInput = row.querySelector('.custom-value-input');
-            const customValue = useCustomValue ? customValueInput.value : null;
-
-            if (useCustomValue && !customValue) {
-                NotificationService.show(Config.MESSAGES.WEB_API.touchCustomValueRequired, 'warning');
-                customValueInput.focus();
-                return;
-            }
-
-            fields.push({
-                field,
-                useCustomValue,
-                customValue
-            });
-        }
-
-        if (fields.length === 0) {
-            NotificationService.show(Config.MESSAGES.WEB_API.touchNoFieldsConfigured, 'warning');
-            return;
-        }
-
-        overlay.remove();
-        resolve(fields);
-    }
-
-    /**
-     * Bind cancel handlers for touch dialog (button, overlay click, ESC key).
-     * @private
-     * @param {HTMLElement} overlay - Dialog overlay element
-     * @param {HTMLElement} cancelBtn - Cancel button element
-     * @param {Function} resolve - Promise resolve function
-     */
-    /* eslint-disable no-use-before-define */
-    _bindTouchDialogCancelHandlers(overlay, cancelBtn, resolve) {
-        let cleaned = false;
-
-        const handleCancel = () => {
-            if (cleaned) {
-                return;
-            }
-            cleaned = true;
-            document.removeEventListener('keydown', handleEsc);
-            overlay.removeEventListener('click', handleOverlayClick);
-            cancelBtn.removeEventListener('click', handleCancel);
-            overlay.remove();
-            resolve(null);
-        };
-
-        const handleEsc = (e) => {
-            if (e.key === 'Escape') {
-                handleCancel();
-            }
-        };
-
-        const handleOverlayClick = (e) => {
-            if (e.target === overlay) {
-                handleCancel();
-            }
-        };
-
-        cancelBtn.addEventListener('click', handleCancel);
-        overlay.addEventListener('click', handleOverlayClick);
-        document.addEventListener('keydown', handleEsc);
-    }
-    /* eslint-enable no-use-before-define */
 
     /**
      * Handle bulk touch operation for selected records.
@@ -3652,7 +3404,7 @@ export class WebApiExplorerTab extends BaseComponent {
             const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
             const primaryKey = metadata.PrimaryIdAttribute;
 
-            const touchConfig = await this._showTouchConfigDialog(logicalName, metadata);
+            const touchConfig = await BulkTouchService.showTouchConfigDialog(logicalName, metadata);
             if (!touchConfig || touchConfig.length === 0) {
                 NotificationService.show(Config.MESSAGES.WEB_API.bulkOperationCancelled, 'info');
                 return;
@@ -3662,11 +3414,10 @@ export class WebApiExplorerTab extends BaseComponent {
                 Config.MESSAGES.WEB_API.bulkTouchProgress(0, records.length));
 
             const { allOperations, totalFailCount, allErrors } =
-                this._prepareTouchOperations(records, primaryKey, touchConfig, entitySet);
+                BulkTouchService.prepareTouchOperations(records, primaryKey, touchConfig, entitySet);
 
-            const { successCount, failCount, errors } = await this._processBatchOperations(
+            const { successCount, failCount, errors } = await BulkTouchService.executeBatchOperations(
                 allOperations,
-                1000,
                 (processed, total) => {
                     BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot,
                         Config.MESSAGES.WEB_API.bulkTouchProgress(processed, total));
@@ -3699,53 +3450,6 @@ export class WebApiExplorerTab extends BaseComponent {
             DELETE: this.ui.deleteEntityInput.value
         };
         return inputMap[method] || '';
-    }
-
-    /**
-     * Prepare touch operations from records.
-     * @private
-     */
-    _prepareTouchOperations(records, primaryKey, touchConfig, entitySet) {
-        const allOperations = [];
-        let totalFailCount = 0;
-        const allErrors = [];
-
-        for (const record of records) {
-            const recordId = record[primaryKey];
-            if (!recordId) {
-                totalFailCount++;
-                allErrors.push({ index: allOperations.length, error: Config.MESSAGES.WEB_API.noPrimaryKeyFound });
-                continue;
-            }
-
-            const data = this._buildTouchData(record, touchConfig);
-            allOperations.push({
-                method: 'PATCH',
-                entitySet,
-                id: recordId,
-                data
-            });
-        }
-
-        return { allOperations, totalFailCount, allErrors };
-    }
-
-    /**
-     * Build touch data object from config.
-     * @private
-     */
-    _buildTouchData(record, touchConfig) {
-        const data = {};
-        for (const config of touchConfig) {
-            let touchValue;
-            if (config.useCustomValue) {
-                touchValue = config.customValue;
-            } else {
-                touchValue = record[config.field] ?? record[config.field.toLowerCase()] ?? null;
-            }
-            data[config.field] = touchValue;
-        }
-        return data;
     }
 
     /**
@@ -3810,7 +3514,10 @@ export class WebApiExplorerTab extends BaseComponent {
                 'Error': e.error
             }))
         };
+        // Disable selection for touch error results (not real records)
+        this.resultPanel.enableSelection = false;
         this._displayResult();
+        this.resultPanel.enableSelection = true;
     }
 
     /**
@@ -3836,8 +3543,10 @@ export class WebApiExplorerTab extends BaseComponent {
 
             const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
             const primaryKey = metadata.PrimaryIdAttribute;
+            const primaryNameAttr = metadata.PrimaryNameAttribute || '';
 
-            const records = await this._fetchMatchingRecords(entitySet, filterGroups, [primaryKey]);
+            const fieldsToSelect = [primaryKey, ...(primaryNameAttr ? [primaryNameAttr] : [])];
+            const records = await this._fetchMatchingRecords(entitySet, filterGroups, fieldsToSelect);
 
             if (records.length === 0) {
                 NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warning');
@@ -3876,7 +3585,11 @@ export class WebApiExplorerTab extends BaseComponent {
             }
 
             this.lastResult = {
-                entities: this._formatBulkOperationResult('Bulk Delete', records.length, totalSuccessCount, totalFailCount, allErrors)
+                entities: this._formatBulkOperationResult('Bulk Delete', records.length, totalSuccessCount, totalFailCount, allErrors, {
+                    records,
+                    primaryKey,
+                    primaryNameAttr
+                })
             };
             this.resultSortState = { column: null, direction: 'asc' };
 
@@ -3884,7 +3597,10 @@ export class WebApiExplorerTab extends BaseComponent {
                 this.ui.resultRoot.style.display = '';
             }
 
+            // Disable selection for bulk operation results (not real records)
+            this.resultPanel.enableSelection = false;
             this._displayResult();
+            this.resultPanel.enableSelection = true;
             this.ui.resultRoot?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         } catch (error) {
@@ -3937,7 +3653,6 @@ export class WebApiExplorerTab extends BaseComponent {
 
         try {
             const { entitySet, logicalName } = await EntityContextResolver.resolve(inputName);
-            this.ui.getEntityInput.value = entitySet;
             this.selectedEntityLogicalName = logicalName;
             if (!this.attrMap) {
                 this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
@@ -3948,49 +3663,6 @@ export class WebApiExplorerTab extends BaseComponent {
             const opts = await this._buildGetOptionsStringFallback();
             this._setPreviewUrl(`${inputName}${opts || ''}`);
         }
-    }
-
-    /**
-     * Update preview for POST method.
-     * @private
-     */
-    _updatePostPreview() {
-        const entity = this.ui.postEntityInput.value.trim() || '(table?)';
-        const html = [
-            '<div class="pdt-preview-line"><strong>Method:</strong> POST</div>',
-            `<div class="pdt-preview-line"><strong>URL:</strong> <code>${escapeHtml(entity)}</code></div>`
-        ].join('');
-        this.ui.preview.innerHTML = html;
-    }
-
-    /**
-     * Update preview for PATCH method.
-     * @private
-     */
-    _updatePatchPreview() {
-        const entity = this.ui.patchEntityInput.value.trim() || '(table?)';
-        const recordId = this.ui.patchIdInput.value.trim() || '(id?)';
-        const url = `${entity}(${recordId})`;
-        const html = [
-            '<div class="pdt-preview-line"><strong>Method:</strong> PATCH</div>',
-            `<div class="pdt-preview-line"><strong>URL:</strong> <code>${escapeHtml(url)}</code></div>`
-        ].join('');
-        this.ui.preview.innerHTML = html;
-    }
-
-    /**
-     * Update preview for DELETE method.
-     * @private
-     */
-    _updateDeletePreview() {
-        const entity = this.ui.deleteEntityInput.value.trim() || '(table?)';
-        const recordId = this.ui.deleteIdInput.value.trim() || '(id?)';
-        const url = `${entity}(${recordId})`;
-        const html = [
-            '<div class="pdt-preview-line"><strong>Method:</strong> DELETE</div>',
-            `<div class="pdt-preview-line"><strong>URL:</strong> <code>${escapeHtml(url)}</code></div>`
-        ].join('');
-        this.ui.preview.innerHTML = html;
     }
 
 
@@ -4123,7 +3795,8 @@ export class WebApiExplorerTab extends BaseComponent {
             },
             onBulkTouch: (records) => this._handleBulkTouch(records),
             enableSelection: true,
-            tableName: this.ui.getEntityInput?.value || ''
+            tableName: this.ui.getEntityInput?.value || '',
+            entityLogicalName: this.selectedEntityLogicalName || ''
         });
 
         // draw empty
@@ -4302,6 +3975,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     this.lastResult = { entities: this.allLoadedRecords };
 
                     if (this.resultPanel) {
+                        this.resultPanel.entityLogicalName = this.selectedEntityLogicalName || '';
                         const entities = this.lastResult.entities || [];
                         this.resultPanel.renderContent({
                             data: entities,

@@ -9,7 +9,8 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { formatXml, normalizeApiResponse, showColumnBrowser } from '../helpers/index.js';
+import { formatXml, normalizeApiResponse, showColumnBrowser, copyToClipboard } from '../helpers/index.js';
+import { FetchXmlConverterService } from '../services/FetchXmlConverterService.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { MetadataBrowserDialog } from '../ui/MetadataBrowserDialog.js';
 import { ResultPanel } from '../utils/ui/ResultPanel.js';
@@ -18,6 +19,7 @@ import { ErrorParser } from '../utils/parsers/ErrorParser.js';
 import { SmartValueInput } from '../ui/SmartValueInput.js';
 import { PreferencesHelper } from '../utils/ui/PreferencesHelper.js';
 import { EntityContextResolver } from '../utils/resolvers/EntityContextResolver.js';
+import { BulkTouchService } from '../services/BulkTouchService.js';
 import { Config } from '../constants/index.js';
 import { FilterGroupManager } from '../ui/FilterGroupManager.js';
 
@@ -140,6 +142,26 @@ export class FetchXmlTesterTab extends BaseComponent {
                             </filter>
                         </entity>
                     </fetch>`
+            },
+            {
+                label: 'Aggregate: Count of Accounts by City',
+                xml: `<fetch aggregate="true">
+                        <entity name="account">
+                            <attribute name="accountid" alias="CountOfAccounts" aggregate="count" />
+                            <attribute name="address1_city" alias="City" groupby="true" />
+                            <order alias="CountOfAccounts" descending="true" />
+                        </entity>
+                    </fetch>`
+            },
+            {
+                label: 'Aggregate: Sum/Avg Revenue',
+                xml: `<fetch aggregate="true">
+                        <entity name="account">
+                            <attribute name="revenue" alias="TotalRevenue" aggregate="sum" />
+                            <attribute name="revenue" alias="AverageRevenue" aggregate="avg" />
+                            <attribute name="numberofemployees" alias="MaxEmployees" aggregate="max" />
+                        </entity>
+                    </fetch>`
             }
         ];
 
@@ -201,16 +223,53 @@ export class FetchXmlTesterTab extends BaseComponent {
                         </div>
                     </div>
                     </div>
-                    <div class="pdt-section-header mt-15">Filter</div>
-                    <div id="builder-filters-container" class="pdt-builder-group"></div>
-                    <div class="pdt-toolbar mt-10">
-                        <button id="fetch-add-filter-group-btn" class="modern-button secondary">Add Filter Group</button>
+                    <div id="builder-filters-section" style="display:none;">
+                        <div class="pdt-section-header mt-15">Filter
+                            <button class="pdt-section-remove-btn remove-section-btn" data-section="filters" title="${Config.MESSAGES.FETCHXML.removeSection}">&times;</button>
+                        </div>
+                        <div id="builder-filters-container" class="pdt-builder-group"></div>
+                        <div class="pdt-toolbar mt-10">
+                            <button id="fetch-add-filter-group-btn" class="modern-button secondary">Add Filter Group</button>
+                        </div>
                     </div>
-                    <div class="pdt-section-header mt-15">Joins (link-entity)</div>
-                    <div id="builder-joins-container" class="pdt-builder-group"></div>
+                    <div id="builder-joins-section" style="display:none;">
+                        <div class="pdt-section-header mt-15">Joins
+                            <button class="pdt-section-remove-btn remove-section-btn" data-section="joins" title="${Config.MESSAGES.FETCHXML.removeSection}">&times;</button>
+                        </div>
+                        <div id="builder-joins-container" class="pdt-builder-group"></div>
+                        <div class="pdt-toolbar mt-10">
+                            <button id="fetch-add-join-btn" class="modern-button secondary">Add Join</button>
+                        </div>
+                    </div>
+                    <div id="builder-aggregates-section" style="display:none;">
+                        <div class="pdt-section-header mt-15">${Config.MESSAGES.FETCHXML.aggregateSectionTitle}
+                            <button class="pdt-section-remove-btn remove-section-btn" data-section="aggregates" title="${Config.MESSAGES.FETCHXML.removeSection}">&times;</button>
+                        </div>
+                        <div id="builder-aggregates-container" class="pdt-builder-group"></div>
+                        <div class="pdt-toolbar mt-10">
+                            <button id="fetch-add-aggregate-btn" class="modern-button secondary">${Config.MESSAGES.FETCHXML.addAggregate}</button>
+                        </div>
+                    </div>
+                    <div id="builder-groupby-section" style="display:none;">
+                        <div class="pdt-section-header mt-15">${Config.MESSAGES.FETCHXML.groupBySectionTitle}
+                            <button class="pdt-section-remove-btn remove-section-btn" data-section="groupby" title="${Config.MESSAGES.FETCHXML.removeSection}">&times;</button>
+                        </div>
+                        <div id="builder-groupby-container" class="pdt-builder-group"></div>
+                        <div class="pdt-toolbar mt-10">
+                            <button id="fetch-add-groupby-btn" class="modern-button secondary">${Config.MESSAGES.FETCHXML.addGroupBy}</button>
+                        </div>
+                    </div>
                     <div class="pdt-toolbar mt-20">
-                        <button id="fetch-add-join-btn" class="modern-button secondary">Add Join</button>
-                        <button id="fetch-build-btn" class="modern-button ml-auto pdt-accent-button">Generate XML</button>
+                        <div class="pdt-add-section-wrapper ml-auto">
+                            <button id="fetch-add-section-btn" class="modern-button secondary">${Config.MESSAGES.FETCHXML.addSection} ▾</button>
+                            <div id="fetch-add-section-menu" class="pdt-add-section-menu" style="display:none;">
+                                <button class="pdt-add-section-item" data-section="filters">${Config.MESSAGES.FETCHXML.addFilter}</button>
+                                <button class="pdt-add-section-item" data-section="joins">${Config.MESSAGES.FETCHXML.addJoin}</button>
+                                <button class="pdt-add-section-item" data-section="aggregates">${Config.MESSAGES.FETCHXML.addAggregateMenu}</button>
+                                <button class="pdt-add-section-item" data-section="groupby">${Config.MESSAGES.FETCHXML.addGroupByMenu}</button>
+                            </div>
+                        </div>
+                        <button id="fetch-build-btn" class="modern-button pdt-accent-button">Generate XML</button>
                     </div>
                 </div>
                 <div id="fetch-editor-content" style="display:none;">
@@ -218,8 +277,26 @@ export class FetchXmlTesterTab extends BaseComponent {
                         <select id="fetch-template-select" class="pdt-select flex-grow"></select>
                     </div>
                     <textarea id="fetch-xml-area" class="pdt-textarea" rows="10" spellcheck="false" placeholder="<fetch>...</fetch>"></textarea>
+                    <div id="fetch-converter-panel" class="pdt-converter-panel" style="display:none;">
+                        <div class="pdt-section-header mt-15">${Config.MESSAGES.FETCHXML.convertTo}
+                            <button id="fetch-converter-close-btn" class="pdt-section-remove-btn" title="${Config.MESSAGES.FETCHXML.removeSection}">&times;</button>
+                        </div>
+                        <div class="pdt-converter-formats">
+                            <button class="pdt-converter-format-btn" data-format="csharp">${Config.MESSAGES.FETCHXML.convertFormatCSharp}</button>
+                            <button class="pdt-converter-format-btn" data-format="javascript">${Config.MESSAGES.FETCHXML.convertFormatJavaScript}</button>
+                            <button class="pdt-converter-format-btn" data-format="odata">${Config.MESSAGES.FETCHXML.convertFormatOData}</button>
+                            <button class="pdt-converter-format-btn" data-format="sql">${Config.MESSAGES.FETCHXML.convertFormatSQL}</button>
+                            <button class="pdt-converter-format-btn" data-format="powerautomate">${Config.MESSAGES.FETCHXML.convertFormatPowerAutomate}</button>
+                            <button class="pdt-converter-format-btn" data-format="webapiurl">${Config.MESSAGES.FETCHXML.convertFormatWebApiUrl}</button>
+                        </div>
+                        <div class="pdt-converter-output-wrapper">
+                            <textarea id="fetch-converter-output" class="pdt-textarea pdt-converter-output" rows="12" readonly spellcheck="false" placeholder="${Config.MESSAGES.FETCHXML.convertPlaceholder}"></textarea>
+                            <button id="fetch-converter-copy-btn" class="modern-button secondary pdt-converter-copy-btn" hidden>Copy</button>
+                        </div>
+                    </div>
                 </div>
                 <div id="fetch-execute-toolbar" class="pdt-toolbar pdt-toolbar-end mt-15" style="display:none;">
+                    <button id="fetch-converter-toggle-btn" class="modern-button secondary">${Config.MESSAGES.FETCHXML.convertTo}</button>
                     <button id="fetch-format-btn" class="modern-button secondary">Format XML</button>
                     <button id="fetch-execute-btn" class="modern-button" title="Run (Ctrl/Cmd + Enter)">Execute</button>
                 </div>
@@ -257,7 +334,10 @@ export class FetchXmlTesterTab extends BaseComponent {
             setSortState: (s) => {
                 this.resultSortState = s;
             },
-            tableName: this.ui.builderEntityInput?.value || ''
+            onBulkTouch: (records) => this._handleBulkTouch(records),
+            enableSelection: true,
+            tableName: this.ui.builderEntityInput?.value || '',
+            entityLogicalName: this.lastEntityName || ''
         });
         this.resultPanel.renderShell(0, this.currentView, this.hideOdata);
         this._bindExternalRefresh();
@@ -351,9 +431,22 @@ export class FetchXmlTesterTab extends BaseComponent {
             editorContent: element.querySelector('#fetch-editor-content'),
             filtersContainer: element.querySelector('#builder-filters-container'),
             joinsContainer: element.querySelector('#builder-joins-container'),
+            aggregatesContainer: element.querySelector('#builder-aggregates-container'),
+            groupByContainer: element.querySelector('#builder-groupby-container'),
+            filtersSection: element.querySelector('#builder-filters-section'),
+            joinsSection: element.querySelector('#builder-joins-section'),
+            aggregatesSection: element.querySelector('#builder-aggregates-section'),
+            groupBySection: element.querySelector('#builder-groupby-section'),
+            addSectionBtn: element.querySelector('#fetch-add-section-btn'),
+            addSectionMenu: element.querySelector('#fetch-add-section-menu'),
             builderEntityInput: element.querySelector('#builder-entity'),
             executeBtn: element.querySelector('#fetch-execute-btn'),
-            resultRoot: element.querySelector('#fetch-result-root')
+            resultRoot: element.querySelector('#fetch-result-root'),
+            converterPanel: element.querySelector('#fetch-converter-panel'),
+            converterOutput: element.querySelector('#fetch-converter-output'),
+            converterCopyBtn: element.querySelector('#fetch-converter-copy-btn'),
+            converterToggleBtn: element.querySelector('#fetch-converter-toggle-btn'),
+            converterCloseBtn: element.querySelector('#fetch-converter-close-btn')
         };
     }
 
@@ -385,6 +478,15 @@ export class FetchXmlTesterTab extends BaseComponent {
         // Listener for template selection
         this._templateSelectHandler = (e) => this._handleTemplateChange(e.target.value);
         this.ui.templateSelect.addEventListener('change', this._templateSelectHandler);
+
+        // Close dropdown menu when clicking outside
+        this._handleDocumentClick = (e) => {
+            if (this.ui.addSectionMenu?.style.display !== 'none' &&
+                !e.target.closest('.pdt-add-section-wrapper')) {
+                this.ui.addSectionMenu.style.display = 'none';
+            }
+        };
+        document.addEventListener('click', this._handleDocumentClick);
     }
 
     /**
@@ -410,14 +512,58 @@ export class FetchXmlTesterTab extends BaseComponent {
         const id = target.id;
         const classList = target.classList;
 
-        // Browse button handlers
-        if (id === 'browse-builder-entity-btn') {
-            this._handleBrowseEntity();
-        } else if (id === 'browse-builder-attributes-btn') {
-            this._handleBrowseAttributes();
-        } else if (id === 'browse-builder-order-btn') {
-            this._handleBrowseOrder();
-        } else if (classList.contains('browse-condition-attr')) {
+        // 1. Route by element ID
+        if (id && this._routeById(id)) {
+            return;
+        }
+
+        // 2. Route by CSS class
+        this._routeByClass(classList, target);
+    }
+
+    /**
+     * Routes a click event by the target element's ID.
+     * @param {string} id - The element ID
+     * @returns {boolean} True if a handler was matched
+     * @private
+     */
+    _routeById(id) {
+        /** @type {Record<string, () => void>} */
+        const idRoutes = {
+            'browse-builder-entity-btn': () => this._handleBrowseEntity(),
+            'browse-builder-attributes-btn': () => this._handleBrowseAttributes(),
+            'browse-builder-order-btn': () => this._handleBrowseOrder(),
+            'fetch-add-filter-group-btn': () => this._handleAddFilterGroup(),
+            'fetch-add-join-btn': () => this._handleAddJoin(),
+            'fetch-build-btn': () => this._handleBuildXml(),
+            'fetch-builder-tab': () => this._switchBuilderView('builder'),
+            'fetch-editor-tab': () => this._switchBuilderView('editor'),
+            'fetch-format-btn': () => this._formatXml(),
+            'fetch-execute-btn': () => this._executeQuery(),
+            'fetch-add-aggregate-btn': () => this._addAggregateRow(),
+            'fetch-add-groupby-btn': () => this._addGroupByRow(),
+            'fetch-add-section-btn': () => this._toggleAddSectionMenu(),
+            'fetch-converter-copy-btn': () => this._handleCopyConverted(),
+            'fetch-converter-toggle-btn': () => this._toggleConverterPanel(),
+            'fetch-converter-close-btn': () => this._closeConverterPanel()
+        };
+
+        const handler = idRoutes[id];
+        if (handler) {
+            handler();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Routes a click event by the target element's CSS class.
+     * @param {DOMTokenList} classList - The element's class list
+     * @param {HTMLElement} target - The clicked element
+     * @private
+     */
+    _routeByClass(classList, target) {
+        if (classList.contains('browse-condition-attr')) {
             this._handleBrowseConditionAttribute(target);
         } else if (classList.contains('browse-join-table')) {
             this._handleBrowseJoinTable(target);
@@ -427,22 +573,187 @@ export class FetchXmlTesterTab extends BaseComponent {
             this._handleBrowseJoinTo(target);
         } else if (classList.contains('browse-join-attrs')) {
             this._handleBrowseJoinAttributes(target);
-        } else if (id === 'fetch-add-filter-group-btn') {
-            this._handleAddFilterGroup();
-        } else if (id === 'fetch-add-join-btn') {
-            this._handleAddJoin();
-        } else if (id === 'fetch-build-btn') {
-            this._handleBuildXml();
-        } else if (id === 'fetch-builder-tab') {
-            this._switchBuilderView('builder');
-        } else if (id === 'fetch-editor-tab') {
-            this._switchBuilderView('editor');
-        } else if (id === 'fetch-format-btn') {
-            this._formatXml();
-        } else if (id === 'fetch-execute-btn') {
-            this._executeQuery();
         } else if (classList.contains('remove-join')) {
             this._handleRemoveJoin(target);
+        } else if (classList.contains('remove-aggregate-row')) {
+            target.closest('.pdt-aggregate-row')?.remove();
+            this._updateGroupByAvailability();
+        } else if (classList.contains('remove-groupby-row')) {
+            target.closest('.pdt-groupby-row')?.remove();
+        } else if (classList.contains('pdt-add-section-item')) {
+            this._handleAddSection(target.dataset.section);
+        } else if (classList.contains('remove-section-btn')) {
+            this._handleRemoveSection(target.dataset.section);
+        } else if (classList.contains('pdt-converter-format-btn')) {
+            this._handleConvert(target.dataset.format);
+        }
+    }
+
+    /**
+     * Toggles visibility of the "Add..." dropdown menu.
+     * @private
+     */
+    _toggleAddSectionMenu() {
+        const menu = this.ui.addSectionMenu;
+        if (!menu) {
+            return;
+        }
+        const isVisible = menu.style.display !== 'none';
+        menu.style.display = isVisible ? 'none' : '';
+        this._updateAddSectionMenuItems();
+    }
+
+    /**
+     * Updates the "Add..." menu items: hides already-visible sections,
+     * disables Group By when no aggregates exist.
+     * @private
+     */
+    _updateAddSectionMenuItems() {
+        const menu = this.ui.addSectionMenu;
+        if (!menu) {
+            return;
+        }
+        const sectionMap = {
+            filters: this.ui.filtersSection,
+            joins: this.ui.joinsSection,
+            aggregates: this.ui.aggregatesSection,
+            groupby: this.ui.groupBySection
+        };
+        menu.querySelectorAll('.pdt-add-section-item').forEach(item => {
+            const section = item.dataset.section;
+            const sectionEl = sectionMap[section];
+            // Hide menu item if section is already visible
+            if (sectionEl && sectionEl.style.display !== 'none') {
+                item.style.display = 'none';
+            } else {
+                item.style.display = '';
+            }
+            // Disable Group By if no aggregates exist
+            if (section === 'groupby') {
+                const hasAggregates = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length > 0;
+                const aggSectionVisible = this.ui.aggregatesSection?.style.display !== 'none';
+                if (!hasAggregates || !aggSectionVisible) {
+                    item.disabled = true;
+                    item.title = Config.MESSAGES.FETCHXML.groupByRequiresAggregate;
+                } else {
+                    item.disabled = false;
+                    item.title = '';
+                }
+            }
+        });
+    }
+
+    /**
+     * Handles adding a new section from the dropdown menu.
+     * @param {string} section - Section key: 'filters', 'joins', 'aggregates', 'groupby'
+     * @private
+     */
+    _handleAddSection(section) {
+        // Close menu
+        if (this.ui.addSectionMenu) {
+            this.ui.addSectionMenu.style.display = 'none';
+        }
+
+        // Table name check
+        const entityName = this.ui.builderEntityInput?.value?.trim();
+        if (!entityName) {
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            return;
+        }
+
+        // GroupBy requires at least one aggregate
+        if (section === 'groupby') {
+            const aggCount = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length || 0;
+            const aggSectionVisible = this.ui.aggregatesSection?.style.display !== 'none';
+            if (aggCount === 0 || !aggSectionVisible) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warning');
+                return;
+            }
+        }
+
+        const sectionMap = {
+            filters: this.ui.filtersSection,
+            joins: this.ui.joinsSection,
+            aggregates: this.ui.aggregatesSection,
+            groupby: this.ui.groupBySection
+        };
+
+        const sectionEl = sectionMap[section];
+        if (!sectionEl) {
+            return;
+        }
+
+        // Show section
+        sectionEl.style.display = '';
+
+        // Add first item automatically
+        if (section === 'filters') {
+            this._handleAddFilterGroup();
+        } else if (section === 'joins') {
+            this._handleAddJoin();
+        } else if (section === 'aggregates') {
+            this._addAggregateRow();
+        } else if (section === 'groupby') {
+            this._addGroupByRow();
+        }
+    }
+
+    /**
+     * Handles removing a section and its contents.
+     * @param {string} section - Section key to remove
+     * @private
+     */
+    _handleRemoveSection(section) {
+        const sectionMap = {
+            filters: { sectionEl: this.ui.filtersSection, containerEl: this.ui.filtersContainer },
+            joins: { sectionEl: this.ui.joinsSection, containerEl: this.ui.joinsContainer },
+            aggregates: { sectionEl: this.ui.aggregatesSection, containerEl: this.ui.aggregatesContainer },
+            groupby: { sectionEl: this.ui.groupBySection, containerEl: this.ui.groupByContainer }
+        };
+
+        const info = sectionMap[section];
+        if (!info?.sectionEl) {
+            return;
+        }
+
+        // If removing aggregates, also remove groupby section
+        if (section === 'aggregates' && this.ui.groupBySection?.style.display !== 'none') {
+            this._handleRemoveSection('groupby');
+        }
+
+        // Clean up dynamic handlers for elements in the container
+        if (info.containerEl) {
+            info.containerEl.querySelectorAll('*').forEach(el => {
+                if (this._dynamicHandlers.has(el)) {
+                    const { event, handler } = this._dynamicHandlers.get(el);
+                    el.removeEventListener(event, handler);
+                    this._dynamicHandlers.delete(el);
+                }
+            });
+            info.containerEl.innerHTML = '';
+        }
+
+        // Clear join filter managers if removing joins
+        if (section === 'joins') {
+            this.joinFilterManagers.clear();
+        }
+
+        info.sectionEl.style.display = 'none';
+    }
+
+    /**
+     * Updates Group By button/menu availability based on aggregate count.
+     * @private
+     */
+    _updateGroupByAvailability() {
+        const hasAggregates = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length > 0;
+        const groupByBtn = this.ui.builderContent?.querySelector('#fetch-add-groupby-btn');
+        if (groupByBtn) {
+            groupByBtn.disabled = !hasAggregates;
+        }
+        // If no aggregates remain, hide groupby section
+        if (!hasAggregates && this.ui.groupBySection?.style.display !== 'none') {
+            this._handleRemoveSection('groupby');
         }
     }
 
@@ -750,6 +1061,16 @@ export class FetchXmlTesterTab extends BaseComponent {
         this.ui.builderContent.style.display = isBuilder ? '' : 'none';
         this.ui.editorContent.style.display = isBuilder ? 'none' : '';
         this.ui.executeToolbar.style.display = isBuilder ? 'none' : 'flex';
+
+        // Reset converter panel and toggle when switching away
+        if (isBuilder) {
+            if (this.ui.converterPanel) {
+                this.ui.converterPanel.style.display = 'none';
+            }
+            if (this.ui.converterToggleBtn) {
+                this.ui.converterToggleBtn.style.display = '';
+            }
+        }
     }
 
     /**
@@ -1075,6 +1396,343 @@ export class FetchXmlTesterTab extends BaseComponent {
     }
 
     /**
+     * Adds an aggregate column row to the Builder UI.
+     * Each row has: Column (with browse), Function (select), Alias (input), Order (select), Remove button.
+     * @private
+     */
+    _addAggregateRow() {
+        const container = this.ui.aggregatesContainer;
+        if (!container) {
+            return;
+        }
+
+        // Table name guard
+        const entityName = this.ui.builderEntityInput?.value?.trim();
+        if (!entityName) {
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'pdt-aggregate-row pdt-builder-inline-row';
+        row.innerHTML = `
+            <div class="pdt-input-with-button">
+                <input type="text" class="pdt-input aggregate-column-input" placeholder="${Config.MESSAGES.FETCHXML.aggregateColumnPlaceholder}" data-prop="column">
+                <button class="pdt-input-btn browse-aggregate-column" title="Browse columns">${ICONS.inspector}</button>
+            </div>
+            <select class="pdt-select aggregate-function-select" data-prop="function">
+                <option value="count">count</option>
+                <option value="countcolumn">countcolumn</option>
+                <option value="sum">sum</option>
+                <option value="avg">avg</option>
+                <option value="min">min</option>
+                <option value="max">max</option>
+            </select>
+            <input type="text" class="pdt-input aggregate-alias-input" placeholder="${Config.MESSAGES.FETCHXML.aggregateAliasPlaceholder}" data-prop="alias">
+            <select class="pdt-select aggregate-order-select" data-prop="order">
+                <option value="">No Order</option>
+                <option value="false">Ascending</option>
+                <option value="true">Descending</option>
+            </select>
+            <button class="modern-button secondary small remove-aggregate-row" title="${Config.MESSAGES.FETCHXML.removeAggregate}">&times;</button>
+        `;
+
+        // Bind browse button with column-type aware callback
+        const browseBtn = row.querySelector('.browse-aggregate-column');
+        const columnInput = row.querySelector('.aggregate-column-input');
+        const funcSelect = row.querySelector('.aggregate-function-select');
+        const aliasInput = row.querySelector('.aggregate-alias-input');
+        const browseHandler = () => this._handleBrowseAggregateColumn(columnInput, funcSelect, aliasInput, 'aggregate');
+        browseBtn.addEventListener('click', browseHandler);
+        this._dynamicHandlers.set(browseBtn, { event: 'click', handler: browseHandler });
+
+        // Auto-generate alias when function changes
+        const funcHandler = () => this._autoGenerateAlias(columnInput, funcSelect, aliasInput, 'aggregate');
+        funcSelect.addEventListener('change', funcHandler);
+        this._dynamicHandlers.set(funcSelect, { event: 'change', handler: funcHandler });
+
+        container.appendChild(row);
+        this._updateGroupByAvailability();
+    }
+
+    /**
+     * Adds a group-by column row to the Builder UI.
+     * Each row has: Column (with browse), Alias (input), Date Grouping (select), Remove button.
+     * @private
+     */
+    _addGroupByRow() {
+        const container = this.ui.groupByContainer;
+        if (!container) {
+            return;
+        }
+
+        // Table name guard
+        const entityName = this.ui.builderEntityInput?.value?.trim();
+        if (!entityName) {
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            return;
+        }
+
+        // GroupBy requires at least one aggregate
+        const aggCount = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length || 0;
+        if (aggCount === 0) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warning');
+            return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'pdt-groupby-row pdt-builder-inline-row';
+        row.innerHTML = `
+            <div class="pdt-input-with-button">
+                <input type="text" class="pdt-input groupby-column-input" placeholder="${Config.MESSAGES.FETCHXML.groupByColumnPlaceholder}" data-prop="column">
+                <button class="pdt-input-btn browse-groupby-column" title="Browse columns">${ICONS.inspector}</button>
+            </div>
+            <input type="text" class="pdt-input groupby-alias-input" placeholder="${Config.MESSAGES.FETCHXML.groupByAliasPlaceholder}" data-prop="alias">
+            <select class="pdt-select groupby-dategrouping-select" data-prop="dategrouping">
+                <option value="">No Date Grouping</option>
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+                <option value="quarter">Quarter</option>
+                <option value="year">Year</option>
+                <option value="fiscal-period">Fiscal Period</option>
+                <option value="fiscal-year">Fiscal Year</option>
+            </select>
+            <button class="modern-button secondary small remove-groupby-row" title="${Config.MESSAGES.FETCHXML.removeGroupBy}">&times;</button>
+        `;
+
+        // Bind browse button with auto-alias callback
+        const browseBtn = row.querySelector('.browse-groupby-column');
+        const columnInput = row.querySelector('.groupby-column-input');
+        const aliasInput = row.querySelector('.groupby-alias-input');
+        const browseHandler = () => this._handleBrowseAggregateColumn(columnInput, null, aliasInput, 'groupby');
+        browseBtn.addEventListener('click', browseHandler);
+        this._dynamicHandlers.set(browseBtn, { event: 'click', handler: browseHandler });
+
+        container.appendChild(row);
+    }
+
+    /**
+     * Handles browse for aggregate/groupby column fields.
+     * When a column is selected, auto-generates alias and filters aggregate functions by type.
+     * @param {HTMLInputElement} input - The column input element
+     * @param {HTMLSelectElement|null} funcSelect - The aggregate function select (null for groupby)
+     * @param {HTMLInputElement} aliasInput - The alias input element
+     * @param {'aggregate'|'groupby'} mode - Whether this is for aggregate or groupby
+     * @private
+     */
+    _handleBrowseAggregateColumn(input, funcSelect, aliasInput, mode) {
+        showColumnBrowser(
+            async () => {
+                const entityName = this.ui.builderEntityInput?.value?.trim();
+                if (!entityName) {
+                    throw new Error(Config.MESSAGES.COMMON.selectTableFirst);
+                }
+                await PowerAppsApiService.getEntityMetadata(entityName);
+                return entityName;
+            },
+            (attr) => {
+                input.value = attr.LogicalName;
+
+                // Filter aggregate functions by column type
+                if (funcSelect && mode === 'aggregate') {
+                    this._filterAggregateFunctionsByType(funcSelect, attr);
+                }
+
+                // Auto-generate alias
+                this._autoGenerateAlias(input, funcSelect, aliasInput, mode);
+
+                // For groupby: auto-enable date grouping for DateTime columns
+                if (mode === 'groupby') {
+                    const row = input.closest('.pdt-groupby-row');
+                    const dateGroupSelect = row?.querySelector('[data-prop="dategrouping"]');
+                    const typeName = attr.AttributeTypeName?.Value || attr.AttributeType || '';
+                    if (dateGroupSelect && typeName.toLowerCase().includes('datetime')) {
+                        dateGroupSelect.value = 'month';
+                    }
+                }
+            }
+        );
+    }
+
+    /**
+     * Filters the aggregate function dropdown options based on column type.
+     * @param {HTMLSelectElement} funcSelect - The function select element
+     * @param {Object} attr - Column attribute metadata
+     * @private
+     */
+    _filterAggregateFunctionsByType(funcSelect, attr) {
+        const typeName = attr.AttributeTypeName?.Value || attr.AttributeType || '';
+        const categoryMap = Config.ATTRIBUTE_TYPE_TO_AGGREGATE_CATEGORY;
+        const compatMap = Config.AGGREGATE_TYPE_COMPAT;
+        const category = categoryMap[typeName] || 'text';
+
+        const currentValue = funcSelect.value;
+        Array.from(funcSelect.options).forEach(option => {
+            const fn = option.value;
+            const isCompatible = compatMap[fn]?.includes(category);
+            option.disabled = !isCompatible;
+            if (option.disabled) {
+                option.title = `${fn} is not supported for ${category} type columns`;
+            } else {
+                option.title = '';
+            }
+        });
+
+        // If current selection is now disabled, switch to first enabled option
+        if (funcSelect.selectedOptions[0]?.disabled) {
+            const firstEnabled = Array.from(funcSelect.options).find(o => !o.disabled);
+            if (firstEnabled) {
+                funcSelect.value = firstEnabled.value;
+            }
+        }
+
+        // Re-generate alias if function changed
+        if (funcSelect.value !== currentValue) {
+            const row = funcSelect.closest('.pdt-aggregate-row');
+            const columnInput = row?.querySelector('[data-prop="column"]');
+            const aliasInput = row?.querySelector('[data-prop="alias"]');
+            if (columnInput && aliasInput) {
+                this._autoGenerateAlias(columnInput, funcSelect, aliasInput, 'aggregate');
+            }
+        }
+    }
+
+    /**
+     * Auto-generates an alias based on column name and aggregate function or group mode.
+     * @param {HTMLInputElement} columnInput - Column input
+     * @param {HTMLSelectElement|null} funcSelect - Function select (null for groupby)
+     * @param {HTMLInputElement} aliasInput - Alias input to populate
+     * @param {'aggregate'|'groupby'} mode - Mode
+     * @private
+     */
+    _autoGenerateAlias(columnInput, funcSelect, aliasInput, mode) {
+        const column = columnInput?.value?.trim();
+        if (!column) {
+            return;
+        }
+
+        if (mode === 'aggregate' && funcSelect) {
+            const func = funcSelect.value;
+            aliasInput.value = `${func}_${column}`;
+        } else if (mode === 'groupby') {
+            aliasInput.value = `group_${column}`;
+        }
+    }
+
+    /**
+     * Checks if aggregate mode is active (any aggregate or groupby rows exist).
+     * @returns {boolean}
+     * @private
+     */
+    _isAggregateMode() {
+        const hasAggregates = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length > 0;
+        const hasGroupBy = this.ui.groupByContainer?.querySelectorAll('.pdt-groupby-row').length > 0;
+        return hasAggregates || hasGroupBy;
+    }
+
+    /**
+     * Extracts aggregate column definitions from the Builder UI.
+     * @returns {Array<{column: string, func: string, alias: string, order: string}>}
+     * @private
+     */
+    _extractAggregateRows() {
+        const rows = [];
+        this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').forEach(row => {
+            const column = row.querySelector('[data-prop="column"]')?.value?.trim();
+            const func = row.querySelector('[data-prop="function"]')?.value;
+            const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
+            const order = row.querySelector('[data-prop="order"]')?.value || '';
+            if (column && alias) {
+                rows.push({ column, func, alias, order });
+            }
+        });
+        return rows;
+    }
+
+    /**
+     * Extracts group-by column definitions from the Builder UI.
+     * @returns {Array<{column: string, alias: string, dategrouping: string}>}
+     * @private
+     */
+    _extractGroupByRows() {
+        const rows = [];
+        this.ui.groupByContainer?.querySelectorAll('.pdt-groupby-row').forEach(row => {
+            const column = row.querySelector('[data-prop="column"]')?.value?.trim();
+            const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
+            const dategrouping = row.querySelector('[data-prop="dategrouping"]')?.value;
+            if (column && alias) {
+                rows.push({ column, alias, dategrouping });
+            }
+        });
+        return rows;
+    }
+
+    /**
+     * Builds FetchXML attribute elements for aggregate columns.
+     * @param {Array<{column: string, func: string, alias: string}>} aggregateRows
+     * @returns {string}
+     * @private
+     */
+    _buildAggregateAttributesXml(aggregateRows) {
+        return aggregateRows
+            .map(row => `    <attribute name="${row.column}" alias="${row.alias}" aggregate="${row.func}" />`)
+            .join('\n');
+    }
+
+    /**
+     * Builds FetchXML attribute elements for group-by columns.
+     * @param {Array<{column: string, alias: string, dategrouping: string}>} groupByRows
+     * @returns {string}
+     * @private
+     */
+    _buildGroupByAttributesXml(groupByRows) {
+        return groupByRows
+            .map(row => {
+                let xml = `    <attribute name="${row.column}" alias="${row.alias}" groupby="true"`;
+                if (row.dategrouping) {
+                    xml += ` dategrouping="${row.dategrouping}"`;
+                }
+                xml += ' />';
+                return xml;
+            })
+            .join('\n');
+    }
+
+    /**
+     * Validates aggregate/group-by rows before generating XML.
+     * @returns {boolean} True if valid, false if validation errors
+     * @private
+     */
+    _validateAggregateRows() {
+        const aggregateRows = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row') || [];
+        const groupByRows = this.ui.groupByContainer?.querySelectorAll('.pdt-groupby-row') || [];
+
+        for (const row of aggregateRows) {
+            const column = row.querySelector('[data-prop="column"]')?.value?.trim();
+            const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
+            if (!column) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateColumnRequired, 'warning');
+                return false;
+            }
+            if (!alias) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateAliasRequired, 'warning');
+                return false;
+            }
+        }
+
+        for (const row of groupByRows) {
+            const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
+            if (!alias) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.groupByAliasRequired, 'warning');
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Constructs a FetchXML string by collecting and assembling all values from the
      * Builder UI inputs (table, columns, filters, order, and joins). It then switches
      * to the XML Editor view to display the result.
@@ -1086,12 +1744,30 @@ export class FetchXmlTesterTab extends BaseComponent {
             return;
         }
 
-        const topCount = this.ui.builderContent.querySelector('#builder-top-count').value;
-        const fetchTag = `<fetch${topCount ? ` top="${topCount}"` : ''}>`;
+        const isAggregate = this._isAggregateMode();
 
-        const primaryAttributesXml = this._buildAttributesXml(this.ui.builderContent.querySelector('#builder-attributes').value);
+        // Validate aggregate rows if in aggregate mode
+        if (isAggregate && !this._validateAggregateRows()) {
+            return;
+        }
+
+        const topCount = this.ui.builderContent.querySelector('#builder-top-count').value;
+        const aggregateAttr = isAggregate ? ' aggregate="true"' : '';
+        const fetchTag = `<fetch${aggregateAttr}${topCount ? ` top="${topCount}"` : ''}>`;
+
+        let primaryAttributesXml;
+        if (isAggregate) {
+            const aggregateRows = this._extractAggregateRows();
+            const groupByRows = this._extractGroupByRows();
+            const aggXml = this._buildAggregateAttributesXml(aggregateRows);
+            const grpXml = this._buildGroupByAttributesXml(groupByRows);
+            primaryAttributesXml = [aggXml, grpXml].filter(Boolean).join('\n');
+        } else {
+            primaryAttributesXml = this._buildAttributesXml(this.ui.builderContent.querySelector('#builder-attributes').value);
+        }
+
         const filterXml = this._buildPrimaryFilterXml();
-        const orderXml = this._buildOrderXml();
+        const orderXml = isAggregate ? this._buildAggregateOrderXml() : this._buildOrderXml();
         const linkEntitiesXml = this._buildNestedJoins('primary');
 
         const xml = this._assembleFetchXml(fetchTag, logicalEntityName, primaryAttributesXml, orderXml, filterXml, linkEntitiesXml);
@@ -1231,6 +1907,33 @@ export class FetchXmlTesterTab extends BaseComponent {
         }
         const isDescending = this.ui.builderContent.querySelector('#builder-order-direction').value === 'true';
         return `    <order attribute="${orderAttribute}" descending="${isDescending}" />\n`;
+    }
+
+    /**
+     * Builds order XML for aggregate queries.
+     * Uses per-row order dropdowns from aggregate rows, plus the global order (by alias) as fallback.
+     * @returns {string} FetchXML order elements with alias
+     * @private
+     */
+    _buildAggregateOrderXml() {
+        let orderXml = '';
+
+        // Gather per-row orders from aggregate rows
+        const aggregateRows = this._extractAggregateRows();
+        for (const row of aggregateRows) {
+            if (row.order !== '') {
+                orderXml += `    <order alias="${row.alias}" descending="${row.order}" />\n`;
+            }
+        }
+
+        // Also check the global order input (used as alias in aggregate mode)
+        const orderAttribute = this.ui.builderContent.querySelector('#builder-order-attribute').value.trim();
+        if (orderAttribute) {
+            const isDescending = this.ui.builderContent.querySelector('#builder-order-direction').value === 'true';
+            orderXml += `    <order alias="${orderAttribute}" descending="${isDescending}" />\n`;
+        }
+
+        return orderXml;
     }
 
     /**
@@ -1412,6 +2115,85 @@ export class FetchXmlTesterTab extends BaseComponent {
     }
 
     /**
+     * Converts the current FetchXML to the selected output format.
+     * @param {string} format - The target format id
+     * @private
+     */
+    _handleConvert(format) {
+        const fetchXml = this.ui.xmlArea?.value?.trim();
+        if (!fetchXml) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.convertNoXml, 'warning');
+            return;
+        }
+
+        try {
+            const orgUrl = PowerAppsApiService.getGlobalContext()?.getClientUrl?.() || '';
+            const output = FetchXmlConverterService.convert(fetchXml, format, { orgUrl });
+            if (this.ui.converterOutput) {
+                this.ui.converterOutput.value = output;
+            }
+            if (this.ui.converterCopyBtn) {
+                this.ui.converterCopyBtn.hidden = false;
+            }
+        } catch (error) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.convertFailed(error.message), 'error');
+        }
+    }
+
+    /**
+     * Copies the converter output to the clipboard.
+     * @private
+     */
+    _handleCopyConverted() {
+        const text = this.ui.converterOutput?.value;
+        if (text) {
+            copyToClipboard(text, Config.MESSAGES.FETCHXML.convertCopied);
+        }
+    }
+
+    /**
+     * Opens the converter panel and hides the toggle button.
+     * @private
+     */
+    _toggleConverterPanel() {
+        const panel = this.ui.converterPanel;
+        const btn = this.ui.converterToggleBtn;
+        if (!panel) {
+            return;
+        }
+
+        panel.style.display = '';
+        if (btn) {
+            btn.style.display = 'none';
+        }
+    }
+
+    /**
+     * Closes the converter panel, resets its state, and shows the toggle button again.
+     * @private
+     */
+    _closeConverterPanel() {
+        const panel = this.ui.converterPanel;
+        const btn = this.ui.converterToggleBtn;
+        if (!panel) {
+            return;
+        }
+
+        panel.style.display = 'none';
+        if (btn) {
+            btn.style.display = '';
+        }
+
+        // Reset converter state
+        if (this.ui.converterOutput) {
+            this.ui.converterOutput.value = '';
+        }
+        if (this.ui.converterCopyBtn) {
+            this.ui.converterCopyBtn.hidden = true;
+        }
+    }
+
+    /**
      * Executes the FetchXML query from the editor against the Dataverse Web API.
      * Uses ResultPanel for unified results rendering and BusyHelper for a clean busy state.
      * @private
@@ -1464,7 +2246,10 @@ export class FetchXmlTesterTab extends BaseComponent {
             this.lastResult = normalizeApiResponse(res);
             this.resultSortState = { column: null, direction: 'asc' };
 
+            // Disable selection for aggregate queries (results are not real records)
+            const isAggregate = /<fetch[^>]+aggregate\s*=\s*["']true["']/i.test(correctedFetchXml);
             if (this.resultPanel) {
+                this.resultPanel.enableSelection = !isAggregate;
                 this.resultPanel.currentPage = 1;
             }
 
@@ -1498,6 +2283,76 @@ export class FetchXmlTesterTab extends BaseComponent {
     }
 
     /**
+     * Handles bulk touch operation for selected records from the ResultPanel.
+     * @param {Array<Object>} records - Selected records to touch
+     * @private
+     */
+    async _handleBulkTouch(records) {
+        if (!records || records.length === 0) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.noRecordsSelected, 'warning');
+            return;
+        }
+
+        try {
+            const entityName = this.lastEntityName;
+            if (!entityName) {
+                NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                return;
+            }
+
+            const { entitySet, logicalName } = await EntityContextResolver.resolve(entityName);
+            const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
+            const primaryKey = metadata.PrimaryIdAttribute;
+
+            const touchConfig = await BulkTouchService.showTouchConfigDialog(logicalName, metadata);
+            if (!touchConfig || touchConfig.length === 0) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.touchCancelled, 'info');
+                return;
+            }
+
+            BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot,
+                Config.MESSAGES.FETCHXML.touchProgress(0, records.length));
+
+            const { allOperations, totalFailCount, allErrors } =
+                BulkTouchService.prepareTouchOperations(records, primaryKey, touchConfig, entitySet);
+
+            const { successCount, failCount, errors } = await BulkTouchService.executeBatchOperations(
+                allOperations,
+                (processed, total) => {
+                    BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot,
+                        Config.MESSAGES.FETCHXML.touchProgress(processed, total));
+                }
+            );
+
+            const finalSuccessCount = successCount;
+            const finalFailCount = totalFailCount + failCount;
+            const finalErrors = [...allErrors, ...errors];
+
+            if (finalFailCount === 0) {
+                NotificationService.show(Config.MESSAGES.FETCHXML.touchSuccess(finalSuccessCount), 'success');
+            } else {
+                NotificationService.show(
+                    Config.MESSAGES.FETCHXML.touchFailed(finalSuccessCount, finalFailCount, records.length),
+                    'warning'
+                );
+                for (const err of finalErrors) {
+                    NotificationService.show(err.error || String(err), 'error');
+                }
+            }
+
+            // Re-execute query to refresh results
+            if (this.lastExecutedFetchXml && this.ui.xmlArea) {
+                this.ui.xmlArea.value = this.lastExecutedFetchXml;
+                await this._executeQuery();
+            }
+        } catch (error) {
+            NotificationService.show(ErrorParser.extract(error), 'error');
+        } finally {
+            BusyIndicator.clear(this.ui.executeBtn);
+        }
+    }
+
+    /**
      * Renders data into the ResultPanel (table or JSON), reusing the shared component.
      * @private
      */
@@ -1508,6 +2363,10 @@ export class FetchXmlTesterTab extends BaseComponent {
         const entities = Array.isArray(this.lastResult?.entities)
             ? this.lastResult.entities
             : (Array.isArray(this.lastResult) ? this.lastResult : (this.lastResult?.value || []));
+
+        // Update entity context for "Open Record" links
+        this.resultPanel.entityLogicalName = this.lastEntityName || '';
+        this.resultPanel.tableName = this.ui.builderEntityInput?.value || '';
 
         this.resultPanel.renderShell(entities.length, this.currentView, this.hideOdata);
         this.resultPanel.renderContent({
@@ -1688,6 +2547,7 @@ export class FetchXmlTesterTab extends BaseComponent {
                     this.lastResult = { entities: this.allLoadedRecords };
 
                     if (this.resultPanel) {
+                        this.resultPanel.entityLogicalName = this.lastEntityName || '';
                         const entities = this.lastResult.entities || [];
                         this.resultPanel.renderContent({
                             data: entities,
@@ -1803,6 +2663,8 @@ export class FetchXmlTesterTab extends BaseComponent {
             setSortState: (s) => {
                 this.resultSortState = s;
             },
+            onBulkTouch: (records) => this._handleBulkTouch(records),
+            enableSelection: true,
             tableName: this.ui.builderEntityInput?.value || ''
         });
         this.resultPanel.renderShell(0, this.currentView, this.hideOdata);
@@ -1839,6 +2701,11 @@ export class FetchXmlTesterTab extends BaseComponent {
         if (this.ui.templateSelect && this._templateSelectHandler) {
             this.ui.templateSelect.removeEventListener('change', this._templateSelectHandler);
             this._templateSelectHandler = null;
+        }
+
+        if (this._handleDocumentClick) {
+            document.removeEventListener('click', this._handleDocumentClick);
+            this._handleDocumentClick = null;
         }
 
         for (const [element, { event, handler }] of this._dynamicHandlers.entries()) {

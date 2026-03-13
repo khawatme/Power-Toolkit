@@ -81,7 +81,7 @@ export class ImpersonateTab extends BaseComponent {
                         ${Config.MESSAGES.IMPERSONATE.impersonationDescription}
                     </p>
                     <div class="pdt-toolbar">
-                        <input type="text" id="impersonate-search-input" class="pdt-input flex-grow" placeholder="Search for a user by name...">
+                        <input type="text" id="impersonate-search-input" class="pdt-input flex-grow" placeholder="${Config.MESSAGES.IMPERSONATE.searchPlaceholder}">
                         <button id="impersonate-search-btn" class="modern-button">Search</button>
                     </div>
                     <div id="impersonate-results-container" class="pdt-table-wrapper"></div>
@@ -326,7 +326,12 @@ export class ImpersonateTab extends BaseComponent {
             let filterClause = 'isdisabled eq false and azureactivedirectoryobjectid ne null';
             if (searchTerm) {
                 const escapedTerm = escapeODataString(searchTerm);
-                filterClause += ` and contains(fullname,'${escapedTerm}')`;
+                const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                if (guidPattern.test(searchTerm)) {
+                    filterClause += ` and (systemuserid eq ${searchTerm} or contains(fullname,'${escapedTerm}'))`;
+                } else {
+                    filterClause += ` and contains(fullname,'${escapedTerm}')`;
+                }
             }
             const options = `?$select=fullname,systemuserid,domainname&$filter=${filterClause}`;
 
@@ -924,6 +929,66 @@ export class ImpersonateTab extends BaseComponent {
     }
 
     /**
+     * Renders the roles that grant a specific privilege.
+     * @param {Array<string>} roles - Array of role names that grant this privilege
+     * @returns {string} HTML string showing roles or empty string if no roles
+     * @private
+     */
+    _renderPrivilegeRoles(roles) {
+        if (!roles || roles.length === 0) {
+            return '';
+        }
+
+        const MAX_VISIBLE_ROLES = 3;
+        const visibleRoles = roles.slice(0, MAX_VISIBLE_ROLES);
+        const remainingCount = roles.length - MAX_VISIBLE_ROLES;
+
+        let rolesHtml = visibleRoles
+            .map(role => `<span class="pdt-priv-role" title="${escapeHtml(role)}">${escapeHtml(role)}</span>`)
+            .join('');
+
+        if (remainingCount > 0) {
+            const remainingRoles = roles.slice(MAX_VISIBLE_ROLES).join('\n');
+            rolesHtml += `<span class="pdt-priv-role pdt-priv-role--more" title="${escapeHtml(remainingRoles)}">${Config.MESSAGES.IMPERSONATE.privilegeMultipleRoles(remainingCount)}</span>`;
+        }
+
+        return `<div class="pdt-priv-roles">${rolesHtml}</div>`;
+    }
+
+    /**
+     * Renders a single privilege cell for the table.
+     * @param {Object|boolean} privData - Privilege data object or boolean
+     * @param {boolean} hasPriv - Whether the user has this privilege
+     * @returns {string} HTML string for the cell
+     * @private
+     */
+    _renderPrivilegeCell(privData, hasPriv) {
+        if (!hasPriv) {
+            return `
+                <td class="pdt-priv-cell pdt-priv-cell--denied">
+                    <span class="pdt-priv-indicator pdt-priv-indicator--denied">✗</span>
+                    <span class="pdt-priv-label">No Access</span>
+                </td>`;
+        }
+
+        const depth = typeof privData === 'object' ? privData?.depth : null;
+        const roles = typeof privData === 'object' ? (privData?.roles || []) : [];
+        const depthBadge = this._getDepthBadgeHtml(depth);
+        const rolesHtml = this._renderPrivilegeRoles(roles);
+
+        return `
+            <td class="pdt-priv-cell pdt-priv-cell--allowed">
+                <div class="pdt-priv-cell-content">
+                    <div class="pdt-priv-main">
+                        <span class="pdt-priv-indicator pdt-priv-indicator--allowed">✓</span>
+                        ${depthBadge}
+                    </div>
+                    ${rolesHtml}
+                </div>
+            </td>`;
+    }
+
+    /**
      * Renders the entity privileges section with comparison.
      * @param {string} entityLogicalName - The entity logical name
      * @param {string} targetUserName - The target user's name
@@ -945,61 +1010,32 @@ export class ImpersonateTab extends BaseComponent {
             { key: 'share', label: Config.MESSAGES.IMPERSONATE.privilegeShare }
         ];
 
-        // eslint-disable-next-line complexity
-        const privilegeHtml = privilegeItems.map(item => {
+
+        const privilegeRows = privilegeItems.map(item => {
             // Get privileges for both users
             const targetPrivData = targetPrivileges[item.key];
             const targetHasPriv = typeof targetPrivData === 'object' ? targetPrivData?.hasPrivilege : targetPrivData;
-            const targetDepth = typeof targetPrivData === 'object' ? targetPrivData?.depth : null;
 
             const comparisonPrivData = comparisonPrivileges?.[item.key];
             const comparisonHasPriv = typeof comparisonPrivData === 'object' ? comparisonPrivData?.hasPrivilege : comparisonPrivData;
-            const comparisonDepth = typeof comparisonPrivData === 'object' ? comparisonPrivData?.depth : null;
 
-            // Determine status
+            // Determine row class based on comparison
             const hasDifference = targetHasPriv !== comparisonHasPriv;
             let rowClass = '';
             if (hasDifference) {
-                rowClass = 'pdt-privilege-row--different';
+                rowClass = 'pdt-priv-row--different';
             } else if (targetHasPriv && comparisonHasPriv) {
-                // Both have the privilege
-                rowClass = 'pdt-privilege-row--both-have';
+                rowClass = 'pdt-priv-row--both-have';
             } else if (!targetHasPriv && !comparisonHasPriv) {
-                // Both don't have the privilege
-                rowClass = 'pdt-privilege-row--both-lack';
+                rowClass = 'pdt-priv-row--both-lack';
             }
 
-            // Format privilege status with depth badges
-            const targetStatusIcon = targetHasPriv ? '✓' : '✗';
-            const targetDepthBadge = targetHasPriv ? this._getDepthBadgeHtml(targetDepth) : '';
-
-            const comparisonStatusIcon = comparisonHasPriv ? '✓' : '✗';
-            const comparisonDepthBadge = comparisonHasPriv ? this._getDepthBadgeHtml(comparisonDepth) : '';
-
             return `
-                <div class="pdt-privilege-row ${rowClass}">
-                    <div class="pdt-privilege-name">${item.label}</div>
-                    <div class="pdt-privilege-comparison">
-                        <div class="pdt-privilege-user">
-                            <span class="pdt-privilege-user-label">${escapeHtml(targetUserName)}:</span>
-                            <div class="pdt-privilege-status">
-                                <span class="pdt-privilege-icon ${targetHasPriv ? 'pdt-privilege--allowed' : 'pdt-privilege--denied'}">
-                                    ${targetStatusIcon}
-                                </span>
-                                ${targetDepthBadge}
-                            </div>
-                        </div>
-                        <div class="pdt-privilege-user">
-                            <span class="pdt-privilege-user-label">${escapeHtml(comparisonUserName)}:</span>
-                            <div class="pdt-privilege-status">
-                                <span class="pdt-privilege-icon ${comparisonHasPriv ? 'pdt-privilege--allowed' : 'pdt-privilege--denied'}">
-                                    ${comparisonStatusIcon}
-                                </span>
-                                ${comparisonDepthBadge}
-                            </div>
-                        </div>
-                    </div>
-                </div>`;
+                <tr class="pdt-priv-row ${rowClass}">
+                    <td class="pdt-priv-name">${item.label}</td>
+                    ${this._renderPrivilegeCell(targetPrivData, targetHasPriv)}
+                    ${this._renderPrivilegeCell(comparisonPrivData, comparisonHasPriv)}
+                </tr>`;
         }).join('');
 
         return `
@@ -1008,8 +1044,25 @@ export class ImpersonateTab extends BaseComponent {
                     ${Config.MESSAGES.IMPERSONATE.entityPrivilegesTitle}: 
                     <code>${escapeHtml(entityLogicalName)}</code>
                 </h4>
-                <div class="pdt-privilege-comparison-grid">
-                    ${privilegeHtml}
+                <div class="pdt-priv-table-wrapper">
+                    <table class="pdt-priv-table">
+                        <thead>
+                            <tr>
+                                <th class="pdt-priv-header-name">Privilege</th>
+                                <th class="pdt-priv-header-user">
+                                    <span class="pdt-priv-user-icon">👤</span>
+                                    ${escapeHtml(targetUserName)}
+                                </th>
+                                <th class="pdt-priv-header-user">
+                                    <span class="pdt-priv-user-icon">👤</span>
+                                    ${escapeHtml(comparisonUserName)}
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${privilegeRows}
+                        </tbody>
+                    </table>
                 </div>
             </div>`;
     }

@@ -125,6 +125,7 @@ export const Helpers = {
     downloadJson: FileHelpers.downloadJson.bind(FileHelpers),
     createFileInputElement: FileHelpers.createFileInputElement.bind(FileHelpers),
     readJsonFile: FileHelpers.readJsonFile.bind(FileHelpers),
+    readTextFile: FileHelpers.readTextFile.bind(FileHelpers),
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // DOM UTILITIES (from DOMHelpers)
@@ -215,6 +216,7 @@ export const copyToClipboard = FileHelpers.copyToClipboard.bind(FileHelpers);
 export const downloadJson = FileHelpers.downloadJson.bind(FileHelpers);
 export const createFileInputElement = FileHelpers.createFileInputElement.bind(FileHelpers);
 export const readJsonFile = FileHelpers.readJsonFile.bind(FileHelpers);
+export const readTextFile = FileHelpers.readTextFile.bind(FileHelpers);
 
 // Performance utilities
 export const debounce = PerformanceHelpers.debounce.bind(PerformanceHelpers);

@@ -120,6 +120,58 @@ export const FIELD_TYPES = {
 };
 
 /**
+ * Aggregate function compatibility by column type category.
+ * Maps each aggregate function to the set of Dataverse attribute type categories it supports.
+ *
+ * Categories:
+ * - number: Integer, Decimal, Double, BigInt
+ * - currency: Money
+ * - date: DateTime
+ * - optionset: Picklist, State, Status, MultiSelectPicklist
+ * - lookup: Lookup, Owner, Customer, Uniqueidentifier
+ * - text: String, Memo
+ * - boolean: Boolean
+ *
+ * @type {Object.<string, string[]>}
+ */
+export const AGGREGATE_TYPE_COMPAT = {
+    count:       ['number', 'currency', 'date', 'optionset', 'lookup', 'text', 'boolean'],
+    countcolumn: ['number', 'currency', 'date', 'optionset', 'lookup', 'text', 'boolean'],
+    sum:         ['number', 'currency'],
+    avg:         ['number', 'currency'],
+    min:         ['number', 'currency', 'date', 'optionset'],
+    max:         ['number', 'currency', 'date', 'optionset']
+};
+
+/**
+ * Maps Dataverse AttributeTypeName values to aggregate category keys.
+ * @type {Object.<string, string>}
+ */
+export const ATTRIBUTE_TYPE_TO_AGGREGATE_CATEGORY = {
+    IntegerType:            'number',
+    DecimalType:            'number',
+    DoubleType:             'number',
+    BigIntType:             'number',
+    MoneyType:              'currency',
+    DateTimeType:           'date',
+    PicklistType:           'optionset',
+    StateType:              'optionset',
+    StatusType:             'optionset',
+    MultiSelectPicklistType:'optionset',
+    LookupType:             'lookup',
+    OwnerType:              'lookup',
+    CustomerType:           'lookup',
+    UniqueidentifierType:   'lookup',
+    StringType:             'text',
+    MemoType:               'text',
+    BooleanType:            'boolean',
+    EntityNameType:         'text',
+    ImageType:              'text',
+    FileType:               'text',
+    ManagedPropertyType:    'boolean'
+};
+
+/**
  * Dynamics 365 form type constants.
  * @see https://learn.microsoft.com/en-us/power-apps/developer/model-driven-apps/clientapi/reference/formcontext-ui/getformtype
  * @type {Object.<string, number>}
@@ -132,6 +184,15 @@ export const FORM_TYPES = {
     DISABLED: 4,
     QUICK_CREATE: 5,
     BULK_EDIT: 6
+};
+
+/**
+ * Well-known Dataverse solution GUIDs.
+ * @type {Object.<string, string>}
+ */
+export const WELL_KNOWN_SOLUTIONS = {
+    /** The Default Solution present in every Dynamics 365 / Dataverse environment */
+    DEFAULT: '{fd140aaf-4df4-11dd-bd17-0019b9312238}'
 };
 
 /**

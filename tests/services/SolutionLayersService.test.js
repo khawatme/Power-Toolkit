@@ -658,6 +658,11 @@ describe('SolutionLayersService', () => {
             const result = SolutionLayersService._getSolutionComponentName(10021);
             expect(result).toBe('AppModule');
         });
+
+        it('should return PluginPackage for componentType 10030', () => {
+            const result = SolutionLayersService._getSolutionComponentName(10030);
+            expect(result).toBe('PluginPackage');
+        });
     });
 
     describe('canDeleteComponentType - additional types', () => {
@@ -699,6 +704,10 @@ describe('SolutionLayersService', () => {
 
         it('should return true for EnvironmentVariableDefinition type (380)', () => {
             expect(SolutionLayersService.canDeleteComponentType(380)).toBe(true);
+        });
+
+        it('should return true for PluginPackage type (10030)', () => {
+            expect(SolutionLayersService.canDeleteComponentType(10030)).toBe(true);
         });
 
         it('should return false for random unsupported type', () => {

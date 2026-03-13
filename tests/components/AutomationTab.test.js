@@ -27,10 +27,10 @@ const mockRules = [
 
 const mockEventHandlers = {
     OnLoad: [
-        { function: 'onLoadHandler', library: 'account_main.js' }
+        { function: 'onLoadHandler', library: 'account_main.js', enabled: true }
     ],
     OnSave: [
-        { function: 'onSaveHandler', library: 'account_main.js' }
+        { function: 'onSaveHandler', library: 'account_main.js', enabled: true }
     ]
 };
 
@@ -87,11 +87,23 @@ vi.mock('js-beautify', () => ({
     js_beautify: vi.fn((code) => code)
 }));
 
+vi.mock('../../src/helpers/file.helpers.js', () => ({
+    FileHelpers: {
+        readTextFile: vi.fn(() => Promise.resolve('function uploaded() { return true; }')),
+        readJsonFile: vi.fn(() => Promise.resolve({})),
+        copyToClipboard: vi.fn(),
+        downloadJson: vi.fn(),
+        downloadCsv: vi.fn(),
+        createFileInputElement: vi.fn(() => document.createElement('input'))
+    }
+}));
+
 import { DataService } from '../../src/services/DataService.js';
 import { NotificationService } from '../../src/services/NotificationService.js';
 import { PowerAppsApiService } from '../../src/services/PowerAppsApiService.js';
 import { MetadataBrowserDialog } from '../../src/ui/MetadataBrowserDialog.js';
 import { DialogService } from '../../src/services/DialogService.js';
+import { FileHelpers } from '../../src/helpers/file.helpers.js';
 
 describe('AutomationTab', () => {
     let component;
@@ -1304,8 +1316,8 @@ describe('AutomationTab', () => {
 
         it('should render both OnLoad and OnSave sections', () => {
             component._renderFormEvents(component.ui.eventsContainer, {
-                OnLoad: [{ function: 'loadFn', library: 'load.js' }],
-                OnSave: [{ function: 'saveFn', library: 'save.js' }]
+                OnLoad: [{ function: 'loadFn', library: 'load.js', enabled: true }],
+                OnSave: [{ function: 'saveFn', library: 'save.js', enabled: true }]
             });
 
             expect(component.ui.eventsContainer.innerHTML).toContain('OnLoad');
@@ -1314,10 +1326,30 @@ describe('AutomationTab', () => {
             expect(component.ui.eventsContainer.innerHTML).toContain('saveFn');
         });
 
-        it('should show note about main form definition', () => {
+        it('should show edit button hint when handlers exist on form context', () => {
             component._renderFormEvents(component.ui.eventsContainer, mockEventHandlers);
 
-            expect(component.ui.eventsContainer.textContent).toContain('main form');
+            expect(component.ui.eventsContainer.textContent).toContain('edit button');
+        });
+
+        it('should show async handler help info when no handlers are found and on form context', () => {
+            const emptyEvents = { OnLoad: [], OnSave: [], OnChange: [] };
+            component._renderFormEvents(component.ui.eventsContainer, emptyEvents);
+
+            expect(component.ui.eventsContainer.innerHTML).toContain('Async onLoad/onSave handler');
+            expect(component.ui.eventsContainer.innerHTML).toContain('App Settings');
+            expect(component.ui.eventsContainer.innerHTML).toContain('Features');
+        });
+
+        it('should NOT show async handler help info when handlers exist', () => {
+            const eventsWithHandlers = {
+                OnLoad: [{ function: 'test', library: 'lib.js', enabled: true }],
+                OnSave: [],
+                OnChange: []
+            };
+            component._renderFormEvents(component.ui.eventsContainer, eventsWithHandlers);
+
+            expect(component.ui.eventsContainer.innerHTML).not.toContain('Async onLoad/onSave handler');
         });
 
         it('should handle undefined handler arrays', () => {
@@ -1598,6 +1630,251 @@ describe('AutomationTab', () => {
             expect(header.getAttribute('aria-expanded')).toBe('false');
             expect(details.getAttribute('aria-hidden')).toBe('true');
             expect(details.style.maxHeight).toBe('0px');
+        });
+    });
+
+    describe('Form Event Handlers rendering', () => {
+        beforeEach(async () => {
+            PowerAppsApiService.getEntityName.mockReturnValue('account');
+            PowerAppsApiService.isFormContextAvailable = true;
+
+            component = new AutomationTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should initialize _onEventsClick handler', () => {
+            expect(component._onEventsClick).toBeDefined();
+            expect(typeof component._onEventsClick).toBe('function');
+        });
+
+        it('should render edit buttons for web resources', () => {
+            const events = {
+                OnLoad: [{ function: 'Account.onLoad', library: 'account.js', enabled: true }],
+                OnSave: []
+            };
+
+            component._renderFormEvents(component.ui.eventsContainer, events);
+
+            const editBtns = component.ui.eventsContainer.querySelectorAll('.pdt-handler-edit-btn');
+            expect(editBtns.length).toBe(1);
+        });
+
+        it('should show disabled-in-form class for disabled handlers', () => {
+            const events = {
+                OnLoad: [{ function: 'Account.onLoad', library: 'account.js', enabled: false }],
+                OnSave: []
+            };
+
+            component._renderFormEvents(component.ui.eventsContainer, events);
+
+            const item = component.ui.eventsContainer.querySelector('.pdt-handler-item.disabled-in-form');
+            expect(item).toBeTruthy();
+        });
+
+        it('should not render toggle switches', () => {
+            const events = {
+                OnLoad: [{ function: 'Test.onLoad', library: 'test.js', enabled: true }],
+                OnSave: []
+            };
+
+            component._renderFormEvents(component.ui.eventsContainer, events);
+
+            const toggles = component.ui.eventsContainer.querySelectorAll('.pdt-handler-toggle');
+            expect(toggles.length).toBe(0);
+        });
+    });
+
+    describe('_handleEventsClick', () => {
+        beforeEach(async () => {
+            DataService.getWebResourceByName = vi.fn(() => Promise.resolve({
+                id: 'wr-123',
+                name: 'test.js',
+                displayName: 'Test Script',
+                content: 'function test() {}',
+                webresourcetype: 3,
+                isCustomizable: true,
+                isHidden: false,
+                isManaged: false
+            }));
+
+            component = new AutomationTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should call _openWebResourceEditor when edit button is clicked', async () => {
+            const spy = vi.spyOn(component, '_openWebResourceEditor');
+
+            const events = {
+                OnLoad: [{ function: 'Test.onLoad', library: 'test.js', enabled: true }],
+                OnSave: []
+            };
+            component._renderFormEvents(component.ui.eventsContainer, events);
+
+            const editBtn = component.ui.eventsContainer.querySelector('[data-action="edit-webresource"]');
+            editBtn.click();
+
+            expect(spy).toHaveBeenCalledWith('test.js');
+        });
+    });
+
+    describe('file upload in web resource editor', () => {
+        let webResource;
+
+        beforeEach(async () => {
+            // Override DialogService mock to render dialog content into DOM
+            DialogService.show.mockImplementation((title, content) => {
+                const dialogEl = document.createElement('div');
+                dialogEl.id = 'pdt-dialog';
+                dialogEl.innerHTML = content;
+                document.body.appendChild(dialogEl);
+                return { close: vi.fn(() => dialogEl.remove()) };
+            });
+
+            webResource = {
+                id: 'wr-123',
+                name: 'test_lib.js',
+                displayName: 'Test Library',
+                content: 'function original() {}',
+                isCustomizable: true,
+                isHidden: false
+            };
+
+            component = new AutomationTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should render upload zone in editor dialog when not read-only', () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            const fileInput = document.getElementById('pdt-wr-file-input');
+            expect(uploadZone).toBeTruthy();
+            expect(fileInput).toBeTruthy();
+            expect(fileInput.type).toBe('file');
+        });
+
+        it('should not render upload zone when read-only', () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', true);
+
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            expect(uploadZone).toBeFalsy();
+        });
+
+        it('should load file content into textarea via _loadFileIntoEditor', async () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const textarea = document.getElementById('pdt-webresource-content');
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            const mockFile = new File(['function uploaded() { return true; }'], 'myScript.js', { type: 'text/javascript' });
+
+            await component._loadFileIntoEditor(mockFile, textarea, uploadZone);
+
+            expect(FileHelpers.readTextFile).toHaveBeenCalledWith(mockFile);
+            expect(textarea.value).toBe('function uploaded() { return true; }');
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('myScript.js'),
+                'success'
+            );
+        });
+
+        it('should update upload zone text after successful file load', async () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const textarea = document.getElementById('pdt-webresource-content');
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            const mockFile = new File(['content'], 'upload.js', { type: 'text/javascript' });
+
+            await component._loadFileIntoEditor(mockFile, textarea, uploadZone);
+
+            const textSpan = uploadZone.querySelector('.pdt-upload-text');
+            expect(textSpan.textContent).toContain('upload.js');
+        });
+
+        it('should show error notification when file read fails', async () => {
+            FileHelpers.readTextFile.mockRejectedValueOnce(new Error('Read error'));
+
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const textarea = document.getElementById('pdt-webresource-content');
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            const mockFile = new File(['bad'], 'bad.js', { type: 'text/javascript' });
+
+            await component._loadFileIntoEditor(mockFile, textarea, uploadZone);
+
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('Read error'),
+                'error'
+            );
+        });
+
+        it('should trigger file input when upload zone is clicked', async () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const fileInput = document.getElementById('pdt-wr-file-input');
+            const clickSpy = vi.spyOn(fileInput, 'click').mockImplementation(() => {});
+
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            uploadZone.click();
+
+            expect(clickSpy).toHaveBeenCalled();
+        });
+
+        it('should add drag-over class on dragover event', async () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            const dragEvent = new Event('dragover', { bubbles: true });
+            dragEvent.preventDefault = vi.fn();
+            uploadZone.dispatchEvent(dragEvent);
+
+            expect(uploadZone.classList.contains('pdt-drag-over')).toBe(true);
+        });
+
+        it('should remove drag-over class on dragleave event', async () => {
+            component._showWebResourceEditorDialog(webResource, 'function test() {}', false);
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            const uploadZone = document.getElementById('pdt-wr-upload-zone');
+            uploadZone.classList.add('pdt-drag-over');
+
+            uploadZone.dispatchEvent(new Event('dragleave'));
+
+            expect(uploadZone.classList.contains('pdt-drag-over')).toBe(false);
+        });
+    });
+
+    describe('destroy cleanup', () => {
+        beforeEach(async () => {
+            component = new AutomationTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should remove events container click listener on destroy', () => {
+            const removeEventListenerSpy = vi.spyOn(component.ui.eventsContainer, 'removeEventListener');
+
+            component.destroy();
+
+            expect(removeEventListenerSpy).toHaveBeenCalledWith('click', component._onEventsClick);
         });
     });
 });

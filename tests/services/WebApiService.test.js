@@ -10,6 +10,20 @@ import { WebApiService } from '../../src/services/WebApiService.js';
 describe('WebApiService', () => {
     // Mock webApiFetch function for use in tests
     let mockWebApiFetch;
+    // Helper: Creates standard mock functions for entity resolution
+    const createEntityMocks = () => {
+        // Maps logical name to entity set name (adds 's')
+        const mockGetEntitySetName = vi.fn((name) => name + 's');
+        // Maps entity set name to logical name (reverse lookup)
+        const mockGetLogicalName = vi.fn((setName) => {
+            // If it ends with 's', assume it's a valid entity set name and return the logical name
+            if (setName && setName.endsWith('s')) {
+                return setName.slice(0, -1);
+            }
+            return null;
+        });
+        return { mockGetEntitySetName, mockGetLogicalName };
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -23,7 +37,7 @@ describe('WebApiService', () => {
         it('should make GET requests correctly', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [{ id: '1', name: 'Test' }] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             const result = await WebApiService.webApiFetch(
                 'GET',
@@ -32,6 +46,7 @@ describe('WebApiService', () => {
                 null,
                 {},
                 mockGetEntitySetName,
+                mockGetLogicalName,
                 null
             );
 
@@ -48,10 +63,10 @@ describe('WebApiService', () => {
                 { headers: { 'OData-EntityId': 'https://org.crm.dynamics.com/api/data/v9.2/accounts(12345678-1234-1234-1234-123456789012)' } }
             ));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
             const data = { name: 'New Account' };
 
-            await WebApiService.webApiFetch('POST', 'account', '', data, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('POST', 'account', '', data, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             expect(global.fetch).toHaveBeenCalled();
             const callArgs = global.fetch.mock.calls[0];
@@ -62,7 +77,7 @@ describe('WebApiService', () => {
         it('should make PATCH requests correctly', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({}));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
             const data = { name: 'Updated Account' };
 
             await WebApiService.webApiFetch(
@@ -72,6 +87,7 @@ describe('WebApiService', () => {
                 data,
                 {},
                 mockGetEntitySetName,
+                mockGetLogicalName,
                 null
             );
 
@@ -84,7 +100,7 @@ describe('WebApiService', () => {
         it('should make DELETE requests correctly', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse(null));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             await WebApiService.webApiFetch(
                 'DELETE',
@@ -93,6 +109,7 @@ describe('WebApiService', () => {
                 null,
                 {},
                 mockGetEntitySetName,
+                mockGetLogicalName,
                 null
             );
 
@@ -104,10 +121,10 @@ describe('WebApiService', () => {
         it('should add impersonation header when userId is provided', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
             const impersonatedUserId = '11111111-1111-1111-1111-111111111111';
 
-            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, impersonatedUserId);
+            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, impersonatedUserId);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[1].headers['MSCRMCallerID']).toBe(impersonatedUserId);
@@ -116,9 +133,9 @@ describe('WebApiService', () => {
         it('should not add impersonation header when userId is null', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[1].headers['MSCRMCallerID']).toBeUndefined();
@@ -127,10 +144,10 @@ describe('WebApiService', () => {
         it('should include custom headers', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
             const customHeaders = { 'Prefer': 'odata.include-annotations="*"' };
 
-            await WebApiService.webApiFetch('GET', 'account', '', null, customHeaders, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account', '', null, customHeaders, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[1].headers['Prefer']).toBe('odata.include-annotations="*"');
@@ -139,10 +156,10 @@ describe('WebApiService', () => {
         it('should throw error on HTTP error response', async () => {
             global.fetch.mockImplementationOnce(() => createFetchError(404, 'Not Found'));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             await expect(
-                WebApiService.webApiFetch('GET', 'account(invalid)', '', null, {}, mockGetEntitySetName, null)
+                WebApiService.webApiFetch('GET', 'account(invalid)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null)
             ).rejects.toThrow('HTTP 404 Not Found');
         });
 
@@ -150,10 +167,10 @@ describe('WebApiService', () => {
             const odataError = { error: { message: 'Resource not found', code: '404' } };
             global.fetch.mockImplementationOnce(() => createFetchError(404, 'Not Found', odataError));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             try {
-                await WebApiService.webApiFetch('GET', 'account(invalid)', '', null, {}, mockGetEntitySetName, null);
+                await WebApiService.webApiFetch('GET', 'account(invalid)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
                 expect.fail('Should have thrown');
             } catch (error) {
                 expect(error.status).toBe(404);
@@ -164,9 +181,9 @@ describe('WebApiService', () => {
         it('should handle special endpoints without adding s suffix', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            await WebApiService.webApiFetch('GET', 'EntityDefinitions', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'EntityDefinitions', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('EntityDefinitions');
@@ -176,9 +193,9 @@ describe('WebApiService', () => {
         it('should handle queryString without leading ?', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            await WebApiService.webApiFetch('GET', 'account', '$top=10', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account', '$top=10', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('?$top=10');
@@ -187,9 +204,9 @@ describe('WebApiService', () => {
         it('should handle queryString with leading ?', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            await WebApiService.webApiFetch('GET', 'account', '?$top=10', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account', '?$top=10', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('?$top=10');
@@ -209,9 +226,9 @@ describe('WebApiService', () => {
                 text: () => Promise.resolve(''),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            const result = await WebApiService.webApiFetch('POST', 'account', '', { name: 'Test' }, {}, mockGetEntitySetName, null);
+            const result = await WebApiService.webApiFetch('POST', 'account', '', { name: 'Test' }, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             expect(result.id).toBe('12345678-1234-1234-1234-123456789012');
         });
@@ -598,10 +615,10 @@ describe('WebApiService', () => {
         it('should handle network errors', async () => {
             global.fetch.mockRejectedValueOnce(new Error('Network error'));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             await expect(
-                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, null)
+                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null)
             ).rejects.toThrow('Network error');
         });
 
@@ -613,10 +630,10 @@ describe('WebApiService', () => {
                 text: () => Promise.resolve('not valid json'),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             await expect(
-                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, null)
+                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null)
             ).rejects.toThrow();
         });
 
@@ -628,9 +645,9 @@ describe('WebApiService', () => {
                 text: () => Promise.resolve(''),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            const result = await WebApiService.webApiFetch('DELETE', 'account(123)', '', null, {}, mockGetEntitySetName, null);
+            const result = await WebApiService.webApiFetch('DELETE', 'account(123)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             expect(result).toEqual({});
         });
@@ -644,34 +661,77 @@ describe('WebApiService', () => {
                 if (name === 'account') return 'accounts';
                 return null;
             });
+            const mockGetLogicalName = vi.fn((setName) => {
+                if (setName === 'accounts') return 'account';
+                return null;
+            });
 
-            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('accounts');
         });
 
-        it('should fallback to adding s when entity set name not found', async () => {
+        it('should add s fallback when metadata not loaded and name doesnt end with s', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
             const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn(() => null);
 
-            await WebApiService.webApiFetch('GET', 'customentity', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'customentity', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
+            // Fallback behavior: adds 's' when metadata not loaded
             expect(callArgs[0]).toContain('customentitys');
         });
 
-        it('should not double-add s if already ends with s', async () => {
+        it('should not add s when name already ends with s and metadata not loaded', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
 
             const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn(() => null);
 
-            await WebApiService.webApiFetch('GET', 'accounts', '', null, {}, mockGetEntitySetName, null);
+            // Name already ends with 's', so no fallback 's' is added
+            await WebApiService.webApiFetch('GET', 'pluginassemblies', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
+
+            const callArgs = global.fetch.mock.calls[0];
+            expect(callArgs[0]).toContain('pluginassemblies');
+            expect(callArgs[0]).not.toContain('pluginassembliess');
+        });
+
+        it('should recognize already valid entity set name', async () => {
+            global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
+
+            const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn((setName) => {
+                // 'accounts' is a valid entity set name
+                if (setName === 'accounts') return 'account';
+                return null;
+            });
+
+            await WebApiService.webApiFetch('GET', 'accounts', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('accounts');
             expect(callArgs[0]).not.toContain('accountss');
+        });
+
+        it('should recognize webresourceset as valid entity set name when metadata is loaded', async () => {
+            global.fetch.mockImplementationOnce(() => createFetchResponse({ value: [] }));
+
+            const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn((setName) => {
+                // 'webresourceset' is a valid entity set name (maps to webresource logical name)
+                if (setName === 'webresourceset') return 'webresource';
+                return null;
+            });
+
+            await WebApiService.webApiFetch('GET', 'webresourceset', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
+
+            const callArgs = global.fetch.mock.calls[0];
+            // Should NOT add 's' - metadata recognizes this as valid entity set name
+            expect(callArgs[0]).toContain('webresourceset');
+            expect(callArgs[0]).not.toContain('webresourcesets');
         });
 
         it('should handle entity with record ID correctly', async () => {
@@ -681,45 +741,67 @@ describe('WebApiService', () => {
                 if (name === 'account') return 'accounts';
                 return null;
             });
+            const mockGetLogicalName = vi.fn((setName) => {
+                if (setName === 'accounts') return 'account';
+                return null;
+            });
 
-            await WebApiService.webApiFetch('GET', 'account(123)', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'account(123)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('accounts(123)');
         });
 
-        it('should handle entity with record ID when entity name already ends with s and no set name found', async () => {
+        it('should handle entity with record ID when entity name is already valid set name', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({}));
 
-            // Return null to trigger fallback logic
             const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn((setName) => {
+                if (setName === 'accounts') return 'account';
+                return null;
+            });
 
-            await WebApiService.webApiFetch('GET', 'accounts(12345678-1234-1234-1234-123456789012)', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'accounts(12345678-1234-1234-1234-123456789012)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
-            // Should not double-add 's' since 'accounts' already ends with 's'
             expect(callArgs[0]).toContain('accounts(12345678-1234-1234-1234-123456789012)');
-            expect(callArgs[0]).not.toContain('accountss');
         });
 
-        it('should add s suffix to entity with record ID when entity does not end with s and no set name found', async () => {
+        it('should add s fallback to entity with record ID when not found', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({}));
 
             const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn(() => null);
 
-            await WebApiService.webApiFetch('GET', 'contact(12345678-1234-1234-1234-123456789012)', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', 'contact(12345678-1234-1234-1234-123456789012)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
+            // Fallback behavior: adds 's' when metadata not loaded
             expect(callArgs[0]).toContain('contacts(12345678-1234-1234-1234-123456789012)');
+        });
+
+        it('should not add s to entity with record ID when name ends with s', async () => {
+            global.fetch.mockImplementationOnce(() => createFetchResponse({}));
+
+            const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn(() => null);
+
+            await WebApiService.webApiFetch('GET', 'accounts(12345678-1234-1234-1234-123456789012)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
+
+            const callArgs = global.fetch.mock.calls[0];
+            // Should not add 's' because name already ends with 's'
+            expect(callArgs[0]).toContain('accounts(12345678-1234-1234-1234-123456789012)');
+            expect(callArgs[0]).not.toContain('accountss');
         });
 
         it('should handle malformed entity path with parentheses that does not match pattern', async () => {
             global.fetch.mockImplementationOnce(() => createFetchResponse({}));
 
             const mockGetEntitySetName = vi.fn(() => null);
+            const mockGetLogicalName = vi.fn(() => null);
 
             // Malformed path - no match for regex pattern
-            await WebApiService.webApiFetch('GET', '(invalidformat)', '', null, {}, mockGetEntitySetName, null);
+            await WebApiService.webApiFetch('GET', '(invalidformat)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             const callArgs = global.fetch.mock.calls[0];
             // Should return as-is when regex doesn't match
@@ -975,9 +1057,9 @@ describe('WebApiService', () => {
                 text: () => Promise.resolve(''),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            const result = await WebApiService.webApiFetch('POST', 'contact', '', { firstname: 'John' }, {}, mockGetEntitySetName, null);
+            const result = await WebApiService.webApiFetch('POST', 'contact', '', { firstname: 'John' }, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             expect(result.id).toBe('abcd1234-abcd-1234-abcd-1234567890ab');
         });
@@ -993,9 +1075,9 @@ describe('WebApiService', () => {
                 text: () => Promise.resolve(''),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
-            const result = await WebApiService.webApiFetch('DELETE', 'account(123)', '', null, {}, mockGetEntitySetName, null);
+            const result = await WebApiService.webApiFetch('DELETE', 'account(123)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
 
             expect(result).toEqual({});
         });
@@ -1013,10 +1095,10 @@ describe('WebApiService', () => {
                 text: () => Promise.reject(new Error('Failed to read body')),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             await expect(
-                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, null)
+                WebApiService.webApiFetch('GET', 'account', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null)
             ).rejects.toThrow('HTTP 500 Internal Server Error');
         });
 
@@ -1031,10 +1113,10 @@ describe('WebApiService', () => {
                 text: () => Promise.reject(new Error('Stream already read')),
             }));
 
-            const mockGetEntitySetName = vi.fn((name) => name + 's');
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
 
             try {
-                await WebApiService.webApiFetch('GET', 'missingrecord(123)', '', null, {}, mockGetEntitySetName, null);
+                await WebApiService.webApiFetch('GET', 'missingrecord(123)', '', null, {}, mockGetEntitySetName, mockGetLogicalName, null);
                 expect.fail('Should have thrown');
             } catch (error) {
                 expect(error.status).toBe(404);
@@ -1043,3 +1125,4 @@ describe('WebApiService', () => {
         });
     });
 });
+

@@ -96,6 +96,14 @@ vi.mock('../../src/ui/FilterGroupManager.js', () => {
     return { FilterGroupManager: MockFilterGroupManager };
 });
 
+vi.mock('../../src/services/BulkTouchService.js', () => ({
+    BulkTouchService: {
+        showTouchConfigDialog: vi.fn(),
+        prepareTouchOperations: vi.fn(() => ({ allOperations: [], totalFailCount: 0, allErrors: [] })),
+        executeBatchOperations: vi.fn(() => Promise.resolve({ successCount: 0, failCount: 0, errors: [] }))
+    }
+}));
+
 vi.mock('../../src/helpers/index.js', () => ({
     formatXml: vi.fn((xml) => xml),
     normalizeApiResponse: vi.fn((res) => res || { entities: [] }),
@@ -5625,6 +5633,621 @@ describe('FetchXmlTesterTab', () => {
             constructorCall.setSortState({ column: 'createdon', direction: 'desc' });
 
             expect(component.resultSortState).toEqual({ column: 'createdon', direction: 'desc' });
+        });
+    });
+
+    describe('Selection & Touch wiring', () => {
+        it('should pass enableSelection: true to ResultPanel constructor', async () => {
+            await setupComponent();
+            const { ResultPanel } = await import('../../src/utils/ui/ResultPanel.js');
+
+            const constructorCall = ResultPanel.mock.calls[0][0];
+            expect(constructorCall.enableSelection).toBe(true);
+        });
+
+        it('should pass onBulkTouch callback to ResultPanel constructor', async () => {
+            await setupComponent();
+            const { ResultPanel } = await import('../../src/utils/ui/ResultPanel.js');
+
+            const constructorCall = ResultPanel.mock.calls[0][0];
+            expect(typeof constructorCall.onBulkTouch).toBe('function');
+        });
+
+        it('should show warning when _handleBulkTouch is called with empty records', async () => {
+            await setupComponent();
+            await component._handleBulkTouch([]);
+            expect(NotificationService.show).toHaveBeenCalled();
+        });
+
+        it('should show warning when _handleBulkTouch is called with null records', async () => {
+            await setupComponent();
+            await component._handleBulkTouch(null);
+            expect(NotificationService.show).toHaveBeenCalled();
+        });
+
+        it('clearResults should also pass enableSelection to new ResultPanel', async () => {
+            await setupComponent();
+            const { ResultPanel } = await import('../../src/utils/ui/ResultPanel.js');
+
+            ResultPanel.mockClear();
+            component.clearResults();
+
+            expect(ResultPanel).toHaveBeenCalledTimes(1);
+            const constructorCall = ResultPanel.mock.calls[0][0];
+            expect(constructorCall.enableSelection).toBe(true);
+            expect(typeof constructorCall.onBulkTouch).toBe('function');
+        });
+    });
+
+    describe('Aggregate Builder UI', () => {
+        it('should render aggregate and groupby containers in builder', async () => {
+            await setupComponent();
+
+            expect(component.ui.aggregatesContainer).toBeTruthy();
+            expect(component.ui.groupByContainer).toBeTruthy();
+        });
+
+        it('should render Add Aggregate button', async () => {
+            const el = await setupComponent();
+
+            const btn = el.querySelector('#fetch-add-aggregate-btn');
+            expect(btn).toBeTruthy();
+        });
+
+        it('should render Add Group By button', async () => {
+            const el = await setupComponent();
+
+            const btn = el.querySelector('#fetch-add-groupby-btn');
+            expect(btn).toBeTruthy();
+        });
+
+        it('should not add aggregate row without table name', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = '';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const rows = component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row');
+            expect(rows.length).toBe(0);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('select a table'),
+                'warning'
+            );
+        });
+
+        it('should not add groupby row without table name', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = '';
+
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const rows = component.ui.groupByContainer.querySelectorAll('.pdt-groupby-row');
+            expect(rows.length).toBe(0);
+        });
+
+        it('should not add groupby row without existing aggregates', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const rows = component.ui.groupByContainer.querySelectorAll('.pdt-groupby-row');
+            expect(rows.length).toBe(0);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('aggregate'),
+                'warning'
+            );
+        });
+
+        it('should add aggregate row when Add Aggregate is clicked with table name', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const rows = component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row');
+            expect(rows.length).toBe(1);
+        });
+
+        it('should add groupby row when aggregate exists and table set', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            // Add an aggregate first
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            // Now add groupby
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const rows = component.ui.groupByContainer.querySelectorAll('.pdt-groupby-row');
+            expect(rows.length).toBe(1);
+        });
+
+        it('should add multiple aggregate rows', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            const btn = el.querySelector('#fetch-add-aggregate-btn');
+            btn.click();
+            btn.click();
+            btn.click();
+
+            const rows = component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row');
+            expect(rows.length).toBe(3);
+        });
+
+        it('should remove aggregate row when remove button is clicked', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            expect(component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row').length).toBe(1);
+
+            const removeBtn = component.ui.aggregatesContainer.querySelector('.remove-aggregate-row');
+            removeBtn.click();
+
+            expect(component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row').length).toBe(0);
+        });
+
+        it('should remove groupby row when remove button is clicked', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+            expect(component.ui.groupByContainer.querySelectorAll('.pdt-groupby-row').length).toBe(1);
+
+            const removeBtn = component.ui.groupByContainer.querySelector('.remove-groupby-row');
+            removeBtn.click();
+
+            expect(component.ui.groupByContainer.querySelectorAll('.pdt-groupby-row').length).toBe(0);
+        });
+
+        it('should have function select with all aggregate options', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const select = component.ui.aggregatesContainer.querySelector('.aggregate-function-select');
+            const options = Array.from(select.options).map(o => o.value);
+
+            expect(options).toContain('count');
+            expect(options).toContain('sum');
+            expect(options).toContain('avg');
+            expect(options).toContain('min');
+            expect(options).toContain('max');
+            expect(options).toContain('countcolumn');
+        });
+
+        it('should have date grouping select with options', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+            const select = component.ui.groupByContainer.querySelector('.groupby-dategrouping-select');
+            const options = Array.from(select.options).map(o => o.value);
+
+            expect(options).toContain('');
+            expect(options).toContain('day');
+            expect(options).toContain('month');
+            expect(options).toContain('year');
+        });
+
+        it('should have order select with asc/desc options on aggregate row', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const select = component.ui.aggregatesContainer.querySelector('.aggregate-order-select');
+
+            expect(select).toBeTruthy();
+            const options = Array.from(select.options).map(o => o.value);
+            expect(options).toContain('');
+            expect(options).toContain('false');
+            expect(options).toContain('true');
+        });
+    });
+
+    describe('Add section dropdown', () => {
+        it('should render Add... button and hidden menu', async () => {
+            const el = await setupComponent();
+
+            expect(component.ui.addSectionBtn).toBeTruthy();
+            expect(component.ui.addSectionMenu).toBeTruthy();
+            expect(component.ui.addSectionMenu.style.display).toBe('none');
+        });
+
+        it('should toggle menu visibility on button click', async () => {
+            const el = await setupComponent();
+
+            component.ui.addSectionBtn.click();
+            expect(component.ui.addSectionMenu.style.display).not.toBe('none');
+
+            component.ui.addSectionBtn.click();
+            expect(component.ui.addSectionMenu.style.display).toBe('none');
+        });
+
+        it('should show filters section when selected from menu', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._handleAddSection('filters');
+
+            expect(component.ui.filtersSection.style.display).not.toBe('none');
+        });
+
+        it('should show aggregates section when selected from menu', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._handleAddSection('aggregates');
+
+            expect(component.ui.aggregatesSection.style.display).not.toBe('none');
+            expect(component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row').length).toBe(1);
+        });
+
+        it('should not show section without table name', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = '';
+
+            component._handleAddSection('aggregates');
+
+            expect(component.ui.aggregatesSection.style.display).toBe('none');
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('select a table'),
+                'warning'
+            );
+        });
+
+        it('should remove section and clear contents', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._handleAddSection('aggregates');
+            expect(component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row').length).toBe(1);
+
+            component._handleRemoveSection('aggregates');
+            expect(component.ui.aggregatesSection.style.display).toBe('none');
+            expect(component.ui.aggregatesContainer.querySelectorAll('.pdt-aggregate-row').length).toBe(0);
+        });
+
+        it('should remove groupby when aggregates section is removed', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._handleAddSection('aggregates');
+            component._handleAddSection('groupby');
+            expect(component.ui.groupBySection.style.display).not.toBe('none');
+
+            component._handleRemoveSection('aggregates');
+            expect(component.ui.groupBySection.style.display).toBe('none');
+        });
+    });
+
+    describe('Aggregate mode detection', () => {
+        it('should return false when no aggregate/groupby rows exist', async () => {
+            await setupComponent();
+
+            expect(component._isAggregateMode()).toBe(false);
+        });
+
+        it('should return true when aggregate rows exist', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            expect(component._isAggregateMode()).toBe(true);
+        });
+
+        it('should return true when groupby rows exist', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            // Add aggregate first (required for groupby)
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+            expect(component._isAggregateMode()).toBe(true);
+        });
+    });
+
+    describe('Aggregate extraction', () => {
+        it('should extract aggregate rows with column, func, alias, order', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            row.querySelector('[data-prop="column"]').value = 'revenue';
+            row.querySelector('[data-prop="function"]').value = 'sum';
+            row.querySelector('[data-prop="alias"]').value = 'TotalRevenue';
+            row.querySelector('[data-prop="order"]').value = 'true';
+
+            const result = component._extractAggregateRows();
+            expect(result).toEqual([{ column: 'revenue', func: 'sum', alias: 'TotalRevenue', order: 'true' }]);
+        });
+
+        it('should skip rows with empty column or alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            row.querySelector('[data-prop="column"]').value = '';
+            row.querySelector('[data-prop="alias"]').value = '';
+
+            const result = component._extractAggregateRows();
+            expect(result).toEqual([]);
+        });
+
+        it('should extract groupby rows with column, alias, dategrouping', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+            const row = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            row.querySelector('[data-prop="column"]').value = 'createdon';
+            row.querySelector('[data-prop="alias"]').value = 'CreatedMonth';
+            row.querySelector('[data-prop="dategrouping"]').value = 'month';
+
+            const result = component._extractGroupByRows();
+            expect(result).toEqual([{ column: 'createdon', alias: 'CreatedMonth', dategrouping: 'month' }]);
+        });
+    });
+
+    describe('Aggregate XML generation', () => {
+        it('should build aggregate attribute XML', () => {
+            const rows = [
+                { column: 'revenue', func: 'sum', alias: 'TotalRevenue' },
+                { column: 'accountid', func: 'count', alias: 'CountAccounts' }
+            ];
+            const result = component._buildAggregateAttributesXml(rows);
+            expect(result).toContain('aggregate="sum"');
+            expect(result).toContain('alias="TotalRevenue"');
+            expect(result).toContain('aggregate="count"');
+        });
+
+        it('should build groupby attribute XML', () => {
+            const rows = [
+                { column: 'address1_city', alias: 'City', dategrouping: '' }
+            ];
+            const result = component._buildGroupByAttributesXml(rows);
+            expect(result).toContain('groupby="true"');
+            expect(result).toContain('alias="City"');
+            expect(result).not.toContain('dategrouping');
+        });
+
+        it('should include dategrouping in groupby XML when specified', () => {
+            const rows = [
+                { column: 'createdon', alias: 'CreatedMonth', dategrouping: 'month' }
+            ];
+            const result = component._buildGroupByAttributesXml(rows);
+            expect(result).toContain('dategrouping="month"');
+        });
+
+        it('should build aggregate order XML from per-row orders', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            row.querySelector('[data-prop="column"]').value = 'revenue';
+            row.querySelector('[data-prop="alias"]').value = 'TotalRevenue';
+            row.querySelector('[data-prop="order"]').value = 'true';
+
+            const result = component._buildAggregateOrderXml();
+            expect(result).toContain('alias="TotalRevenue"');
+            expect(result).toContain('descending="true"');
+        });
+
+        it('should return empty string from _buildAggregateOrderXml when no orders set', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#builder-order-attribute').value = '';
+
+            expect(component._buildAggregateOrderXml()).toBe('');
+        });
+    });
+
+    describe('Aggregate validation', () => {
+        it('should return true when no aggregate rows exist', async () => {
+            await setupComponent();
+            expect(component._validateAggregateRows()).toBe(true);
+        });
+
+        it('should return false when aggregate row has empty column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            row.querySelector('[data-prop="column"]').value = '';
+            row.querySelector('[data-prop="alias"]').value = 'Test';
+
+            expect(component._validateAggregateRows()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalled();
+        });
+
+        it('should return false when aggregate row has empty alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            row.querySelector('[data-prop="column"]').value = 'revenue';
+            row.querySelector('[data-prop="alias"]').value = '';
+
+            expect(component._validateAggregateRows()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalled();
+        });
+
+        it('should return false when groupby row has empty alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            // Must add aggregate first before groupby
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+            const row = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            row.querySelector('[data-prop="column"]').value = 'city';
+            row.querySelector('[data-prop="alias"]').value = '';
+
+            expect(component._validateAggregateRows()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalled();
+        });
+
+        it('should return true when all rows are valid', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const aggRow = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            aggRow.querySelector('[data-prop="column"]').value = 'revenue';
+            aggRow.querySelector('[data-prop="alias"]').value = 'Total';
+
+            el.querySelector('#fetch-add-groupby-btn').click();
+            const grpRow = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            grpRow.querySelector('[data-prop="column"]').value = 'city';
+            grpRow.querySelector('[data-prop="alias"]').value = 'City';
+
+            expect(component._validateAggregateRows()).toBe(true);
+        });
+    });
+
+    describe('Auto-alias generation', () => {
+        it('should generate aggregate alias from function and column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            const aliasInput = row.querySelector('[data-prop="alias"]');
+
+            columnInput.value = 'revenue';
+            funcSelect.value = 'sum';
+            component._autoGenerateAlias(columnInput, funcSelect, aliasInput, 'aggregate');
+
+            expect(aliasInput.value).toBe('sum_revenue');
+        });
+
+        it('should generate groupby alias from column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const row = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+            const aliasInput = row.querySelector('[data-prop="alias"]');
+
+            columnInput.value = 'address1_city';
+            component._autoGenerateAlias(columnInput, null, aliasInput, 'groupby');
+
+            expect(aliasInput.value).toBe('group_address1_city');
+        });
+    });
+
+    describe('Aggregate type filtering', () => {
+        it('should filter aggregate functions by column type', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('.aggregate-function-select');
+
+            // String type should disable sum, avg, min, max
+            const stringAttr = { LogicalName: 'name', AttributeTypeName: { Value: 'StringType' } };
+            component._filterAggregateFunctionsByType(funcSelect, stringAttr);
+
+            const sumOption = Array.from(funcSelect.options).find(o => o.value === 'sum');
+            const countOption = Array.from(funcSelect.options).find(o => o.value === 'count');
+
+            expect(sumOption.disabled).toBe(true);
+            expect(countOption.disabled).toBe(false);
+        });
+
+        it('should allow all numeric aggregates for MoneyType', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('.aggregate-function-select');
+
+            const moneyAttr = { LogicalName: 'revenue', AttributeTypeName: { Value: 'MoneyType' } };
+            component._filterAggregateFunctionsByType(funcSelect, moneyAttr);
+
+            Array.from(funcSelect.options).forEach(o => {
+                expect(o.disabled).toBe(false);
+            });
+        });
+
+        it('should disable sum/avg for DateTimeType', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('.aggregate-function-select');
+
+            const dateAttr = { LogicalName: 'createdon', AttributeTypeName: { Value: 'DateTimeType' } };
+            component._filterAggregateFunctionsByType(funcSelect, dateAttr);
+
+            const sumOpt = Array.from(funcSelect.options).find(o => o.value === 'sum');
+            const avgOpt = Array.from(funcSelect.options).find(o => o.value === 'avg');
+            const minOpt = Array.from(funcSelect.options).find(o => o.value === 'min');
+
+            expect(sumOpt.disabled).toBe(true);
+            expect(avgOpt.disabled).toBe(true);
+            expect(minOpt.disabled).toBe(false);
+        });
+
+        it('should switch to first enabled option when current is disabled', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('.aggregate-function-select');
+
+            funcSelect.value = 'sum';
+            const stringAttr = { LogicalName: 'name', AttributeTypeName: { Value: 'StringType' } };
+            component._filterAggregateFunctionsByType(funcSelect, stringAttr);
+
+            // sum is disabled for text, should switch to count
+            expect(funcSelect.value).toBe('count');
+        });
+    });
+
+    describe('Aggregate Templates', () => {
+        it('should include aggregate templates in _getFetchTemplates', () => {
+            const templates = component._getFetchTemplates();
+            const labels = templates.map(t => t.label);
+
+            expect(labels.some(l => l.includes('Aggregate'))).toBe(true);
+        });
+
+        it('should have aggregate="true" in aggregate template XML', () => {
+            const templates = component._getFetchTemplates();
+            const aggTemplate = templates.find(t => t.label.includes('Count of Accounts'));
+
+            expect(aggTemplate).toBeTruthy();
+            expect(aggTemplate.xml).toContain('aggregate="true"');
+        });
+
+        it('should have sum/avg template with multiple aggregate functions', () => {
+            const templates = component._getFetchTemplates();
+            const sumAvgTemplate = templates.find(t => t.label.includes('Sum/Avg'));
+
+            expect(sumAvgTemplate).toBeTruthy();
+            expect(sumAvgTemplate.xml).toContain('aggregate="sum"');
+            expect(sumAvgTemplate.xml).toContain('aggregate="avg"');
+            expect(sumAvgTemplate.xml).toContain('aggregate="max"');
         });
     });
 });

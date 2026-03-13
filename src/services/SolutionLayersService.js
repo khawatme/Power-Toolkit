@@ -382,7 +382,9 @@ export const SolutionLayersService = {
             380: 'EnvironmentVariableDefinition',
             381: 'EnvironmentVariableValue',
             402: 'AIConfiguration',
-            10021: 'AppModule'
+            10021: 'AppModule',
+            10029: 'PluginPackage',
+            10030: 'PluginPackage'
         };
 
         return componentNameMap[componentType] || null;

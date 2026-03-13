@@ -501,16 +501,20 @@ export const MetadataService = {
     /**
      * Clear metadata cache (full or partial).
      * @param {string|null} key - Specific cache key or null for full clear
+     * @param {boolean} [preserveEntityNames=false] - When true, preserves entity set name mappings
+     *   (useful during impersonation changes since entity set names are system-level metadata)
      */
-    clearCache(key = null) {
+    clearCache(key = null, preserveEntityNames = false) {
         if (key) {
             _metadataCache.delete(key);
         } else {
             _metadataCache.clear();
-            _entitySetNameCache.clear();
-            _entityBySetNameCache.clear();
-            _isMetadataLoaded = false;
-            _metadataPromise = null;
+            if (!preserveEntityNames) {
+                _entitySetNameCache.clear();
+                _entityBySetNameCache.clear();
+                _isMetadataLoaded = false;
+                _metadataPromise = null;
+            }
         }
     }
 };

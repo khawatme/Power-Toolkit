@@ -49,8 +49,9 @@ export class ODataQueryBuilder {
      */
     static _buildSelectPart(select, attrMap) {
         return select.map(c => {
-            const meta = attrMap?.get(c);
-            return (meta && meta.type === 'lookup') ? `_${c}_value` : c;
+            const col = c.toLowerCase();
+            const meta = attrMap?.get(col);
+            return (meta && meta.type === 'lookup') ? `_${col}_value` : col;
         });
     }
 
@@ -65,50 +66,80 @@ export class ODataQueryBuilder {
      * @private
      */
     static _buildFilterCondition(filter, attrMap) {
-        const { attr, op } = filter;
+        const attr = (filter.attr || '').toLowerCase();
+        const { op } = filter;
         const raw = (filter.value ?? '').trim();
 
         if (!attr || !op) {
             return null;
         }
 
-        // Handle null/not-null operators
+        const meta = attrMap?.get(attr);
+        const isLookup = meta?.type === 'lookup';
+
         if (op.includes('null')) {
-            return `${attr} ${op}`;
+            return this._buildNullCondition(attr, op, isLookup);
         }
 
-        const meta = attrMap?.get(attr);
         const type = meta?.type || this._guess(raw);
 
-        // Handle string function operators
         if (['contains', 'startswith', 'endswith', 'not contains'].includes(op)) {
-            if (type !== 'string') {
-                return null;
-            }
-            const fn = (op === 'not contains') ? 'contains' : op;
-            const expr = `${fn}(${attr},${this._escapeString(raw)})`;
-            return op === 'not contains' ? `not ${expr}` : expr;
+            return this._buildStringFunctionCondition(attr, op, raw, type);
         }
 
-        // Handle type-specific formatting
-        if (type === 'boolean') {
-            return `${attr} ${op} ${raw.toLowerCase()}`;
-        }
-        if (type === 'number') {
-            return `${attr} ${op} ${Number(raw)}`;
-        }
-        if (type === 'date') {
-            return `${attr} ${op} ${this._escapeString(new Date(raw).toISOString())}`;
-        }
-        if (type === 'optionset') {
-            return `${attr} ${op} ${isNaN(Number(raw)) ? this._escapeString(raw) : Number(raw)}`;
-        }
-        if (type === 'lookup') {
-            return `_${attr}_value ${op} ${raw}`;
-        }
+        return this._formatValueByType(attr, op, raw, type);
+    }
 
-        // Default: string comparison
-        return `${attr} ${op} ${this._escapeString(raw)}`;
+    /**
+     * Builds a null/not-null condition, using _value suffix for lookup fields.
+     * @param {string} attr - Attribute name (lowercase)
+     * @param {string} op - Null operator (e.g. 'eq null', 'ne null')
+     * @param {boolean} isLookup - Whether the attribute is a lookup type
+     * @returns {string} OData null condition expression
+     * @private
+     */
+    static _buildNullCondition(attr, op, isLookup) {
+        const fieldName = isLookup ? `_${attr}_value` : attr;
+        return `${fieldName} ${op}`;
+    }
+
+    /**
+     * Builds a string function condition (contains, startswith, endswith, not contains).
+     * Returns null if the attribute type is not a string.
+     * @param {string} attr - Attribute name (lowercase)
+     * @param {string} op - String function operator
+     * @param {string} raw - Raw filter value
+     * @param {string} type - Resolved attribute type
+     * @returns {string|null} OData string function expression or null
+     * @private
+     */
+    static _buildStringFunctionCondition(attr, op, raw, type) {
+        if (type !== 'string') {
+            return null;
+        }
+        const fn = (op === 'not contains') ? 'contains' : op;
+        const expr = `${fn}(${attr},${this._escapeString(raw)})`;
+        return op === 'not contains' ? `not ${expr}` : expr;
+    }
+
+    /**
+     * Formats a filter value according to its resolved type.
+     * @param {string} attr - Attribute name (lowercase)
+     * @param {string} op - Comparison operator
+     * @param {string} raw - Raw filter value
+     * @param {string} type - Resolved attribute type
+     * @returns {string} OData comparison expression
+     * @private
+     */
+    static _formatValueByType(attr, op, raw, type) {
+        switch (type) {
+            case 'boolean':  return `${attr} ${op} ${raw.toLowerCase()}`;
+            case 'number':   return `${attr} ${op} ${Number(raw)}`;
+            case 'date':     return `${attr} ${op} ${this._escapeString(new Date(raw).toISOString())}`;
+            case 'optionset':return `${attr} ${op} ${isNaN(Number(raw)) ? this._escapeString(raw) : Number(raw)}`;
+            case 'lookup':   return `_${attr}_value ${op} ${raw}`;
+            default:         return `${attr} ${op} ${this._escapeString(raw)}`;
+        }
     }
 
     /**
@@ -210,7 +241,7 @@ export class ODataQueryBuilder {
             params.push(`$top=${top}`);
         }
         if (orderAttr) {
-            params.push(`$orderby=${orderAttr} ${orderDir}`);
+            params.push(`$orderby=${orderAttr.toLowerCase()} ${orderDir}`);
         }
 
         return params.length ? `?${params.join('&')}` : '';

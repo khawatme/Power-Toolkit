@@ -67,13 +67,16 @@ export const FormInspectionService = {
                     } else {
                         value = '[No Attribute]';
                     }
-                } else if (controlType.includes('subgrid')) {
-                    value = `Entity: ${ctrl.getEntityName()} | Records: ${ctrl.getGrid().getTotalRecordCount()}`;
+                } else if (controlType?.includes('subgrid')) {
+                    const grid = ctrl.getGrid?.();
+                    value = grid
+                        ? `Entity: ${ctrl.getEntityName()} | Records: ${grid.getTotalRecordCount()}`
+                        : `Entity: ${ctrl.getEntityName()} | Records: (loading)`;
                 }
 
                 return {
-                    label: ctrl.getLabel(),
-                    logicalName: ctrl.getName(),
+                    label: ctrl.getLabel() || ctrl.getName() || '(unnamed control)',
+                    logicalName: ctrl.getName() || '',
                     value,
                     editableAttr,
                     controlType
@@ -87,15 +90,25 @@ export const FormInspectionService = {
             }
         };
 
-        const mapSection = section => ({
-            label: `Section: ${section.getLabel()}`,
-            logicalName: section.getName(),
-            children: (section.controls?.get() || []).map(mapControl)
-        });
+        const mapSection = section => {
+            try {
+                return {
+                    label: `Section: ${section.getLabel() || section.getName() || 'Unnamed'}`,
+                    logicalName: section.getName() || '',
+                    children: (section.controls?.get() || []).map(mapControl)
+                };
+            } catch (e) {
+                return {
+                    label: 'Section: (Error)',
+                    logicalName: `Error: ${e.message}`,
+                    children: []
+                };
+            }
+        };
 
         return tabs.map(tab => ({
-            label: `Tab: ${tab.getLabel()}`,
-            logicalName: tab.getName(),
+            label: `Tab: ${tab.getLabel() || tab.getName() || 'Unnamed Tab'}`,
+            logicalName: tab.getName() || '',
             children: (tab.sections?.get?.() || []).map(mapSection)
         }));
     },
@@ -207,7 +220,7 @@ export const FormInspectionService = {
     /**
      * Get event handlers (OnLoad, OnSave) from current form's XML.
      * @param {Function} webApiFetch - DataService web API fetch function
-     * @returns {Promise<{OnLoad: Array, OnSave: Array}>} Event handlers
+     * @returns {Promise<{OnLoad: Array, OnSave: Array, formId: string}>} Event handlers
      */
     async getFormEventHandlers(webApiFetch) {
         const formId = _getFormIdReliably();
@@ -221,15 +234,29 @@ export const FormInspectionService = {
         );
 
         const xmlDoc = new DOMParser().parseFromString(formXmlResult.formxml, 'text/xml');
-        const automations = { OnLoad: [], OnSave: [] };
+        const automations = { OnLoad: [], OnSave: [], OnChange: [], formId };
 
-        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
-            const eventName = node.getAttribute('name');
-            const handlers = Array.from(node.querySelectorAll('Handler')).map(h => ({
+        /**
+         * Extract handlers from an event node
+         * @param {Element} eventNode - The event element
+         * @param {string|null} fieldName - The field name for field-level events
+         * @returns {Array} Array of handler objects
+         */
+        const extractHandlers = (eventNode, fieldName = null) => {
+            return Array.from(eventNode.querySelectorAll('Handler')).map(h => ({
                 library: h.getAttribute('libraryName'),
                 function: h.getAttribute('functionName'),
-                enabled: h.getAttribute('enabled') === 'true'
+                enabled: h.getAttribute('enabled') === 'true',
+                passContext: h.getAttribute('passExecutionContext') === 'true',
+                parameters: h.getAttribute('parameters') || '',
+                field: fieldName
             }));
+        };
+
+        // Parse form-level events (onload, onsave)
+        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
+            const eventName = node.getAttribute('name');
+            const handlers = extractHandlers(node);
 
             if (eventName === 'onload') {
                 automations.OnLoad.push(...handlers);
@@ -237,6 +264,28 @@ export const FormInspectionService = {
             if (eventName === 'onsave') {
                 automations.OnSave.push(...handlers);
             }
+        });
+
+        // Parse field-level events (onchange and other field events)
+        xmlDoc.querySelectorAll('cell').forEach(cellNode => {
+            const controlNode = cellNode.querySelector('control');
+            const fieldName = controlNode?.getAttribute('id') || controlNode?.getAttribute('datafieldname') || null;
+
+            cellNode.querySelectorAll('events > event').forEach(eventNode => {
+                const eventName = eventNode.getAttribute('name')?.toLowerCase();
+                const handlers = extractHandlers(eventNode, fieldName);
+
+                if (eventName === 'onchange') {
+                    automations.OnChange.push(...handlers);
+                }
+                // Also capture field-level onload events (some forms have these)
+                if (eventName === 'onload') {
+                    handlers.forEach(h => {
+                        h.field = fieldName;
+                    });
+                    automations.OnLoad.push(...handlers);
+                }
+            });
         });
 
         return automations;
@@ -247,7 +296,7 @@ export const FormInspectionService = {
      * @param {Function} retrieveMultipleRecords - DataService retrieve multiple function
      * @param {Function} retrieveRecord - DataService retrieve function
      * @param {string} entityName - Entity logical name
-     * @returns {Promise<{OnLoad: Array, OnSave: Array}|null>} Event handlers or null
+     * @returns {Promise<{OnLoad: Array, OnSave: Array, formId: string}|null>} Event handlers or null
      */
     async getFormEventHandlersForEntity(retrieveMultipleRecords, retrieveRecord, entityName) {
         if (!entityName) {
@@ -270,15 +319,29 @@ export const FormInspectionService = {
         }
 
         const xmlDoc = new DOMParser().parseFromString(formRecord.formxml, 'text/xml');
-        const automations = { OnLoad: [], OnSave: [] };
+        const automations = { OnLoad: [], OnSave: [], OnChange: [], formId };
 
-        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
-            const eventName = node.getAttribute('name');
-            const handlers = Array.from(node.querySelectorAll('Handler')).map(h => ({
+        /**
+         * Extract handlers from an event node
+         * @param {Element} eventNode - The event element
+         * @param {string|null} fieldName - The field name for field-level events
+         * @returns {Array} Array of handler objects
+         */
+        const extractHandlers = (eventNode, fieldName = null) => {
+            return Array.from(eventNode.querySelectorAll('Handler')).map(h => ({
                 library: h.getAttribute('libraryName'),
                 function: h.getAttribute('functionName'),
-                enabled: h.getAttribute('enabled') === 'true'
+                enabled: h.getAttribute('enabled') === 'true',
+                passContext: h.getAttribute('passExecutionContext') === 'true',
+                parameters: h.getAttribute('parameters') || '',
+                field: fieldName
             }));
+        };
+
+        // Parse form-level events (onload, onsave)
+        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
+            const eventName = node.getAttribute('name');
+            const handlers = extractHandlers(node);
 
             if (eventName === 'onload') {
                 automations.OnLoad.push(...handlers);
@@ -286,6 +349,28 @@ export const FormInspectionService = {
             if (eventName === 'onsave') {
                 automations.OnSave.push(...handlers);
             }
+        });
+
+        // Parse field-level events (onchange and other field events)
+        xmlDoc.querySelectorAll('cell').forEach(cellNode => {
+            const controlNode = cellNode.querySelector('control');
+            const fieldName = controlNode?.getAttribute('id') || controlNode?.getAttribute('datafieldname') || null;
+
+            cellNode.querySelectorAll('events > event').forEach(eventNode => {
+                const eventName = eventNode.getAttribute('name')?.toLowerCase();
+                const handlers = extractHandlers(eventNode, fieldName);
+
+                if (eventName === 'onchange') {
+                    automations.OnChange.push(...handlers);
+                }
+                // Also capture field-level onload events (some forms have these)
+                if (eventName === 'onload') {
+                    handlers.forEach(h => {
+                        h.field = fieldName;
+                    });
+                    automations.OnLoad.push(...handlers);
+                }
+            });
         });
 
         return automations;
@@ -333,5 +418,62 @@ export const FormInspectionService = {
         };
 
         return details;
+    },
+
+    /**
+     * Get a web resource by its name.
+     * @param {Function} retrieveMultipleRecords - DataService retrieve multiple function
+     * @param {string} webResourceName - The name of the web resource (e.g., 'new_/scripts/account.js')
+     * @returns {Promise<{id: string, name: string, content: string, webresourcetype: number}|null>} Web resource data or null
+     */
+    async getWebResourceByName(retrieveMultipleRecords, webResourceName) {
+        if (!webResourceName) {
+            return null;
+        }
+
+        const queryOptions = `?$filter=name eq '${webResourceName}'&$select=webresourceid,name,content,webresourcetype,displayname,iscustomizable,ishidden,ismanaged`;
+        const result = await retrieveMultipleRecords('webresource', queryOptions);
+
+        if (!result?.entities?.length) {
+            return null;
+        }
+
+        const wr = result.entities[0];
+        return {
+            id: wr.webresourceid,
+            name: wr.name,
+            displayName: wr.displayname || wr.name,
+            content: wr.content ? globalThis.atob(wr.content) : '',
+            webresourcetype: wr.webresourcetype,
+            isCustomizable: wr.iscustomizable?.Value !== false,
+            isHidden: wr.ishidden?.Value === true,
+            isManaged: wr.ismanaged === true
+        };
+    },
+
+    /**
+     * Update a web resource's content.
+     * @param {Function} updateRecord - DataService update function
+     * @param {string} webResourceId - The GUID of the web resource
+     * @param {string} content - The new content (plain text, will be base64 encoded)
+     * @returns {Promise<void>}
+     */
+    async updateWebResourceContent(updateRecord, webResourceId, content) {
+        const encoded = encodeURIComponent(content).replace(/%([0-9A-F]{2})/g,
+            (_match, hex) => String.fromCharCode(parseInt(hex, 16))
+        );
+        const encodedContent = globalThis.btoa(encoded);
+        await updateRecord('webresource', webResourceId, { content: encodedContent });
+    },
+
+    /**
+     * Publish a web resource.
+     * @param {Function} webApiFetch - DataService web API fetch function
+     * @param {string} webResourceId - The GUID of the web resource
+     * @returns {Promise<void>}
+     */
+    async publishWebResource(webApiFetch, webResourceId) {
+        const publishXml = `<importexportxml><webresources><webresource>{${webResourceId}}</webresource></webresources></importexportxml>`;
+        await webApiFetch('POST', 'PublishXml', '', { ParameterXml: publishXml });
     }
 };

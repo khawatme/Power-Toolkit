@@ -41,6 +41,14 @@ vi.mock('../../../src/helpers/index.js', () => ({
     }
 }));
 
+vi.mock('../../../src/services/PowerAppsApiService.js', () => ({
+    PowerAppsApiService: {
+        getGlobalContext: vi.fn(() => ({
+            getClientUrl: vi.fn(() => 'https://org.crm.dynamics.com')
+        }))
+    }
+}));
+
 describe('ResultPanel', () => {
     let resultPanel;
     let root;
@@ -2027,6 +2035,179 @@ describe('ResultPanel', () => {
             resultPanel._setupTableListeners(host2, data, 'table', false);
 
             expect(removeListenerSpy).toHaveBeenCalledWith('click', oldClickHandler);
+        });
+    });
+
+    describe('_detectPrimaryIdColumn', () => {
+        it('should return null when entityLogicalName is not set', () => {
+            const data = [{ accountid: '12345678-1234-1234-1234-123456789012' }];
+            const headers = ['accountid'];
+
+            const result = resultPanel._detectPrimaryIdColumn(data, headers);
+
+            expect(result).toBeNull();
+        });
+
+        it('should detect column ending with "id" containing GUIDs', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ accountid: '12345678-1234-1234-1234-123456789012', name: 'Test' }];
+            const headers = ['accountid', 'name'];
+
+            const result = resultPanel._detectPrimaryIdColumn(data, headers);
+
+            expect(result).toBe('accountid');
+        });
+
+        it('should return null when no column values are GUIDs', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ accountid: 'not-a-guid', name: 'Test' }];
+            const headers = ['accountid', 'name'];
+
+            const result = resultPanel._detectPrimaryIdColumn(data, headers);
+
+            expect(result).toBeNull();
+        });
+
+        it('should return null when no column ends with "id"', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ name: 'Test', status: 'Active' }];
+            const headers = ['name', 'status'];
+
+            const result = resultPanel._detectPrimaryIdColumn(data, headers);
+
+            expect(result).toBeNull();
+        });
+
+        it('should skip columns with empty/null values', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [
+                { accountid: null, name: 'Test' },
+                { accountid: '12345678-1234-1234-1234-123456789012', name: 'Test2' }
+            ];
+            const headers = ['accountid', 'name'];
+
+            const result = resultPanel._detectPrimaryIdColumn(data, headers);
+
+            expect(result).toBe('accountid');
+        });
+    });
+
+    describe('_buildRecordUrl', () => {
+        it('should return null when recordId is empty', () => {
+            resultPanel.entityLogicalName = 'account';
+
+            expect(resultPanel._buildRecordUrl('')).toBeNull();
+            expect(resultPanel._buildRecordUrl(null)).toBeNull();
+            expect(resultPanel._buildRecordUrl(undefined)).toBeNull();
+        });
+
+        it('should return null when entityLogicalName is not set', () => {
+            resultPanel.entityLogicalName = '';
+
+            expect(resultPanel._buildRecordUrl('12345678-1234-1234-1234-123456789012')).toBeNull();
+        });
+
+        it('should build correct record URL', () => {
+            resultPanel.entityLogicalName = 'account';
+
+            const url = resultPanel._buildRecordUrl('12345678-1234-1234-1234-123456789012');
+
+            expect(url).toBe('https://org.crm.dynamics.com/main.aspx?etn=account&id=12345678-1234-1234-1234-123456789012&pagetype=entityrecord');
+        });
+
+        it('should handle getGlobalContext throwing an error', async () => {
+            const { PowerAppsApiService } = await import('../../../src/services/PowerAppsApiService.js');
+            PowerAppsApiService.getGlobalContext.mockImplementationOnce(() => { throw new Error('No context'); });
+            resultPanel.entityLogicalName = 'account';
+
+            const url = resultPanel._buildRecordUrl('12345678-1234-1234-1234-123456789012');
+
+            expect(url).toBeNull();
+        });
+
+        it('should handle missing getClientUrl', async () => {
+            const { PowerAppsApiService } = await import('../../../src/services/PowerAppsApiService.js');
+            PowerAppsApiService.getGlobalContext.mockReturnValueOnce({ getClientUrl: undefined });
+            resultPanel.entityLogicalName = 'account';
+
+            const url = resultPanel._buildRecordUrl('12345678-1234-1234-1234-123456789012');
+
+            expect(url).toBeNull();
+        });
+    });
+
+    describe('Open Record column in table', () => {
+        it('should include Open header when primaryIdColumn is detected', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ accountid: '12345678-1234-1234-1234-123456789012', name: 'Test' }];
+            const headers = ['accountid', 'name'];
+
+            const html = resultPanel._buildTableHeaderHtml(data, headers, 'accountid');
+
+            expect(html).toContain('pdt-col-sticky pdt-col-open');
+            expect(html).toContain('title="Open record in Dynamics 365"');
+        });
+
+        it('should not include Open header when no primaryIdColumn', () => {
+            const data = [{ name: 'Test' }];
+            const headers = ['name'];
+
+            const html = resultPanel._buildTableHeaderHtml(data, headers, null);
+
+            expect(html).not.toContain('Open record in Dynamics 365');
+        });
+
+        it('should include Open link in body cells', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ accountid: '12345678-1234-1234-1234-123456789012', name: 'Contoso' }];
+            const headers = ['accountid', 'name'];
+            const pageIndices = [0];
+
+            const html = resultPanel._buildTableBodyHtml(data, headers, pageIndices, 'accountid');
+
+            expect(html).toContain('pdt-open-record-link');
+            expect(html).toContain('data-record-id="12345678-1234-1234-1234-123456789012"');
+        });
+
+        it('should render empty cell when record has no ID value', () => {
+            resultPanel.entityLogicalName = 'account';
+            const data = [{ accountid: null, name: 'No ID' }];
+            const headers = ['accountid', 'name'];
+            const pageIndices = [0];
+
+            const html = resultPanel._buildTableBodyHtml(data, headers, pageIndices, 'accountid');
+
+            expect(html).not.toContain('pdt-open-record-link');
+            expect(html).toContain('<td></td>');
+        });
+
+        it('should not include Open cells when primaryIdColumn is null', () => {
+            const data = [{ name: 'Test' }];
+            const headers = ['name'];
+            const pageIndices = [0];
+
+            const html = resultPanel._buildTableBodyHtml(data, headers, pageIndices, null);
+
+            expect(html).not.toContain('pdt-open-record-link');
+        });
+    });
+
+    describe('entityLogicalName constructor parameter', () => {
+        it('should initialize entityLogicalName from config', () => {
+            const panel = new ResultPanel({
+                root,
+                onToggleView: mockOnToggleView,
+                onToggleHide: mockOnToggleHide,
+                getSortState: mockGetSortState,
+                setSortState: mockSetSortState,
+                entityLogicalName: 'contact'
+            });
+
+            expect(panel.entityLogicalName).toBe('contact');
+        });
+
+        it('should default entityLogicalName to empty string', () => {
+            expect(resultPanel.entityLogicalName).toBe('');
         });
     });
 });

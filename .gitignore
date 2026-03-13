@@ -8,6 +8,7 @@
 # OS-specific files
 .DS_Store
 .vs/
+.vscode/
 
 # Bundle analysis
 bundle-report.html
@@ -17,5 +18,5 @@ bundle-stats.json
 /package-lock.json
 
 /.github
-
 /coverage
+AGENTS.md

@@ -8,6 +8,7 @@ import { UIFactory } from '../../ui/UIFactory.js';
 import { escapeHtml, isOdataProperty, UIHelpers, FileHelpers } from '../../helpers/index.js';
 import { Config } from '../../constants/index.js';
 import { NotificationService } from '../../services/NotificationService.js';
+import { PowerAppsApiService } from '../../services/PowerAppsApiService.js';
 
 /**
  * ResultPanel class for rendering API results with table/JSON views, sorting, and filtering.
@@ -25,8 +26,9 @@ export class ResultPanel {
      * @param {Function} [config.onBulkTouch] - Optional callback for bulk touch operation on selected rows
      * @param {boolean} [config.enableSelection=false] - Whether to enable row selection with checkboxes
      * @param {string} [config.tableName=''] - Optional table name for export filename
+     * @param {string} [config.entityLogicalName=''] - Optional entity logical name for "Open Record" links
      */
-    constructor({ root, onToggleView, onToggleHide, getSortState, setSortState, onBulkTouch, enableSelection = false, tableName = '' }) {
+    constructor({ root, onToggleView, onToggleHide, getSortState, setSortState, onBulkTouch, enableSelection = false, tableName = '', entityLogicalName = '' }) {
         this.root = root;
         this.onToggleView = onToggleView;
         this.onToggleHide = onToggleHide;
@@ -35,6 +37,7 @@ export class ResultPanel {
         this.onBulkTouch = onBulkTouch;
         this.enableSelection = enableSelection;
         this.tableName = tableName;
+        this.entityLogicalName = entityLogicalName;
         this._coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
         // Pagination state
@@ -104,9 +107,14 @@ export class ResultPanel {
         const toolbarHtml = this._buildToolbarHtml(count, view, hideOdata);
         const headerHtml = this._buildHeaderHtml(count);
 
+        const hintHtml = this.enableSelection && count > 0
+            ? `<p class="pdt-note pdt-note--small pdt-result-hint">${Config.MESSAGES.UI.resultHint}</p>`
+            : '';
+
         return `
-            ${toolbarHtml}
             ${headerHtml}
+            ${toolbarHtml}
+            ${hintHtml}
             <div id="pdt-banner-container"></div>
             <div id="pdt-content" class="pdt-result-wrapper"></div>
             <div id="pdt-pagination"></div>
@@ -530,8 +538,9 @@ export class ResultPanel {
      * @returns {string} Table HTML
      */
     _buildTableHtml(data, headers, pageIndices) {
-        const headerHtml = this._buildTableHeaderHtml(data, headers);
-        const bodyHtml = this._buildTableBodyHtml(data, headers, pageIndices);
+        const primaryIdColumn = this._detectPrimaryIdColumn(data, headers);
+        const headerHtml = this._buildTableHeaderHtml(data, headers, primaryIdColumn);
+        const bodyHtml = this._buildTableBodyHtml(data, headers, pageIndices, primaryIdColumn);
 
         return `
             <table class="pdt-table" role="grid" aria-label="API Results">
@@ -542,17 +551,80 @@ export class ResultPanel {
     }
 
     /**
+     * Detects the primary ID column in the data by finding a column ending with 'id'
+     * whose values are GUIDs, and an entity logical name is available.
+     * @private
+     * @param {Array<Object>} data - Dataset
+     * @param {Array<string>} headers - Column headers
+     * @returns {string|null} The primary ID column name, or null if not detected
+     */
+    _detectPrimaryIdColumn(data, headers) {
+        if (!this.entityLogicalName) {
+            return null;
+        }
+
+        const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+        // Prefer the exact expected primary key column (e.g. "accountid" for entity "account")
+        const expectedPrimaryKey = `${this.entityLogicalName}id`;
+        if (headers.includes(expectedPrimaryKey)) {
+            const firstNonEmpty = data.find(row => row[expectedPrimaryKey] && String(row[expectedPrimaryKey]).trim());
+            if (firstNonEmpty && guidRegex.test(String(firstNonEmpty[expectedPrimaryKey]).trim())) {
+                return expectedPrimaryKey;
+            }
+        }
+
+        // Fallback: look for any column ending with "id" that contains GUID values
+        const idColumns = headers.filter(h => h.toLowerCase().endsWith('id'));
+        for (const col of idColumns) {
+            const firstNonEmpty = data.find(row => row[col] && String(row[col]).trim());
+            if (firstNonEmpty && guidRegex.test(String(firstNonEmpty[col]).trim())) {
+                return col;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Builds the URL to open a record in Dynamics 365.
+     * @private
+     * @param {string} recordId - The record GUID
+     * @returns {string|null} The record URL, or null if unable to build
+     */
+    _buildRecordUrl(recordId) {
+        if (!recordId || !this.entityLogicalName) {
+            return null;
+        }
+        try {
+            const globalContext = PowerAppsApiService.getGlobalContext();
+            const clientUrl = globalContext?.getClientUrl?.();
+            if (!clientUrl) {
+                return null;
+            }
+            return `${clientUrl}/main.aspx?etn=${encodeURIComponent(this.entityLogicalName)}&id=${encodeURIComponent(recordId)}&pagetype=entityrecord`;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    /**
      * Builds table header HTML.
      * @private
      * @param {Array<Object>} data - Dataset
      * @param {Array<string>} headers - Column headers
+     * @param {string|null} primaryIdColumn - The detected primary ID column, or null
      * @returns {string} Header HTML
      */
-    _buildTableHeaderHtml(data, headers) {
+    _buildTableHeaderHtml(data, headers, primaryIdColumn) {
         const sort = this.getSortState();
         const allSelected = this.enableSelection && data.length > 0 && this._selectedIndices.size === data.length;
         const selectionHeader = this.enableSelection
-            ? `<th><input type="checkbox" id="pdt-select-all" title="Select All" ${allSelected ? 'checked' : ''}></th>`
+            ? `<th class="pdt-col-sticky pdt-col-select"><input type="checkbox" id="pdt-select-all" title="Select All" ${allSelected ? 'checked' : ''}></th>`
+            : '';
+
+        const openHeader = primaryIdColumn
+            ? `<th class="pdt-col-sticky pdt-col-open${this.enableSelection ? ' pdt-col-open--with-select' : ''}" title="Open record in Dynamics 365"></th>`
             : '';
 
         const columnHeaders = headers.map(h => {
@@ -561,7 +633,7 @@ export class ResultPanel {
             return `<th class="${sortClass}" data-column="${escapeHtml(h)}" title="${escapeHtml(h)}">${escapeHtml(h)}</th>`;
         }).join('');
 
-        return selectionHeader + columnHeaders;
+        return selectionHeader + openHeader + columnHeaders;
     }
 
     /**
@@ -570,15 +642,27 @@ export class ResultPanel {
      * @param {Array<Object>} data - Dataset
      * @param {Array<string>} headers - Column headers
      * @param {Array<number>} pageIndices - Indices for current page
+     * @param {string|null} primaryIdColumn - The detected primary ID column, or null
      * @returns {string} Body HTML
      */
-    _buildTableBodyHtml(data, headers, pageIndices) {
+    _buildTableBodyHtml(data, headers, pageIndices, primaryIdColumn) {
         return pageIndices.map((actualIdx) => {
             const rec = data[actualIdx];
             const isSelected = this._selectedIndices.has(actualIdx);
             const selectionCell = this.enableSelection
-                ? `<td><input type="checkbox" class="pdt-row-select" data-index="${actualIdx}" ${isSelected ? 'checked' : ''}></td>`
+                ? `<td class="pdt-col-sticky pdt-col-select"><input type="checkbox" class="pdt-row-select" data-index="${actualIdx}" ${isSelected ? 'checked' : ''}></td>`
                 : '';
+
+            const openStickyClass = `pdt-col-sticky pdt-col-open${this.enableSelection ? ' pdt-col-open--with-select' : ''}`;
+            let openCell = '';
+            if (primaryIdColumn) {
+                const recordId = rec[primaryIdColumn];
+                if (recordId) {
+                    openCell = `<td class="${openStickyClass}"><a class="pdt-open-record-link" data-record-id="${escapeHtml(String(recordId))}" href="#" title="${escapeHtml(Config.MESSAGES.UI.openRecordTitle)}">${escapeHtml(Config.MESSAGES.UI.openRecord)}</a></td>`;
+                } else {
+                    openCell = `<td class="${openStickyClass}"></td>`;
+                }
+            }
 
             const cells = headers.map(h => {
                 const v = rec[h];
@@ -586,7 +670,7 @@ export class ResultPanel {
                 return `<td>${escapeHtml(text)}</td>`;
             }).join('');
 
-            return `<tr>${selectionCell}${cells}</tr>`;
+            return `<tr>${selectionCell}${openCell}${cells}</tr>`;
         }).join('');
     }
 
@@ -666,7 +750,7 @@ export class ResultPanel {
     }
 
     /**
-     * Handles click events on table (sorting and selection).
+     * Handles click events on table (sorting, selection, and open record links).
      * @private
      * @param {Event} e - Click event
      * @param {Array<Object>} data - Full dataset
@@ -674,6 +758,18 @@ export class ResultPanel {
      * @param {boolean} hideOdata - Whether to hide OData fields
      */
     _handleTableClick(e, data, view, hideOdata) {
+        // Handle "Open Record" link clicks
+        const openLink = e.target.closest('.pdt-open-record-link');
+        if (openLink) {
+            e.preventDefault();
+            const recordId = openLink.dataset.recordId;
+            const url = this._buildRecordUrl(recordId);
+            if (url) {
+                window.open(url, '_blank');
+            }
+            return;
+        }
+
         // Handle column sorting
         const th = e.target.closest('th[data-column]');
         if (th) {

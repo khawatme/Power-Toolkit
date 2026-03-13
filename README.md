@@ -17,12 +17,13 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 
 ### ⚙️ Automation & Logic Debugging
 * **Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists static `OnLoad`/`OnSave` event handlers
+* **Power Automate:** Browse, activate/deactivate, and delete cloud flows. View flow definitions with a visual step-by-step diagram and raw JSON, with direct links to the Power Automate portal
 * **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` sent to server-side plugins. Includes a C# unit test generator for FakeXrmEasy
 * **Plugin Trace Logs:** Real-time viewer for server-side Plugin Trace Logs with live polling, powerful filtering, and search capabilities
 
 ### 📊 Data & API Interaction
 * **WebAPI Explorer:** Full-featured client to execute GET, POST, PATCH, and DELETE requests against the Dataverse Web API with intelligent query building
-* **FetchXML Tester:** Powerful builder and editor to write, format, and execute FetchXML queries with syntax highlighting
+* **FetchXML Tester:** Powerful builder and editor to write, format, and execute FetchXML queries with syntax highlighting. Convert FetchXML to C# QueryExpression, JavaScript Xrm, OData, SQL, Power Automate, and Web API URL formats
 * **Metadata Browser:** Complete, searchable dictionary of all tables and columns in the environment
 
 ### 🔐 Security & Configuration
@@ -51,7 +52,7 @@ Install directly from your browser's extension store:
 [Install from Chrome Web Store](https://chromewebstore.google.com/detail/power-toolkit-for-power-a/pohgckfkhjeahcjnmihobcoccpccgpca)
 
 #### Mozilla Firefox
-[Install from Firefox Add-ons](https://addons.mozilla.org/) *(Firefox 140+)*
+[Install from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/power-toolkit-for-power-apps/) *(Firefox 140+)*
 
 ### Option 2: Load Unpacked (Development)
 
@@ -332,6 +333,20 @@ _registerComponents() {
 ```
 
 **Note:** The tab metadata (id, label, icon) is defined in your component's constructor via `super()`. The `UIManager` automatically discovers all registered components, so no separate tab array is needed.
+
+### Step 2b: Register in Store.js
+
+Add your tab to `getDefaultTabSettings()` in `src/core/Store.js` so it appears in the tab list and can be toggled in Settings:
+
+```javascript
+function getDefaultTabSettings() {
+    return [
+        // ... existing tabs
+        { id: 'mycustomtab', visible: true, formOnly: false },
+        // ... utility components (settings, help, about) go last
+    ];
+}
+```
 
 ### Step 3: Update Constants (Optional)
 
