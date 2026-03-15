@@ -2263,6 +2263,20 @@ input:checked + .pdt-toggle-slider:before {
     color: var(--pro-error);
 }
 
+.pdt-status-badge.managed {
+    color: var(--pro-muted);
+    border: 1px solid var(--pro-border);
+    font-size: 10px;
+    padding: 2px 7px;
+}
+
+.pdt-status-badge.customizable {
+    color: var(--pro-accent);
+    border: 1px solid var(--pro-accent);
+    font-size: 10px;
+    padding: 2px 7px;
+}
+
 .pdt-list-item-spacer {
     flex-grow: 1;
 }

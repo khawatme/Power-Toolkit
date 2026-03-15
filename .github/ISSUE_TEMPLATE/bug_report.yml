@@ -78,6 +78,7 @@ body:
         - User Context Tab
         - Impersonate Tab
         - Automation Tab
+        - Power Automate Tab
         - Plugin Trace Log Tab
         - Plugin Context Tab
         - Solution Layers Tab

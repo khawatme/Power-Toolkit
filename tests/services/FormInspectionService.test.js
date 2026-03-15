@@ -541,9 +541,9 @@ describe('FormInspectionService', () => {
             `;
 
             const retrieveMultipleRecords = vi.fn().mockResolvedValue({
-                entities: [{ formid: 'form-id-123' }]
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
             });
-            const retrieveRecord = vi.fn().mockResolvedValue({ formxml: formXml });
+            const retrieveRecord = vi.fn();
 
             const result = await FormInspectionService.getFormEventHandlersForEntity(
                 retrieveMultipleRecords, retrieveRecord, 'account'
@@ -571,17 +571,19 @@ describe('FormInspectionService', () => {
             expect(result).toBeNull();
         });
 
-        it('should return null when form has no formxml', async () => {
+        it('should return empty automations when form has no formxml or formjson', async () => {
             const retrieveMultipleRecords = vi.fn().mockResolvedValue({
-                entities: [{ formid: 'form-id-123' }]
+                entities: [{ formid: 'form-id-123', formxml: null, formjson: null }]
             });
-            const retrieveRecord = vi.fn().mockResolvedValue({ formxml: null });
+            const retrieveRecord = vi.fn();
 
             const result = await FormInspectionService.getFormEventHandlersForEntity(
                 retrieveMultipleRecords, retrieveRecord, 'account'
             );
 
-            expect(result).toBeNull();
+            expect(result).not.toBeNull();
+            expect(result.OnLoad).toEqual([]);
+            expect(result.OnSave).toEqual([]);
         });
     });
 
@@ -884,9 +886,9 @@ describe('FormInspectionService', () => {
             `;
 
             const retrieveMultipleRecords = vi.fn().mockResolvedValue({
-                entities: [{ formid: 'form-id-123' }]
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
             });
-            const retrieveRecord = vi.fn().mockResolvedValue({ formxml: formXml });
+            const retrieveRecord = vi.fn();
 
             const result = await FormInspectionService.getFormEventHandlersForEntity(
                 retrieveMultipleRecords, retrieveRecord, 'contact'
@@ -900,6 +902,565 @@ describe('FormInspectionService', () => {
             expect(result.OnSave[0].enabled).toBe(true);
             expect(result.OnSave[1].function).toBe('onSaveValidation');
             expect(result.OnSave[1].enabled).toBe(false);
+        });
+    });
+
+    describe('getFormEventHandlersForEntity InternalHandlers and clientresources', () => {
+        it('should capture handlers from InternalHandlers in non-standard events', async () => {
+            const formXml = `
+                <form>
+                    <tabs><tab><columns><column><sections><section><rows><row>
+                        <cell>
+                            <control id="parentcustomerid" datafieldname="parentcustomerid" />
+                            <events>
+                                <event name="setadditionalparams" application="true" active="true">
+                                    <InternalHandlers>
+                                        <Handler functionName="AppCommon.Contact.Instance.parentcustomerid_setadditionalparams"
+                                                 libraryName="AppCommon/Contact/Contact_main_system_library.js"
+                                                 handlerUniqueId="76092dad-9a35-46d9-8e60-db497b408601"
+                                                 enabled="true" passExecutionContext="true" />
+                                    </InternalHandlers>
+                                </event>
+                            </events>
+                        </cell>
+                    </row></rows></section></sections></column></columns></tab></tabs>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.Other).toHaveLength(1);
+            expect(result.Other[0].function).toBe('AppCommon.Contact.Instance.parentcustomerid_setadditionalparams');
+            expect(result.Other[0].library).toBe('AppCommon/Contact/Contact_main_system_library.js');
+            expect(result.Other[0].field).toBe('parentcustomerid');
+            expect(result.Other[0].eventType).toBe('setadditionalparams');
+            expect(result.Other[0].enabled).toBe(true);
+            expect(result.Other[0].managed).toBe(true);
+        });
+
+        it('should parse clientresources for internaljscriptfile entries', async () => {
+            const formXml = `
+                <form>
+                    <clientresources>
+                        <internalresources>
+                            <clientincludes>
+                                <internaljscriptfile src="$webresource:AppCommon/Contact/Contact_main_system_library.js" />
+                            </clientincludes>
+                        </internalresources>
+                    </clientresources>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.Libraries).toHaveLength(1);
+            expect(result.Libraries[0]).toBe('AppCommon/Contact/Contact_main_system_library.js');
+        });
+
+        it('should parse clientresources for regular jscriptfile entries', async () => {
+            const formXml = `
+                <form>
+                    <clientresources>
+                        <clientincludes>
+                            <jscriptfile src="$webresource:new_/scripts/account.js" />
+                            <jscriptfile src="$webresource:new_/scripts/common.js" />
+                        </clientincludes>
+                    </clientresources>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.Libraries).toHaveLength(2);
+            expect(result.Libraries[0]).toBe('new_/scripts/account.js');
+            expect(result.Libraries[1]).toBe('new_/scripts/common.js');
+        });
+
+        it('should not duplicate library entries', async () => {
+            const formXml = `
+                <form>
+                    <clientresources>
+                        <clientincludes>
+                            <jscriptfile src="$webresource:my_script.js" />
+                        </clientincludes>
+                        <internalresources>
+                            <clientincludes>
+                                <internaljscriptfile src="$webresource:my_script.js" />
+                            </clientincludes>
+                        </internalresources>
+                    </clientresources>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.Libraries).toHaveLength(1);
+            expect(result.Libraries[0]).toBe('my_script.js');
+        });
+
+        it('should capture non-standard form-level events in Other', async () => {
+            const formXml = `
+                <form>
+                    <events>
+                        <event name="onload">
+                            <Handler libraryName="load.js" functionName="onLoad" enabled="true"/>
+                        </event>
+                        <event name="customaction">
+                            <Handler libraryName="custom.js" functionName="onCustomAction" enabled="true"/>
+                        </event>
+                    </events>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.Other).toHaveLength(1);
+            expect(result.Other[0].function).toBe('onCustomAction');
+            expect(result.Other[0].eventType).toBe('customaction');
+        });
+
+        it('should return empty Other and Libraries arrays for standard forms', async () => {
+            const formXml = `
+                <form>
+                    <events>
+                        <event name="onload">
+                            <Handler libraryName="test.js" functionName="onLoad" enabled="true"/>
+                        </event>
+                    </events>
+                </form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml }]
+            });
+            const retrieveRecord = vi.fn();
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, retrieveRecord, 'contact'
+            );
+
+            expect(result.Other).toEqual([]);
+            expect(result.Libraries).toEqual([]);
+        });
+    });
+
+    describe('getFormEventHandlers InternalHandlers and clientresources', () => {
+        it('should capture InternalHandlers in Other events', async () => {
+            const formXml = `<form>
+                <tabs><tab><columns><column><sections><section><rows><row>
+                    <cell>
+                        <control id="parentcustomerid" datafieldname="parentcustomerid" />
+                        <events>
+                            <event name="setadditionalparams" application="true" active="true">
+                                <InternalHandlers>
+                                    <Handler functionName="MyLib.setParams"
+                                             libraryName="my_library.js"
+                                             enabled="true" passExecutionContext="false" />
+                                </InternalHandlers>
+                            </event>
+                        </events>
+                    </cell>
+                </row></rows></section></sections></column></columns></tab></tabs>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-789'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.Other).toHaveLength(1);
+            expect(result.Other[0].function).toBe('MyLib.setParams');
+            expect(result.Other[0].eventType).toBe('setadditionalparams');
+            expect(result.Other[0].field).toBe('parentcustomerid');
+        });
+
+        it('should parse clientresources for Libraries', async () => {
+            const formXml = `<form>
+                <events></events>
+                <clientresources>
+                    <internalresources>
+                        <clientincludes>
+                            <internaljscriptfile src="$webresource:AppCommon/Contact/Contact_main_system_library.js" />
+                        </clientincludes>
+                    </internalresources>
+                </clientresources>
+            </form>`;
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: formXml }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({
+                                getId: () => 'form-789'
+                            })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.Libraries).toHaveLength(1);
+            expect(result.Libraries[0]).toBe('AppCommon/Contact/Contact_main_system_library.js');
+        });
+    });
+
+    describe('getFormEventHandlersForEntity formjson parsing', () => {
+        it('should parse handlers from formjson Events array format', async () => {
+            const formjson = JSON.stringify({
+                Events: [
+                    {
+                        name: 'onload',
+                        handlers: [
+                            {
+                                functionName: 'TestFormLogic.onLoad',
+                                libraryName: '$webresource:pt_FormLogic.js',
+                                enabled: true,
+                                passExecutionContext: true,
+                                parameters: ''
+                            }
+                        ]
+                    },
+                    {
+                        name: 'onsave',
+                        handlers: [
+                            {
+                                functionName: 'TestFormLogic.onSave',
+                                libraryName: '$webresource:pt_FormLogic.js',
+                                enabled: true,
+                                passExecutionContext: false,
+                                parameters: ''
+                            }
+                        ]
+                    }
+                ]
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-json', formxml: '<form></form>', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.OnLoad[0].function).toBe('TestFormLogic.onLoad');
+            expect(result.OnLoad[0].library).toBe('pt_FormLogic.js');
+            expect(result.OnLoad[0].enabled).toBe(true);
+            expect(result.OnSave).toHaveLength(1);
+            expect(result.OnSave[0].function).toBe('TestFormLogic.onSave');
+            expect(result.OnSave[0].library).toBe('pt_FormLogic.js');
+        });
+
+        it('should parse handlers from formjson Events object format', async () => {
+            const formjson = JSON.stringify({
+                Events: {
+                    onload: {
+                        handlers: [
+                            {
+                                functionName: 'MyLib.onLoad',
+                                libraryName: 'my_script.js',
+                                enabled: true,
+                                passExecutionContext: true
+                            }
+                        ]
+                    }
+                }
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-json', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'account'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.OnLoad[0].function).toBe('MyLib.onLoad');
+            expect(result.OnLoad[0].library).toBe('my_script.js');
+        });
+
+        it('should extract FormLibraries from formjson', async () => {
+            const formjson = JSON.stringify({
+                FormLibraries: [
+                    { name: '$webresource:pt_FormLogic.js' },
+                    { name: 'other_script.js' }
+                ]
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-json', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result.Libraries).toHaveLength(2);
+            expect(result.Libraries[0]).toBe('pt_FormLogic.js');
+            expect(result.Libraries[1]).toBe('other_script.js');
+        });
+
+        it('should extract ClientResources JsFiles from formjson', async () => {
+            const formjson = JSON.stringify({
+                ClientResources: {
+                    JsFiles: ['$webresource:lib1.js', 'lib2.js']
+                }
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-json', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result.Libraries).toHaveLength(2);
+            expect(result.Libraries[0]).toBe('lib1.js');
+            expect(result.Libraries[1]).toBe('lib2.js');
+        });
+
+        it('should deduplicate handlers from formxml and formjson', async () => {
+            const formXml = `
+                <form>
+                    <events>
+                        <event name="onload">
+                            <Handler libraryName="shared.js" functionName="onLoad" enabled="true"/>
+                        </event>
+                    </events>
+                </form>
+            `;
+            const formjson = JSON.stringify({
+                Events: [
+                    {
+                        name: 'onload',
+                        handlers: [{ functionName: 'onLoad', libraryName: 'shared.js', enabled: true }]
+                    }
+                ]
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-id-123', formxml: formXml, formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+        });
+
+        it('should aggregate handlers from multiple forms', async () => {
+            const formXml1 = `
+                <form><events>
+                    <event name="onload">
+                        <Handler libraryName="form1.js" functionName="onLoad1" enabled="true"/>
+                    </event>
+                </events></form>
+            `;
+            const formXml2 = `
+                <form><events>
+                    <event name="onload">
+                        <Handler libraryName="form2.js" functionName="onLoad2" enabled="true"/>
+                    </event>
+                </events></form>
+            `;
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [
+                    { formid: 'form-1', formxml: formXml1 },
+                    { formid: 'form-2', formxml: formXml2 }
+                ]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'account'
+            );
+
+            expect(result.OnLoad).toHaveLength(2);
+            expect(result.formId).toBe('form-1');
+        });
+
+        it('should handle forms with only formjson and no formxml', async () => {
+            const formjson = JSON.stringify({
+                Events: [
+                    {
+                        name: 'onload',
+                        handlers: [
+                            { functionName: 'JsonOnly.onLoad', libraryName: 'json_script.js', enabled: true }
+                        ]
+                    }
+                ],
+                FormLibraries: [{ name: 'json_script.js' }]
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-json-only', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.OnLoad[0].function).toBe('JsonOnly.onLoad');
+            expect(result.Libraries).toHaveLength(1);
+            expect(result.Libraries[0]).toBe('json_script.js');
+        });
+
+        it('should skip invalid formjson gracefully', async () => {
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-bad', formjson: 'not-valid-json{{{' }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'contact'
+            );
+
+            expect(result).not.toBeNull();
+            expect(result.OnLoad).toEqual([]);
+        });
+
+        it('should normalize PascalCase handler properties from formjson', async () => {
+            const formjson = JSON.stringify({
+                Events: [
+                    {
+                        Name: 'onsave',
+                        Handlers: [
+                            {
+                                FunctionName: 'MyApp.onSave',
+                                LibraryName: '$webresource:my_app.js',
+                                Enabled: true,
+                                PassExecutionContext: true,
+                                Parameters: 'param1'
+                            }
+                        ]
+                    }
+                ]
+            });
+
+            const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                entities: [{ formid: 'form-pascal', formjson }]
+            });
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                retrieveMultipleRecords, vi.fn(), 'account'
+            );
+
+            expect(result.OnSave).toHaveLength(1);
+            expect(result.OnSave[0].function).toBe('MyApp.onSave');
+            expect(result.OnSave[0].library).toBe('my_app.js');
+            expect(result.OnSave[0].enabled).toBe(true);
+            expect(result.OnSave[0].passContext).toBe(true);
+            expect(result.OnSave[0].parameters).toBe('param1');
+        });
+    });
+
+    describe('getFormEventHandlers formjson parsing', () => {
+        it('should parse formjson handlers on current form', async () => {
+            const formjson = JSON.stringify({
+                Events: [
+                    {
+                        name: 'onload',
+                        handlers: [
+                            { functionName: 'CurrentForm.onLoad', libraryName: 'current.js', enabled: true }
+                        ]
+                    }
+                ]
+            });
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: '<form></form>', formjson }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({ getId: () => 'form-abc' })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.OnLoad[0].function).toBe('CurrentForm.onLoad');
+            expect(webApiFetch).toHaveBeenCalledWith('GET', 'systemforms(form-abc)', '?$select=formxml,formjson');
+        });
+
+        it('should accept form with only formjson and no formxml', async () => {
+            const formjson = JSON.stringify({
+                Events: [{ name: 'onsave', handlers: [{ functionName: 'App.onSave', libraryName: 'app.js', enabled: true }] }]
+            });
+
+            const webApiFetch = vi.fn(() => Promise.resolve({ formjson }));
+
+            global.Xrm = {
+                Page: {
+                    ui: {
+                        formSelector: {
+                            getCurrentItem: () => ({ getId: () => 'form-xyz' })
+                        }
+                    }
+                }
+            };
+
+            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+
+            expect(result.OnSave).toHaveLength(1);
+            expect(result.OnSave[0].function).toBe('App.onSave');
         });
     });
 
