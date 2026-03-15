@@ -84,17 +84,25 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li><strong>Power Automate Flows Tab:</strong> New tab to browse, activate/deactivate, delete, and open cloud flows directly from the toolkit with solution-based filtering and flow visualization.</li>
-                        <li><strong>Web Resource Editing (Automation):</strong> Form event handlers in the Automation tab now allow editing web resources directly, enabling quick script updates without leaving the toolkit.</li>
-                        <li><strong>Aggregate Queries (FetchXML):</strong> Build aggregate queries with count, sum, avg, min, max using the aggregate and groupby options.</li>
-                        <li><strong>FetchXML Converter:</strong> Convert FetchXML to C# QueryExpression, JavaScript Xrm, OData, SQL, Power Automate, and Web API URL formats.</li>
-                        <li><strong>Open Record Button:</strong> Result tables in FetchXML Tester and WebAPI Explorer now include an Open button to navigate directly to records.</li>
-                        <li><strong>Record Selection (FetchXML):</strong> Select specific records from FetchXML results for export or touch operations.</li>
-                        <li><strong>In Operator Fix (FetchXML):</strong> The "In" operator now correctly generates separate value elements for comma-separated values.</li>
-                        <li><strong>Case-Insensitive Entity/Column Names:</strong> FetchXML and WebAPI Explorer now auto-resolve PascalCase names to correct logical names, preventing errors with mixed-case input.</li>
-                        <li><strong>Solution Layers – Plugin Packages:</strong> Solution Layers tab now displays unmanaged layers for plugin packages.</li>
+                        <li><strong>FormJSON Handler Parsing:</strong> Form Automation now reads handlers from the modern <code>formjson</code> column, fixing missing handlers on forms created with the new Power Apps form designer.</li>
+                        <li><strong>Managed/Custom Badges:</strong> Each event handler now displays a <em>Managed</em> or <em>Custom</em> badge, making it easy to distinguish system handlers from customizable ones.</li>
+                        <li><strong>Handler Deduplication:</strong> Duplicate handlers across formxml and formjson sources are automatically merged.</li>
                     </ul>
                     <details class="pdt-changelog-details" style="cursor: pointer;">
+                        <summary style="cursor: pointer; user-select: none;"><strong> Version 4.2.0</strong></summary>
+                        <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
+                            <li><strong>Power Automate Flows Tab:</strong> New tab to browse, activate/deactivate, delete, and open cloud flows directly from the toolkit with solution-based filtering and flow visualization.</li>
+                            <li><strong>Web Resource Editing (Automation):</strong> Form event handlers in the Automation tab now allow editing web resources directly, enabling quick script updates without leaving the toolkit.</li>
+                            <li><strong>Aggregate Queries (FetchXML):</strong> Build aggregate queries with count, sum, avg, min, max using the aggregate and groupby options.</li>
+                            <li><strong>FetchXML Converter:</strong> Convert FetchXML to C# QueryExpression, JavaScript Xrm, OData, SQL, Power Automate, and Web API URL formats.</li>
+                            <li><strong>Open Record Button:</strong> Result tables in FetchXML Tester and WebAPI Explorer now include an Open button to navigate directly to records.</li>
+                            <li><strong>Record Selection (FetchXML):</strong> Select specific records from FetchXML results for export or touch operations.</li>
+                            <li><strong>In Operator Fix (FetchXML):</strong> The "In" operator now correctly generates separate value elements for comma-separated values.</li>
+                            <li><strong>Case-Insensitive Entity/Column Names:</strong> FetchXML and WebAPI Explorer now auto-resolve PascalCase names to correct logical names, preventing errors with mixed-case input.</li>
+                            <li><strong>Solution Layers – Plugin Packages:</strong> Solution Layers tab now displays unmanaged layers for plugin packages.</li>
+                        </ul>
+                    </details>
+                    <details class="pdt-changelog-details" style="cursor: pointer; margin-top: 0.5rem;">
                         <summary style="cursor: pointer; user-select: none;"><strong> Previous Releases</strong></summary>
                         <div style="margin-top: 1rem;">
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem;">

@@ -134,12 +134,12 @@ export class HelpTab extends BaseComponent {
             inspector: {
                 title: 'Inspector',
                 summary: 'View and edit the form\'s UI component hierarchy in real-time.',
-                content: 'The Inspector provides a live, hierarchical tree view of every UI component on the current form (Tabs > Sections > Controls). Expand each level to see properties and current values. For editable fields, the value is underlined—click it to open a dialog and perform **live editing**. This is extremely useful for testing how the form reacts to different data inputs without having to write code.'
+                content: 'The Inspector provides a live, hierarchical tree view of every UI component on the current form (Tabs > Sections > Controls). Expand each level to see properties and current values. For editable fields, the value is underlined—click it to open a dialog and perform <strong>live editing</strong>. This is extremely useful for testing how the form reacts to different data inputs without having to write code.'
             },
             formColumns: {
                 title: 'Form Columns',
                 summary: 'A searchable table of all data columns on the form or in the record.',
-                content: "This tab provides a flat table of every data column (attribute). The <strong>'Form Columns'</strong> view shows live data from the `Xrm.Page` context, allowing for real-time editing. The <strong>'Record Columns'</strong> view shows all attributes for the saved record, fetched via the Web API. You can sort, search, and hover over a row to **highlight the control** on the main form."
+                content: "This tab provides a flat table of every data column (attribute). The <strong>'Form Columns'</strong> view shows live data from the `Xrm.Page` context, allowing for real-time editing. The <strong>'Record Columns'</strong> view shows all attributes for the saved record, fetched via the Web API. You can sort, search, and hover over a row to <strong>highlight the control</strong> on the main form."
             },
             eventMonitor: {
                 title: 'Event Monitor',
@@ -149,7 +149,7 @@ export class HelpTab extends BaseComponent {
             pluginContext: {
                 title: 'Plugin Context',
                 summary: 'Simulate the data context (Target, Pre/Post Images) sent to server-side plugins.',
-                content: 'This tool simulates the data context that would be sent to a server-side plugin for `Create`, `Update`, or `Delete` operations. Based on the current form data, it generates the JSON for `InputParameters["Target"]`, `PreEntityImages["preimage"]`, and `PostEntityImages["postimage"]`. It also includes a button to generate a complete C# unit test snippet for the **FakeXrmEasy** framework.'
+                content: 'This tool simulates the data context that would be sent to a server-side plugin for `Create`, `Update`, or `Delete` operations. Based on the current form data, it generates the JSON for `InputParameters["Target"]`, `PreEntityImages["preimage"]`, and `PostEntityImages["postimage"]`. It also includes a button to generate a complete C# unit test snippet for the <strong>FakeXrmEasy</strong> framework.'
             },
             performance: {
                 title: 'Performance',
@@ -159,7 +159,7 @@ export class HelpTab extends BaseComponent {
             automation: {
                 title: 'Form Automation',
                 summary: 'View, manage, and inspect Business Rules and JavaScript event handlers.',
-                content: 'This tab reveals the automated logic on a table. The **Business Rules** section shows all rules (both active and inactive) for any table you select. You can **Activate, Deactivate, and Delete** rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting. The **Form Event Handlers** section shows all `OnLoad` and `OnSave` functions configured in the form designer.'
+                content: 'This tab reveals the automated logic on a table. The <strong>Business Rules</strong> section shows all rules (both active and inactive) for any table you select. You can <strong>Activate, Deactivate, Open, and Delete</strong> rules directly, and click on any rule to expand it and see its underlying JavaScript logic with syntax highlighting.<br><br>The <strong>Form Event Handlers</strong> section shows all `OnLoad`, `OnSave`, and `OnChange` functions configured in the form designer across all main forms. Each handler displays a <strong>Managed</strong> or <strong>Custom</strong> badge to indicate whether it is a system handler or a customizable one. Handlers are sourced from both `formxml` and `formjson` definitions.'
             },
             powerAutomateFlows: {
                 title: 'Power Automate Flows',
@@ -179,7 +179,7 @@ export class HelpTab extends BaseComponent {
             solutionLayers: {
                 title: 'Solution Layers',
                 summary: 'View and manage solution components with active unmanaged customizations.',
-                content: 'This tab helps you identify and manage customization layers in your environment. Select a solution to view all components that have active unmanaged customizations sitting on top of managed components. You can search and filter by component type (Entity, Attribute, Form, View, etc.). For unmanaged active layers, you can **delete** them to remove your customization and reveal the managed version beneath. This is especially useful for cleaning up customizations or resolving conflicts after importing managed solutions.'
+                content: 'This tab helps you identify and manage customization layers in your environment. Select a solution to view all components that have active unmanaged customizations sitting on top of managed components. You can search and filter by component type (Entity, Attribute, Form, View, etc.). For unmanaged active layers, you can <strong>delete</strong> them to remove your customization and reveal the managed version beneath. This is especially useful for cleaning up customizations or resolving conflicts after importing managed solutions.'
             },
             apiExplorer: {
                 title: 'WebAPI Explorer',
@@ -194,7 +194,7 @@ export class HelpTab extends BaseComponent {
             traces: {
                 title: 'Plugin Traces',
                 summary: 'View and filter server-side Plugin Trace Logs in real-time.',
-                content: 'A real-time viewer for server-side code. It fetches the latest Plugin Trace Logs and supports **live polling** to show new traces as they are created. You can filter by class name or message content on the server, and perform a local text search to quickly find the trace you need.'
+                content: 'A real-time viewer for server-side code. It fetches the latest Plugin Trace Logs and supports <strong>live polling</strong> to show new traces as they are created. You can filter by class name or message content on the server, and perform a local text search to quickly find the trace you need.'
             },
             envVars: {
                 title: 'Env Variables',

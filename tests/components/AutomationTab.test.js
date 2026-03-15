@@ -1357,6 +1357,82 @@ describe('AutomationTab', () => {
 
             expect(component.ui.eventsContainer.textContent).toContain('No handlers');
         });
+
+        it('should render Other Events section when Other handlers exist', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [],
+                OnSave: [],
+                OnChange: [],
+                Other: [{ function: 'AppCommon.Contact.setParams', library: 'AppCommon/Contact/Contact_main_system_library.js', enabled: true, field: 'parentcustomerid', eventType: 'setadditionalparams' }],
+                Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).toContain('Other Events');
+            expect(component.ui.eventsContainer.innerHTML).toContain('AppCommon.Contact.setParams');
+            expect(component.ui.eventsContainer.innerHTML).toContain('setadditionalparams');
+        });
+
+        it('should not render Form Libraries section (removed feature)', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: ['AppCommon/Contact/Contact_main_system_library.js']
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).not.toContain('Form Libraries');
+        });
+
+        it('should show no handlers help when only Libraries exist but no event handlers', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: ['my_script.js']
+            });
+
+            expect(component.ui.eventsContainer.textContent).toContain('No handlers configured');
+        });
+
+        it('should not render Other Events section when empty', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true }],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).not.toContain('Other Events');
+        });
+
+        it('should render managed badge for managed handlers', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, managed: true }],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).toContain('Managed');
+            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.managed')).not.toBeNull();
+        });
+
+        it('should render custom badge for non-managed handlers', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, managed: false }],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).toContain('Custom');
+            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.customizable')).not.toBeNull();
+        });
     });
 
     describe('rule item structure', () => {

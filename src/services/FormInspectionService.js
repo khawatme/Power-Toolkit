@@ -30,6 +30,296 @@ function _getFormIdReliably() {
 }
 
 /**
+ * Extract handler objects from an XML event node.
+ * @private
+ * @param {Element} eventNode - The event element
+ * @param {string|null} fieldName - The field name for field-level events
+ * @returns {Array} Array of handler objects
+ */
+function _extractHandlersFromXmlNode(eventNode, fieldName = null) {
+    return Array.from(eventNode.querySelectorAll('Handler')).map(h => ({
+        library: h.getAttribute('libraryName'),
+        function: h.getAttribute('functionName'),
+        enabled: h.getAttribute('enabled') === 'true',
+        passContext: h.getAttribute('passExecutionContext') === 'true',
+        parameters: h.getAttribute('parameters') || '',
+        field: fieldName,
+        managed: h.parentElement?.tagName === 'InternalHandlers'
+    }));
+}
+
+/**
+ * Parse formxml string and populate automations object.
+ * @private
+ * @param {string} formxml - The form XML string
+ * @param {object} automations - The automations accumulator
+ * @param {Function} addHandler - Function to add a handler with deduplication
+ */
+function _parseFormXml(formxml, automations, addHandler) {
+    const xmlDoc = new DOMParser().parseFromString(formxml, 'text/xml');
+
+    // Parse form-level events (onload, onsave)
+    xmlDoc.querySelectorAll('form > events > event').forEach(node => {
+        const eventName = node.getAttribute('name')?.toLowerCase();
+        const handlers = _extractHandlersFromXmlNode(node);
+
+        if (eventName === 'onload') {
+            handlers.forEach(h => addHandler(automations.OnLoad, h));
+        } else if (eventName === 'onsave') {
+            handlers.forEach(h => addHandler(automations.OnSave, h));
+        } else if (handlers.length > 0) {
+            handlers.forEach(h => {
+                h.eventType = eventName;
+                addHandler(automations.Other, h);
+            });
+        }
+    });
+
+    // Parse field-level events (onchange and other field events)
+    xmlDoc.querySelectorAll('cell').forEach(cellNode => {
+        const controlNode = cellNode.querySelector('control');
+        const fieldName = controlNode?.getAttribute('id') || controlNode?.getAttribute('datafieldname') || null;
+
+        cellNode.querySelectorAll('events > event').forEach(eventNode => {
+            const eventName = eventNode.getAttribute('name')?.toLowerCase();
+            const handlers = _extractHandlersFromXmlNode(eventNode, fieldName);
+
+            if (eventName === 'onchange') {
+                handlers.forEach(h => addHandler(automations.OnChange, h));
+            } else if (eventName === 'onload') {
+                handlers.forEach(h => {
+                    h.field = fieldName;
+                    addHandler(automations.OnLoad, h);
+                });
+            } else if (handlers.length > 0) {
+                handlers.forEach(h => {
+                    h.eventType = eventName;
+                    addHandler(automations.Other, h);
+                });
+            }
+        });
+    });
+
+    // Parse client resources for form-included scripts
+    xmlDoc.querySelectorAll('clientincludes').forEach(includesNode => {
+        includesNode.querySelectorAll('jscriptfile, internaljscriptfile, isjscriptfile').forEach(node => {
+            const src = node.getAttribute('src') || '';
+            const libraryName = src.replace(/^\$webresource:/, '');
+            if (libraryName && !automations.Libraries.includes(libraryName)) {
+                automations.Libraries.push(libraryName);
+            }
+        });
+    });
+}
+
+/**
+ * Normalize a handler object from formjson into the standard format.
+ * @private
+ * @param {object} h - Raw handler from JSON
+ * @param {string|null} fieldName - Field name for field-level events
+ * @returns {object} Normalized handler
+ */
+function _normalizeJsonHandler(h, fieldName = null) {
+    const lib = h.libraryName || h.LibraryName || h.library || '';
+    return {
+        library: lib.replace(/^\$webresource:/, ''),
+        function: h.functionName || h.FunctionName || h.function || '',
+        enabled: h.enabled === true || h.Enabled === true,
+        passContext: h.passExecutionContext === true || h.PassExecutionContext === true,
+        parameters: h.parameters || h.Parameters || '',
+        field: fieldName,
+        managed: h.managed === true || h.Managed === true || h.isManaged === true || h.IsManaged === true || false
+    };
+}
+
+/**
+ * Parse formjson string and populate automations object.
+ * Modern Power Apps form designer stores event handlers here.
+ * @private
+ * @param {string} formjsonStr - The form JSON string
+ * @param {object} automations - The automations accumulator
+ * @param {Function} addHandler - Function to add a handler with deduplication
+ */
+function _parseFormJson(formjsonStr, automations, addHandler) {
+    let json;
+    try {
+        json = JSON.parse(formjsonStr);
+    } catch {
+        return;
+    }
+
+    // Extract events from the JSON - handle multiple known structures
+    const events = json.Events || json.events || json.formEvents?.events;
+    if (events) {
+        _processJsonEvents(events, automations, addHandler);
+    }
+
+    // Extract form libraries from JSON
+    const clientResources = json.ClientResources || json.clientResources;
+    if (clientResources) {
+        const jsFiles = clientResources.JsFiles || clientResources.jsFiles ||
+                        clientResources.Libraries || clientResources.libraries || [];
+        if (Array.isArray(jsFiles)) {
+            jsFiles.forEach(lib => {
+                const libraryName = (typeof lib === 'string' ? lib : lib?.name || lib?.Name || '')
+                    .replace(/^\$webresource:/, '');
+                if (libraryName && !automations.Libraries.includes(libraryName)) {
+                    automations.Libraries.push(libraryName);
+                }
+            });
+        }
+    }
+
+    // Extract libraries from FormLibraries section
+    const formLibraries = json.FormLibraries || json.formLibraries;
+    if (Array.isArray(formLibraries)) {
+        formLibraries.forEach(lib => {
+            const libraryName = (typeof lib === 'string' ? lib : lib?.name || lib?.Name || lib?.libraryName || lib?.LibraryName || '')
+                .replace(/^\$webresource:/, '');
+            if (libraryName && !automations.Libraries.includes(libraryName)) {
+                automations.Libraries.push(libraryName);
+            }
+        });
+    }
+
+    // Search for field-level events in controls/columns definitions
+    _extractFieldEventsFromJson(json, automations, addHandler);
+}
+
+/**
+ * Process JSON events structure (form-level events).
+ * Supports both array and object event formats.
+ * @private
+ */
+function _processJsonEvents(events, automations, addHandler) {
+    if (Array.isArray(events)) {
+        // Format: [{name: "onload", handlers: [...]}, ...]
+        events.forEach(evt => {
+            const name = (evt.name || evt.Name || evt.EventName || evt.eventName || evt.eventType || evt.EventType || '').toLowerCase();
+            const handlers = evt.handlers || evt.Handlers || [];
+            _addJsonHandlersToAutomations(name, handlers, automations, addHandler);
+        });
+    } else if (typeof events === 'object') {
+        // Format: {onload: {handlers: [...]}, onsave: {...}} or {onload: [...], onsave: [...]}
+        for (const [key, value] of Object.entries(events)) {
+            const name = key.toLowerCase();
+            let handlers;
+            if (Array.isArray(value)) {
+                handlers = value;
+            } else if (value && typeof value === 'object') {
+                handlers = value.handlers || value.Handlers || [];
+            } else {
+                continue;
+            }
+            _addJsonHandlersToAutomations(name, handlers, automations, addHandler);
+        }
+    }
+}
+
+/**
+ * Add parsed JSON handlers to the appropriate automations list.
+ * @private
+ */
+function _addJsonHandlersToAutomations(eventName, handlers, automations, addHandler) {
+    if (!Array.isArray(handlers) || handlers.length === 0) {
+        return;
+    }
+
+    handlers.forEach(rawHandler => {
+        const handler = _normalizeJsonHandler(rawHandler);
+        if (!handler.function && !handler.library) {
+            return;
+        }
+
+        if (eventName === 'onload') {
+            addHandler(automations.OnLoad, handler);
+        } else if (eventName === 'onsave') {
+            addHandler(automations.OnSave, handler);
+        } else if (eventName === 'onchange') {
+            addHandler(automations.OnChange, handler);
+        } else {
+            handler.eventType = eventName;
+            addHandler(automations.Other, handler);
+        }
+    });
+}
+
+/**
+ * Recursively search JSON for field-level event handlers (onchange etc).
+ * @private
+ */
+function _extractFieldEventsFromJson(json, automations, addHandler) {
+    if (!json || typeof json !== 'object') {
+        return;
+    }
+
+    const toArray = (val) => Array.isArray(val) ? val : [];
+
+    // Look for controls/columns arrays that have events
+    const containers = [
+        ...toArray(json.Tabs || json.tabs),
+        ...toArray(json.Sections || json.sections),
+        ...toArray(json.Columns || json.columns),
+        ...toArray(json.Rows || json.rows),
+        ...toArray(json.Cells || json.cells),
+        ...toArray(json.Controls || json.controls)
+    ];
+
+    containers.forEach(item => {
+        if (!item || typeof item !== 'object') {
+            return;
+        }
+
+        // Check if this item has events and a field identifier
+        const fieldName = item.datafieldname || item.DataFieldName || item.id || item.Id ||
+                          item.logicalName || item.LogicalName || item.name || item.Name || null;
+        const itemEvents = item.Events || item.events;
+
+        if (itemEvents && fieldName) {
+            if (Array.isArray(itemEvents)) {
+                itemEvents.forEach(evt => {
+                    const name = (evt.name || evt.Name || evt.eventType || evt.EventType || '').toLowerCase();
+                    const handlers = evt.handlers || evt.Handlers || [];
+                    handlers.forEach(rawHandler => {
+                        const handler = _normalizeJsonHandler(rawHandler, fieldName);
+                        if (!handler.function && !handler.library) {
+                            return;
+                        }
+                        if (name === 'onchange') {
+                            addHandler(automations.OnChange, handler);
+                        } else if (name === 'onload') {
+                            handler.field = fieldName;
+                            addHandler(automations.OnLoad, handler);
+                        } else {
+                            handler.eventType = name;
+                            addHandler(automations.Other, handler);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Recurse into child containers
+        _extractFieldEventsFromJson(item, automations, addHandler);
+    });
+}
+
+/**
+ * Add a handler to a list, deduplicating by function+library+field.
+ * @private
+ * @param {Set} seenKeys - Set of already-seen handler keys
+ * @param {Array} list - Target handler list
+ * @param {object} handler - Handler to add
+ */
+function _addUniqueHandler(seenKeys, list, handler) {
+    const key = `${handler.function}|${handler.library}|${handler.field || ''}`;
+    if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        list.push(handler);
+    }
+}
+
+/**
  * @typedef {object} FormColumn
  * @property {string} displayName - The user-friendly label of the column
  * @property {string} logicalName - The schema name of the column
@@ -218,7 +508,7 @@ export const FormInspectionService = {
     },
 
     /**
-     * Get event handlers (OnLoad, OnSave) from current form's XML.
+     * Get event handlers (OnLoad, OnSave) from current form's XML and JSON.
      * @param {Function} webApiFetch - DataService web API fetch function
      * @returns {Promise<{OnLoad: Array, OnSave: Array, formId: string}>} Event handlers
      */
@@ -226,152 +516,62 @@ export const FormInspectionService = {
         const formId = _getFormIdReliably();
         ValidationService.validateRequired(formId, 'Form ID', Config.VALIDATION_ERRORS.formIdNotFound);
 
-        const formXmlResult = await webApiFetch('GET', `systemforms(${formId})`, '?$select=formxml');
+        const formResult = await webApiFetch('GET', `systemforms(${formId})`, '?$select=formxml,formjson');
         ValidationService.validateRequired(
-            formXmlResult?.formxml,
+            formResult?.formxml || formResult?.formjson,
             'formxml',
-            "Retrieved form data but it did not contain a 'formxml' definition."
+            "Retrieved form data but it did not contain a 'formxml' or 'formjson' definition."
         );
 
-        const xmlDoc = new DOMParser().parseFromString(formXmlResult.formxml, 'text/xml');
-        const automations = { OnLoad: [], OnSave: [], OnChange: [], formId };
+        const automations = { OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: [], formId };
+        const seenKeys = new Set();
+        const addHandler = (list, handler) => _addUniqueHandler(seenKeys, list, handler);
 
-        /**
-         * Extract handlers from an event node
-         * @param {Element} eventNode - The event element
-         * @param {string|null} fieldName - The field name for field-level events
-         * @returns {Array} Array of handler objects
-         */
-        const extractHandlers = (eventNode, fieldName = null) => {
-            return Array.from(eventNode.querySelectorAll('Handler')).map(h => ({
-                library: h.getAttribute('libraryName'),
-                function: h.getAttribute('functionName'),
-                enabled: h.getAttribute('enabled') === 'true',
-                passContext: h.getAttribute('passExecutionContext') === 'true',
-                parameters: h.getAttribute('parameters') || '',
-                field: fieldName
-            }));
-        };
+        if (formResult.formxml) {
+            _parseFormXml(formResult.formxml, automations, addHandler);
+        }
 
-        // Parse form-level events (onload, onsave)
-        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
-            const eventName = node.getAttribute('name');
-            const handlers = extractHandlers(node);
-
-            if (eventName === 'onload') {
-                automations.OnLoad.push(...handlers);
-            }
-            if (eventName === 'onsave') {
-                automations.OnSave.push(...handlers);
-            }
-        });
-
-        // Parse field-level events (onchange and other field events)
-        xmlDoc.querySelectorAll('cell').forEach(cellNode => {
-            const controlNode = cellNode.querySelector('control');
-            const fieldName = controlNode?.getAttribute('id') || controlNode?.getAttribute('datafieldname') || null;
-
-            cellNode.querySelectorAll('events > event').forEach(eventNode => {
-                const eventName = eventNode.getAttribute('name')?.toLowerCase();
-                const handlers = extractHandlers(eventNode, fieldName);
-
-                if (eventName === 'onchange') {
-                    automations.OnChange.push(...handlers);
-                }
-                // Also capture field-level onload events (some forms have these)
-                if (eventName === 'onload') {
-                    handlers.forEach(h => {
-                        h.field = fieldName;
-                    });
-                    automations.OnLoad.push(...handlers);
-                }
-            });
-        });
+        if (formResult.formjson) {
+            _parseFormJson(formResult.formjson, automations, addHandler);
+        }
 
         return automations;
     },
 
     /**
      * Get form event handlers for a specific entity (not current form).
+     * Queries all main forms and aggregates handlers from both formxml and formjson.
      * @param {Function} retrieveMultipleRecords - DataService retrieve multiple function
      * @param {Function} retrieveRecord - DataService retrieve function
      * @param {string} entityName - Entity logical name
-     * @returns {Promise<{OnLoad: Array, OnSave: Array, formId: string}|null>} Event handlers or null
+     * @returns {Promise<{OnLoad: Array, OnSave: Array, OnChange: Array, Other: Array, Libraries: Array, formId: string}|null>} Event handlers or null
      */
     async getFormEventHandlersForEntity(retrieveMultipleRecords, retrieveRecord, entityName) {
         if (!entityName) {
             return null;
         }
 
-        // Get main form for entity
-        const formQueryOptions = `?$filter=objecttypecode eq '${entityName}' and type eq 2&$select=formid&$top=1`;
+        // Get ALL main forms for entity, including both formxml and formjson definitions
+        const formQueryOptions = `?$filter=objecttypecode eq '${entityName}' and type eq 2&$select=formid,formxml,formjson`;
         const formResult = await retrieveMultipleRecords('systemform', formQueryOptions);
 
         if (!formResult?.entities?.length) {
             return null;
         }
 
-        const formId = formResult.entities[0].formid;
-        const formRecord = await retrieveRecord('systemform', formId, '?$select=formxml');
+        const automations = { OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: [], formId: formResult.entities[0].formid };
+        const seenKeys = new Set();
+        const addHandler = (list, handler) => _addUniqueHandler(seenKeys, list, handler);
 
-        if (!formRecord?.formxml) {
-            return null;
+        for (const form of formResult.entities) {
+            if (form.formxml) {
+                _parseFormXml(form.formxml, automations, addHandler);
+            }
+
+            if (form.formjson) {
+                _parseFormJson(form.formjson, automations, addHandler);
+            }
         }
-
-        const xmlDoc = new DOMParser().parseFromString(formRecord.formxml, 'text/xml');
-        const automations = { OnLoad: [], OnSave: [], OnChange: [], formId };
-
-        /**
-         * Extract handlers from an event node
-         * @param {Element} eventNode - The event element
-         * @param {string|null} fieldName - The field name for field-level events
-         * @returns {Array} Array of handler objects
-         */
-        const extractHandlers = (eventNode, fieldName = null) => {
-            return Array.from(eventNode.querySelectorAll('Handler')).map(h => ({
-                library: h.getAttribute('libraryName'),
-                function: h.getAttribute('functionName'),
-                enabled: h.getAttribute('enabled') === 'true',
-                passContext: h.getAttribute('passExecutionContext') === 'true',
-                parameters: h.getAttribute('parameters') || '',
-                field: fieldName
-            }));
-        };
-
-        // Parse form-level events (onload, onsave)
-        xmlDoc.querySelectorAll('form > events > event').forEach(node => {
-            const eventName = node.getAttribute('name');
-            const handlers = extractHandlers(node);
-
-            if (eventName === 'onload') {
-                automations.OnLoad.push(...handlers);
-            }
-            if (eventName === 'onsave') {
-                automations.OnSave.push(...handlers);
-            }
-        });
-
-        // Parse field-level events (onchange and other field events)
-        xmlDoc.querySelectorAll('cell').forEach(cellNode => {
-            const controlNode = cellNode.querySelector('control');
-            const fieldName = controlNode?.getAttribute('id') || controlNode?.getAttribute('datafieldname') || null;
-
-            cellNode.querySelectorAll('events > event').forEach(eventNode => {
-                const eventName = eventNode.getAttribute('name')?.toLowerCase();
-                const handlers = extractHandlers(eventNode, fieldName);
-
-                if (eventName === 'onchange') {
-                    automations.OnChange.push(...handlers);
-                }
-                // Also capture field-level onload events (some forms have these)
-                if (eventName === 'onload') {
-                    handlers.forEach(h => {
-                        h.field = fieldName;
-                    });
-                    automations.OnLoad.push(...handlers);
-                }
-            });
-        });
 
         return automations;
     },
