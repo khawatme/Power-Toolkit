@@ -577,7 +577,7 @@ describe('SecurityAnalysisService', () => {
             const mockEntityDef = { ObjectTypeCode: 1 };
             const mockPrivileges = {
                 value: [
-                    { privilegeid: 'custom-priv-1', name: 'prvReadm8_customentity' }
+                    { privilegeid: 'custom-priv-1', name: 'prvReadpt_customentity' }
                 ]
             };
             const mockRoles = { value: [{ roleid: 'role-1', name: 'System Administrator' }] };
@@ -605,7 +605,7 @@ describe('SecurityAnalysisService', () => {
                 .mockResolvedValueOnce(mockRolePrivsPage1)
                 .mockResolvedValueOnce(mockRolePrivsPage2);
 
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'm8_customentity');
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'pt_customentity');
 
             // Custom entity privilege should be found from second page
             expect(result.read.hasPrivilege).toBe(true);
@@ -616,9 +616,9 @@ describe('SecurityAnalysisService', () => {
             const mockEntityDef = { ObjectTypeCode: 10001 };
             const mockPrivileges = {
                 value: [
-                    { privilegeid: 'priv-create', name: 'prvCreatem8_VehicleModel' },
-                    { privilegeid: 'priv-read', name: 'prvReadm8_VehicleModel' },
-                    { privilegeid: 'priv-write', name: 'prvWritem8_VehicleModel' }
+                    { privilegeid: 'priv-create', name: 'prvCreatept_VehicleModel' },
+                    { privilegeid: 'priv-read', name: 'prvReadpt_VehicleModel' },
+                    { privilegeid: 'priv-write', name: 'prvWritept_VehicleModel' }
                 ]
             };
             const mockRoles = { value: [{ roleid: 'role-1', name: 'Sales Rep' }] };
@@ -638,7 +638,7 @@ describe('SecurityAnalysisService', () => {
                 .mockResolvedValueOnce(mockRolePrivs);
 
             // Entity logical name is lowercase, privilege names have mixed case
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'm8_vehiclemodel');
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'pt_vehiclemodel');
 
             expect(result.create.hasPrivilege).toBe(true);
             expect(result.create.depth).toBe('Deep (BU + Child)');

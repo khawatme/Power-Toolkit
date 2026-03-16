@@ -84,9 +84,10 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li><strong>FormJSON Handler Parsing:</strong> Form Automation now reads handlers from the modern <code>formjson</code> column, fixing missing handlers on forms created with the new Power Apps form designer.</li>
-                        <li><strong>Managed/Custom Badges:</strong> Each event handler now displays a <em>Managed</em> or <em>Custom</em> badge, making it easy to distinguish system handlers from customizable ones.</li>
-                        <li><strong>Handler Deduplication:</strong> Duplicate handlers across formxml and formjson sources are automatically merged.</li>
+                        <li><strong>FormJSON Handler Parsing (Form Automation):</strong> Form Automation now reads handlers from the modern <code>formjson</code> column, fixing missing handlers on forms created with the new Power Apps form designer.</li>
+                        <li><strong>Managed/Custom Badges (Form Automation):</strong> Each event handler now displays a <em>Managed</em> or <em>Custom</em> badge, making it easy to distinguish system handlers from customizable ones.</li>
+                        <li><strong>Handler Deduplication (Form Automation):</strong> Duplicate handlers across formxml and formjson sources are automatically merged.</li>
+                        <li><strong>(Form Columns):</strong> Fixed a crash when opening the Form Columns tab after impersonating a user.</li>
                     </ul>
                     <details class="pdt-changelog-details" style="cursor: pointer;">
                         <summary style="cursor: pointer; user-select: none;"><strong> Version 4.2.0</strong></summary>

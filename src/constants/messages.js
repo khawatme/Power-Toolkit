@@ -563,7 +563,7 @@ export const POWER_AUTOMATE_FLOWS = {
     typeInstant: 'Instant',
     typeScheduled: 'Scheduled',
     openInPortal: 'Open in Power Automate',
-    viewDefinition: 'View/Edit Definition',
+    viewDefinition: 'View/Edit',
     turnOn: 'Turn On',
     turnOff: 'Turn Off',
     flowDefinitionTitle: (name) => `Flow Definition: ${name}`,

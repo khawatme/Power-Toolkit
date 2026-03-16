@@ -129,6 +129,16 @@ describe('PowerAppsApiService', () => {
 
             expect(service.isFormContextAvailable).toBe(false);
         });
+
+        it('should return false when Xrm.Page.data.entity is undefined (e.g. during impersonation reload)', async () => {
+            global.Xrm = { Page: { data: {}, ui: { getFormType: () => 2 } } };
+
+            vi.resetModules();
+            const module = await import('../../src/services/PowerAppsApiService.js');
+            const service = module.PowerAppsApiService;
+
+            expect(service.isFormContextAvailable).toBe(false);
+        });
     });
 
     describe('getFormContext', () => {

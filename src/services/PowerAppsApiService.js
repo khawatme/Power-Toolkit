@@ -50,7 +50,7 @@ export const PowerAppsApiService = {
     get isFormContextAvailable() {
         try {
             const x = _getCorrectXrmContext();
-            return !!(x && x.Page && x.Page.data && x.Page.ui && x.Page.ui.getFormType() > 0);
+            return !!(x && x.Page && x.Page.data && x.Page.data.entity && x.Page.ui && x.Page.ui.getFormType() > 0);
         } catch (_e) {
             return false;
         }
