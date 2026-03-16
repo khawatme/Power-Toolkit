@@ -510,7 +510,7 @@ export const FormInspectionService = {
     /**
      * Get event handlers (OnLoad, OnSave) from current form's XML and JSON.
      * @param {Function} webApiFetch - DataService web API fetch function
-     * @returns {Promise<{OnLoad: Array, OnSave: Array, formId: string}>} Event handlers
+     * @returns {Promise<{OnLoad: Array, OnSave: Array, OnChange: Array, Other: Array, Libraries: Array, formId: string}>} Event handlers
      */
     async getFormEventHandlers(webApiFetch) {
         const formId = _getFormIdReliably();
