@@ -16,7 +16,7 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 * **Event Monitor:** Live console that logs `OnLoad`, `OnSave`, and `OnChange` events as they happen
 
 ### ⚙️ Automation & Logic Debugging
-* **Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists static `OnLoad`/`OnSave` event handlers
+* **Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists `OnLoad`/`OnSave`/`OnChange` event handlers across all main forms with Managed/Custom badges, sourced from both formxml and formjson definitions
 * **Power Automate:** Browse, activate/deactivate, and delete cloud flows. View flow definitions with a visual step-by-step diagram and raw JSON, with direct links to the Power Automate portal
 * **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` sent to server-side plugins. Includes a C# unit test generator for FakeXrmEasy
 * **Plugin Trace Logs:** Real-time viewer for server-side Plugin Trace Logs with live polling, powerful filtering, and search capabilities

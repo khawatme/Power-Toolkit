@@ -496,6 +496,9 @@ export class AutomationTab extends BaseComponent {
                 // Field badge for OnChange handlers
                 const fieldBadge = h.field ? `<span class="pdt-field-badge" title="Field: ${field}">${field}</span>` : '';
 
+                // Event type badge for non-standard events
+                const eventTypeBadge = h.eventType ? `<span class="pdt-field-badge" title="Event: ${escapeHtml(h.eventType)}">${escapeHtml(h.eventType)}</span>` : '';
+
                 // Edit button for web resources
                 const editButton = `
                     <button class="pdt-handler-edit-btn" 
@@ -506,6 +509,7 @@ export class AutomationTab extends BaseComponent {
                     </button>`;
 
                 const statusBadge = !h.enabled ? '<span class="pdt-status-badge inactive" title="Disabled in form definition">Off</span>' : '';
+                const managedBadge = h.managed ? '<span class="pdt-status-badge managed" title="Managed (system)">Managed</span>' : '<span class="pdt-status-badge customizable" title="Customizable (unmanaged)">Custom</span>';
 
                 return `
                     <li class="pdt-handler-item ${enabledClass}">
@@ -513,8 +517,10 @@ export class AutomationTab extends BaseComponent {
                             <div class="pdt-handler-details">
                                 <strong class="pdt-handler-function">${fn}</strong>
                                 ${fieldBadge}
+                                ${eventTypeBadge}
                                 <span class="pdt-handler-library code-like">${lib}</span>
                             </div>
+                            ${managedBadge}
                             ${statusBadge}
                         </div>
                         <div class="pdt-handler-actions">
@@ -527,11 +533,17 @@ export class AutomationTab extends BaseComponent {
         // Check if all handler lists are empty
         const hasAnyHandlers = (events.OnLoad && events.OnLoad.length > 0) ||
                               (events.OnSave && events.OnSave.length > 0) ||
-                              (events.OnChange && events.OnChange.length > 0);
+                              (events.OnChange && events.OnChange.length > 0) ||
+                              (events.Other && events.Other.length > 0);
 
         const helpNote = !hasAnyHandlers
             ? `<p class="pdt-note mt-15">⚠️ ${Config.MESSAGES.AUTOMATION.noHandlersHelpInfo}</p>`
             : '<p class="pdt-note mt-15">💡 Click the edit button to view or modify web resource code.</p>';
+
+        // Render Other events section (non-standard events like setadditionalparams)
+        const otherSection = (events.Other && events.Other.length > 0)
+            ? `<h4 class="pdt-section-header mt-15">Other Events</h4>${renderHandlers(events.Other, 'other')}`
+            : '';
 
         const content = `
             <h4 class="pdt-section-header">OnLoad</h4>
@@ -539,7 +551,8 @@ export class AutomationTab extends BaseComponent {
             <h4 class="pdt-section-header mt-15">OnSave</h4>
             ${renderHandlers(events.OnSave, 'onsave')}
             <h4 class="pdt-section-header mt-15">OnChange</h4>
-            ${renderHandlers(events.OnChange, 'onchange')}`;
+            ${renderHandlers(events.OnChange, 'onchange')}
+            ${otherSection}`;
 
         container.innerHTML = `<div class="section-title">Form Event Handlers</div>${helpNote}${content}`;
     }
