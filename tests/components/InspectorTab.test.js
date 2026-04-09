@@ -146,13 +146,13 @@ describe('InspectorTab', () => {
 
         it('should render tree view container when hierarchy exists', async () => {
             const element = await component.render();
-            const treeView = element.querySelector('.tree-view');
+            const treeView = element.querySelector('.pdt-tree-view');
             expect(treeView).toBeTruthy();
         });
 
         it('should set tree view role attribute for accessibility', async () => {
             const element = await component.render();
-            const treeView = element.querySelector('.tree-view');
+            const treeView = element.querySelector('.pdt-tree-view');
             expect(treeView?.getAttribute('role')).toBe('tree');
         });
 
@@ -270,37 +270,37 @@ describe('InspectorTab', () => {
     describe('tree structure', () => {
         it('should render expandable nodes', async () => {
             const element = await component.render();
-            const treeItems = element.querySelectorAll('.tree-view li');
+            const treeItems = element.querySelectorAll('.pdt-tree-view .pdt-tree-item');
             expect(treeItems.length).toBeGreaterThan(0);
         });
 
         it('should mark parent nodes with tree-parent class', async () => {
             const element = await component.render();
-            const parentNodes = element.querySelectorAll('.tree-parent');
+            const parentNodes = element.querySelectorAll('.pdt-tree-parent');
             expect(parentNodes.length).toBeGreaterThan(0);
         });
 
         it('should mark parent nodes as collapsed initially', async () => {
             const element = await component.render();
-            const collapsedNodes = element.querySelectorAll('.tree-parent.collapsed');
+            const collapsedNodes = element.querySelectorAll('.pdt-tree-parent.pdt-collapsed');
             expect(collapsedNodes.length).toBeGreaterThan(0);
         });
 
         it('should set data-rendered to false for lazy loading', async () => {
             const element = await component.render();
-            const parentNode = element.querySelector('.tree-parent');
+            const parentNode = element.querySelector('.pdt-tree-parent');
             expect(parentNode?.dataset.rendered).toBe('false');
         });
 
-        it('should render tree-child ul elements for parent nodes', async () => {
+        it('should render tree-child elements for parent nodes', async () => {
             const element = await component.render();
-            const childLists = element.querySelectorAll('.tree-child');
+            const childLists = element.querySelectorAll('.pdt-tree-child');
             expect(childLists.length).toBeGreaterThan(0);
         });
 
         it('should set role=group on child lists', async () => {
             const element = await component.render();
-            const childList = element.querySelector('.tree-child');
+            const childList = element.querySelector('.pdt-tree-child');
             expect(childList?.getAttribute('role')).toBe('group');
         });
     });
@@ -308,60 +308,60 @@ describe('InspectorTab', () => {
     describe('_renderTree', () => {
         it('should append tree nodes to parent element', async () => {
             const element = await component.render();
-            const treeView = element.querySelector('.tree-view');
+            const treeView = element.querySelector('.pdt-tree-view');
             expect(treeView?.children.length).toBeGreaterThan(0);
         });
 
         it('should handle empty nodes array', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, []);
             expect(parentEl.children.length).toBe(0);
         });
 
         it('should handle null nodes array', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, null);
             expect(parentEl.children.length).toBe(0);
         });
 
         it('should handle undefined nodes array', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, undefined);
             expect(parentEl.children.length).toBe(0);
         });
 
         it('should create tree-item elements', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, [{ label: 'Test', logicalName: 'test' }]);
-            expect(parentEl.querySelector('.tree-item')).toBeTruthy();
+            expect(parentEl.querySelector('.pdt-tree-item')).toBeTruthy();
         });
 
         it('should not add tree-parent class for leaf nodes', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, [{ label: 'Leaf', logicalName: 'leaf' }]);
-            expect(parentEl.querySelector('.tree-parent')).toBeFalsy();
+            expect(parentEl.querySelector('.pdt-tree-parent')).toBeFalsy();
         });
 
         it('should add tree-parent class for nodes with children', async () => {
-            const parentEl = document.createElement('ul');
+            const parentEl = document.createElement('div');
             component._renderTree(parentEl, [{
                 label: 'Parent',
                 logicalName: 'parent',
                 children: [{ label: 'Child', logicalName: 'child' }]
             }]);
-            expect(parentEl.querySelector('.tree-parent')).toBeTruthy();
+            expect(parentEl.querySelector('.pdt-tree-parent')).toBeTruthy();
         });
     });
 
     describe('_createTreeNode', () => {
-        it('should create an li element', () => {
+        it('should create a div element', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: 'test' });
-            expect(node.tagName).toBe('LI');
+            expect(node.tagName).toBe('DIV');
         });
 
         it('should add tree-item class', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: 'test' });
-            expect(node.classList.contains('tree-item')).toBe(true);
+            expect(node.classList.contains('pdt-tree-item')).toBe(true);
         });
 
         it('should include logical name in data attribute', () => {
@@ -380,12 +380,12 @@ describe('InspectorTab', () => {
                 logicalName: 'test',
                 value: 'Test Value'
             });
-            expect(node.querySelector('.item-value')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-value')).toBeTruthy();
         });
 
         it('should not render value element when value is undefined', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: 'test' });
-            expect(node.querySelector('.item-value')).toBeFalsy();
+            expect(node.querySelector('.pdt-item-value')).toBeFalsy();
         });
 
         it('should add editable class when editableAttr is present', () => {
@@ -397,7 +397,7 @@ describe('InspectorTab', () => {
                 editableAttr: mockAttr,
                 controlType: 'standard'
             });
-            expect(node.querySelector('.item-value.editable')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-value.editable')).toBeTruthy();
         });
 
         it('should not add editable class for subgrid controls', () => {
@@ -409,12 +409,12 @@ describe('InspectorTab', () => {
                 editableAttr: mockAttr,
                 controlType: 'subgrid'
             });
-            expect(node.querySelector('.item-value.editable')).toBeFalsy();
+            expect(node.querySelector('.pdt-item-value.editable')).toBeFalsy();
         });
 
         it('should include copyable class on logical name span', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: 'test' });
-            expect(node.querySelector('.item-logical-name.copyable')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-logical-name.copyable')).toBeTruthy();
         });
 
         it('should set role=treeitem on node content', () => {
@@ -429,7 +429,7 @@ describe('InspectorTab', () => {
 
         it('should set aria-expanded=false initially', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: 'test' });
-            const content = node.querySelector('.tree-node-content');
+            const content = node.querySelector('.pdt-tree-node-content');
             expect(content?.getAttribute('aria-expanded')).toBe('false');
         });
     });
@@ -470,21 +470,21 @@ describe('InspectorTab', () => {
         });
 
         it('should toggle collapsed/expanded on parent node click', () => {
-            const parentNode = element.querySelector('.tree-parent.collapsed');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
+            const parentNode = element.querySelector('.pdt-tree-parent.pdt-collapsed');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
 
             const clickEvent = new MouseEvent('click', { bubbles: true });
             Object.defineProperty(clickEvent, 'target', { value: nodeContent });
 
             component._handleTreeClick(clickEvent);
 
-            expect(parentNode.classList.contains('expanded')).toBe(true);
-            expect(parentNode.classList.contains('collapsed')).toBe(false);
+            expect(parentNode.classList.contains('pdt-expanded')).toBe(true);
+            expect(parentNode.classList.contains('pdt-collapsed')).toBe(false);
         });
 
         it('should update aria-expanded when toggling', () => {
-            const parentNode = element.querySelector('.tree-parent.collapsed');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
+            const parentNode = element.querySelector('.pdt-tree-parent.pdt-collapsed');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
 
             const clickEvent = new MouseEvent('click', { bubbles: true });
             Object.defineProperty(clickEvent, 'target', { value: nodeContent });
@@ -495,9 +495,9 @@ describe('InspectorTab', () => {
         });
 
         it('should perform lazy rendering on first expansion', () => {
-            const parentNode = element.querySelector('.tree-parent[data-rendered="false"]');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
-            const childList = parentNode.querySelector('.tree-child');
+            const parentNode = element.querySelector('.pdt-tree-parent[data-rendered="false"]');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
+            const childList = parentNode.querySelector('.pdt-tree-child');
 
             // Initially empty
             expect(childList.children.length).toBe(0);
@@ -511,8 +511,8 @@ describe('InspectorTab', () => {
         });
 
         it('should not render children again on subsequent clicks', () => {
-            const parentNode = element.querySelector('.tree-parent');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
+            const parentNode = element.querySelector('.pdt-tree-parent');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
 
             // First click - expand
             const clickEvent1 = new MouseEvent('click', { bubbles: true });
@@ -524,7 +524,7 @@ describe('InspectorTab', () => {
             Object.defineProperty(clickEvent2, 'target', { value: nodeContent });
             component._handleTreeClick(clickEvent2);
 
-            expect(parentNode.classList.contains('collapsed')).toBe(true);
+            expect(parentNode.classList.contains('pdt-collapsed')).toBe(true);
         });
 
         it('should not throw when clicking non-tree elements', () => {
@@ -559,7 +559,7 @@ describe('InspectorTab', () => {
         });
 
         it('should set currentlyHoveredNode when hovering over node', () => {
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
 
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
@@ -571,7 +571,7 @@ describe('InspectorTab', () => {
 
         it('should clear highlight when moving away from node', () => {
             // First hover
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent1 = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent1, 'target', { value: nodeContent });
             component._handleMouseMove(moveEvent1);
@@ -585,7 +585,7 @@ describe('InspectorTab', () => {
         });
 
         it('should not re-process same node on subsequent moves', () => {
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
 
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
@@ -598,7 +598,7 @@ describe('InspectorTab', () => {
         });
 
         it('should handle nodes without logicalName', () => {
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             delete nodeContent.dataset.logicalName;
 
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
@@ -613,7 +613,7 @@ describe('InspectorTab', () => {
             controlEl.setAttribute('data-control-name', 'name_control');
             document.body.appendChild(controlEl);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -876,13 +876,13 @@ describe('InspectorTab', () => {
 
         it('should have aria-expanded on expandable nodes', async () => {
             const element = await component.render();
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             expect(nodeContent?.hasAttribute('aria-expanded')).toBe(true);
         });
 
         it('should have tabindex for keyboard navigation', async () => {
             const element = await component.render();
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             expect(nodeContent?.getAttribute('tabindex')).toBe('0');
         });
     });
@@ -923,7 +923,7 @@ describe('InspectorTab', () => {
             const element = await component.render();
 
             // Two tabs with children at the top level
-            expect(element.querySelectorAll('.tree-parent').length).toBe(2);
+            expect(element.querySelectorAll('.pdt-tree-parent').length).toBe(2);
         });
 
         it('should handle full lifecycle: render, postRender, destroy', async () => {
@@ -979,8 +979,8 @@ describe('InspectorTab', () => {
         });
 
         it('should open editor when clicking on editable value', () => {
-            const editableValue = element.querySelector('.item-value.editable');
-            const nodeContent = element.querySelector('.tree-node-content');
+            const editableValue = element.querySelector('.pdt-item-value.editable');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
 
             const clickEvent = new MouseEvent('click', { bubbles: true });
             Object.defineProperty(clickEvent, 'target', { value: editableValue });
@@ -992,7 +992,7 @@ describe('InspectorTab', () => {
 
         it('should not open editor when nodeContent is missing', () => {
             const orphanEditable = document.createElement('div');
-            orphanEditable.className = 'item-value editable';
+            orphanEditable.className = 'pdt-item-value editable';
             document.body.appendChild(orphanEditable);
 
             const clickEvent = new MouseEvent('click', { bubbles: true });
@@ -1017,10 +1017,10 @@ describe('InspectorTab', () => {
             const element2 = await component.render();
             document.body.appendChild(element2);
 
-            const editableValue = element2.querySelector('.item-value');
+            const editableValue = element2.querySelector('.pdt-item-value');
             if (editableValue) {
                 editableValue.classList.add('editable'); // Force editable class
-                const nodeContent = element2.querySelector('.tree-node-content');
+                const nodeContent = element2.querySelector('.pdt-tree-node-content');
 
                 const clickEvent = new MouseEvent('click', { bubbles: true });
                 Object.defineProperty(clickEvent, 'target', { value: editableValue });
@@ -1046,9 +1046,9 @@ describe('InspectorTab', () => {
             document.body.appendChild(element2);
             component.postRender(element2);
 
-            const parentNode = element2.querySelector('.tree-parent.collapsed');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
-            const childList = parentNode.querySelector('.tree-child');
+            const parentNode = element2.querySelector('.pdt-tree-parent.pdt-collapsed');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
+            const childList = parentNode.querySelector('.pdt-tree-child');
 
             expect(childList.children.length).toBe(0);
 
@@ -1057,7 +1057,7 @@ describe('InspectorTab', () => {
             component._handleTreeClick(clickEvent);
 
             expect(parentNode.dataset.rendered).toBe('true');
-            expect(parentNode.classList.contains('expanded')).toBe(true);
+            expect(parentNode.classList.contains('pdt-expanded')).toBe(true);
         });
 
         it('should handle node without children array gracefully', async () => {
@@ -1072,7 +1072,7 @@ describe('InspectorTab', () => {
             document.body.appendChild(element2);
 
             // Should not throw
-            expect(element2.querySelector('.tree-item')).toBeTruthy();
+            expect(element2.querySelector('.pdt-tree-item')).toBeTruthy();
         });
     });
 
@@ -1101,7 +1101,7 @@ describe('InspectorTab', () => {
             controlEl.setAttribute('data-lp-id', 'form|lpid_control|field');
             document.body.appendChild(controlEl);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1134,7 +1134,7 @@ describe('InspectorTab', () => {
             controlEl.setAttribute('aria-label', 'aria_control');
             document.body.appendChild(controlEl);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1155,7 +1155,7 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1181,7 +1181,7 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1205,7 +1205,7 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1232,7 +1232,7 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const nodeContent = element.querySelector('.tree-node-content');
+            const nodeContent = element.querySelector('.pdt-tree-node-content');
             const moveEvent = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperty(moveEvent, 'target', { value: nodeContent });
 
@@ -1444,12 +1444,12 @@ describe('InspectorTab', () => {
 
         it('should handle node with null logicalName', () => {
             const node = component._createTreeNode({ label: 'Test', logicalName: null });
-            expect(node.querySelector('.tree-node-content')).toBeTruthy();
+            expect(node.querySelector('.pdt-tree-node-content')).toBeTruthy();
         });
 
         it('should handle node with undefined logicalName', () => {
             const node = component._createTreeNode({ label: 'Test' });
-            expect(node.querySelector('.tree-node-content')).toBeTruthy();
+            expect(node.querySelector('.pdt-tree-node-content')).toBeTruthy();
         });
 
         it('should handle node with controlType containing subgrid', () => {
@@ -1461,7 +1461,7 @@ describe('InspectorTab', () => {
                 editableAttr: mockAttr,
                 controlType: 'subgrid_related'
             });
-            expect(node.querySelector('.item-value.editable')).toBeFalsy();
+            expect(node.querySelector('.pdt-item-value.editable')).toBeFalsy();
         });
 
         it('should render edit icon for editable fields', () => {
@@ -1491,7 +1491,7 @@ describe('InspectorTab', () => {
                 logicalName: 'test_field',
                 value: 'Long value text'
             });
-            const valueEl = node.querySelector('.item-value');
+            const valueEl = node.querySelector('.pdt-item-value');
             expect(valueEl?.getAttribute('title')).toBeDefined();
         });
     });
@@ -1566,7 +1566,7 @@ describe('InspectorTab', () => {
             ]);
 
             const element = await component.render();
-            const treeItems = element.querySelectorAll('.tree-view > .tree-item');
+            const treeItems = element.querySelectorAll('.pdt-tree-view > .pdt-tree-item');
 
             expect(treeItems.length).toBe(3);
         });
@@ -1614,8 +1614,8 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const parentNode = element.querySelector('.tree-parent.collapsed');
-            const nodeContent = parentNode.querySelector('.tree-node-content');
+            const parentNode = element.querySelector('.pdt-tree-parent.pdt-collapsed');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
 
             const clickEvent = new MouseEvent('click', { bubbles: true });
             Object.defineProperty(clickEvent, 'target', { value: nodeContent });
@@ -1636,15 +1636,15 @@ describe('InspectorTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            const parentNode = element.querySelector('.tree-parent.collapsed');
-            const childList = parentNode.querySelector('.tree-child');
+            const parentNode = element.querySelector('.pdt-tree-parent.pdt-collapsed');
+            const childList = parentNode.querySelector('.pdt-tree-child');
 
             // Remove the child list
             if (childList) {
                 childList.remove();
             }
 
-            const nodeContent = parentNode.querySelector('.tree-node-content');
+            const nodeContent = parentNode.querySelector('.pdt-tree-node-content');
             const clickEvent = new MouseEvent('click', { bubbles: true });
             Object.defineProperty(clickEvent, 'target', { value: nodeContent });
 
@@ -1661,7 +1661,7 @@ describe('InspectorTab', () => {
                 value: 12345
             });
 
-            const valueEl = node.querySelector('.item-value');
+            const valueEl = node.querySelector('.pdt-item-value');
             expect(valueEl).toBeTruthy();
         });
 
@@ -1672,7 +1672,7 @@ describe('InspectorTab', () => {
                 value: true
             });
 
-            expect(node.querySelector('.item-value')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-value')).toBeTruthy();
         });
 
         it('should handle null values', () => {
@@ -1682,7 +1682,7 @@ describe('InspectorTab', () => {
                 value: null
             });
 
-            expect(node.querySelector('.item-value')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-value')).toBeTruthy();
         });
 
         it('should handle object values', () => {
@@ -1692,7 +1692,7 @@ describe('InspectorTab', () => {
                 value: { key: 'value' }
             });
 
-            expect(node.querySelector('.item-value')).toBeTruthy();
+            expect(node.querySelector('.pdt-item-value')).toBeTruthy();
         });
     });
 
@@ -1731,7 +1731,7 @@ describe('InspectorTab', () => {
                 const newCopyable = document.createElement('span');
                 newCopyable.className = 'copyable';
                 newCopyable.textContent = 'test-clipboard-text';
-                element.querySelector('.tree-view')?.appendChild(newCopyable);
+                element.querySelector('.pdt-tree-view')?.appendChild(newCopyable);
             }
 
             const targetCopyable = element.querySelector('.copyable');
@@ -1771,7 +1771,7 @@ describe('InspectorTab', () => {
             const copyable = document.createElement('span');
             copyable.className = 'copyable';
             copyable.textContent = 'test-value';
-            element.querySelector('.tree-view')?.appendChild(copyable);
+            element.querySelector('.pdt-tree-view')?.appendChild(copyable);
 
             // The copyToClipboard mock should work normally in this test
             // We just verify the handler can be called without issues
@@ -1835,7 +1835,7 @@ describe('InspectorTab', () => {
             const copyable = document.createElement('span');
             copyable.className = 'copyable';
             copyable.textContent = 'navigator-clipboard-test';
-            element.querySelector('.tree-view')?.appendChild(copyable);
+            element.querySelector('.pdt-tree-view')?.appendChild(copyable);
 
             // Save original and replace copyToClipboard to return undefined
             const writeTextMock = vi.fn().mockResolvedValue(undefined);

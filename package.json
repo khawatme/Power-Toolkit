@@ -1,6 +1,6 @@
 {
     "name": "power-toolkit",
-    "version": "4.2.1",
+    "version": "4.2.2",
     "type": "module",
     "description": "A comprehensive, client-side toolkit for Power Apps Model-Driven App developers.",
     "private": true,
@@ -16,8 +16,7 @@
         "build": "node ./node_modules/webpack/bin/webpack.js --mode=production",
         "build:firefox": "node ./node_modules/webpack/bin/webpack.js --mode=production --env browser=firefox",
         "build:all": "npm run build && npm run build:firefox",
-        "package:firefox": "npm run build:firefox && cd dist-firefox/extension && web-ext build --overwrite-dest",
-        "package:source": "git archive -o power-toolkit-source.zip HEAD",
+        "package:all": "node scripts/package-all.cjs",
         "lint": "eslint src/**/*.js",
         "analyze": "npm run build && start bundle-report.html",
         "test": "vitest run",

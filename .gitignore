@@ -20,3 +20,6 @@ bundle-stats.json
 /.github
 /coverage
 AGENTS.md
+
+# Release packages
+/releases

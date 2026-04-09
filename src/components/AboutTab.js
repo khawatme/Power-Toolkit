@@ -84,13 +84,20 @@ export class AboutTab extends BaseComponent {
                 </header>
                 <div class="pdt-card-body">
                     <ul class="pdt-changelog-list">
-                        <li><strong>FormJSON Handler Parsing (Form Automation):</strong> Form Automation now reads handlers from the modern <code>formjson</code> column, fixing missing handlers on forms created with the new Power Apps form designer.</li>
-                        <li><strong>Managed/Custom Badges (Form Automation):</strong> Each event handler now displays a <em>Managed</em> or <em>Custom</em> badge, making it easy to distinguish system handlers from customizable ones.</li>
-                        <li><strong>Handler Deduplication (Form Automation):</strong> Duplicate handlers across formxml and formjson sources are automatically merged.</li>
-                        <li><strong>(Form Columns):</strong> Fixed a crash when opening the Form Columns tab after impersonating a user.</li>
+                        <li><strong>Form Inspector Fix (CSS Isolation):</strong> Fixed the Form Inspector tab showing only arrows without data on Email, Template, and other forms that load the RichTextEditor control. Host page CSS no longer interferes with the tree view.</li>
+                        <li><strong>Safari CSS Compatibility:</strong> Added <code>-webkit-user-select</code> prefix across all stylesheets for full Safari and iOS Safari support.</li>
                     </ul>
                     <details class="pdt-changelog-details" style="cursor: pointer;">
-                        <summary style="cursor: pointer; user-select: none;"><strong> Version 4.2.0</strong></summary>
+                        <summary style="cursor: pointer; -webkit--webkit-user-select: none; user-select: none; -webkit-user-select: none; user-select: none;"><strong> Version 4.2.1</strong></summary>
+                        <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
+                            <li><strong>FormJSON Handler Parsing (Form Automation):</strong> Form Automation now reads handlers from the modern <code>formjson</code> column, fixing missing handlers on forms created with the new Power Apps form designer.</li>
+                            <li><strong>Managed/Custom Badges (Form Automation):</strong> Each event handler now displays a <em>Managed</em> or <em>Custom</em> badge, making it easy to distinguish system handlers from customizable ones.</li>
+                            <li><strong>Handler Deduplication (Form Automation):</strong> Duplicate handlers across formxml and formjson sources are automatically merged.</li>
+                            <li><strong>(Form Columns):</strong> Fixed a crash when opening the Form Columns tab after impersonating a user.</li>
+                        </ul>
+                    </details>
+                    <details class="pdt-changelog-details" style="cursor: pointer;">
+                        <summary style="cursor: pointer; -webkit--webkit-user-select: none; user-select: none; -webkit-user-select: none; user-select: none;"><strong> Version 4.2.0</strong></summary>
                         <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                             <li><strong>Power Automate Flows Tab:</strong> New tab to browse, activate/deactivate, delete, and open cloud flows directly from the toolkit with solution-based filtering and flow visualization.</li>
                             <li><strong>Web Resource Editing (Automation):</strong> Form event handlers in the Automation tab now allow editing web resources directly, enabling quick script updates without leaving the toolkit.</li>
@@ -104,17 +111,17 @@ export class AboutTab extends BaseComponent {
                         </ul>
                     </details>
                     <details class="pdt-changelog-details" style="cursor: pointer; margin-top: 0.5rem;">
-                        <summary style="cursor: pointer; user-select: none;"><strong> Previous Releases</strong></summary>
+                        <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong> Previous Releases</strong></summary>
                         <div style="margin-top: 1rem;">
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem;">
-                                <summary style="cursor: pointer; user-select: none;"><strong>Version 4.1.0</strong></summary>
+                                <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong>Version 4.1.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Firefox Extension: Cross-browser support with Firefox add-on alongside Chrome and Edge.</li>
                                     <li>Browser API Abstraction: Unified browser extension API layer for seamless Chrome/Edge/Firefox compatibility.</li>
                                 </ul>
                             </details>
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
-                                <summary style="cursor: pointer; user-select: none;"><strong>Version 4.0.0</strong></summary>
+                                <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong>Version 4.0.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Server-Side Pagination: Handle 5000+ record queries with automatic pagination in both WebAPI Explorer and FetchXML Tester.</li>
                                     <li>Smart Value Inputs: Auto-detect attribute types (boolean dropdowns, picklists, date pickers, lookups) for easier query building.</li>
@@ -130,7 +137,7 @@ export class AboutTab extends BaseComponent {
                                 </ul>
                             </details>
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
-                                <summary style="cursor: pointer; user-select: none;"><strong>Version 3.0.0</strong></summary>
+                                <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong>Version 3.0.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Solution Layers Tab: New tab to view and manage solution components with active customizations.</li>
                                     <li>Resizable Table Columns: All data tables now support column resizing.</li>
@@ -139,7 +146,7 @@ export class AboutTab extends BaseComponent {
                                 </ul>
                             </details>
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
-                                <summary style="cursor: pointer; user-select: none;"><strong>Version 2.1.0</strong></summary>
+                                <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong>Version 2.1.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Minimize/Restore: Minimize button added to header, double-click header or press Ctrl/Cmd+M to minimize.</li>
                                     <li>Metadata Browser: Click column headers to sort tables by Display Name or Logical Name.</li>
@@ -147,7 +154,7 @@ export class AboutTab extends BaseComponent {
                                 </ul>
                             </details>
                             <details class="pdt-changelog-details" style="cursor: pointer; margin-left: 1rem; margin-top: 0.5rem;">
-                                <summary style="cursor: pointer; user-select: none;"><strong>Version 2.0.0</strong></summary>
+                                <summary style="cursor: pointer; -webkit-user-select: none; user-select: none;"><strong>Version 2.0.0</strong></summary>
                                 <ul class="pdt-changelog-list" style="margin-top: 0.5rem;">
                                     <li>Environment Variables: Edit and save Current Values directly in addition to Default Values.</li>
                                     <li>Environment Variables: Enhanced search to include display names and types.</li>
