@@ -67,8 +67,8 @@ export class InspectorTab extends BaseComponent {
             if (this.hierarchy.length === 0) {
                 container.innerHTML += `<p class='pdt-note'>${Config.MESSAGES.INSPECTOR.hierarchyLoadFailed}</p>`;
             } else {
-                const treeContainer = document.createElement('ul');
-                treeContainer.className = 'tree-view';
+                const treeContainer = document.createElement('div');
+                treeContainer.className = 'pdt-tree-view';
                 treeContainer.setAttribute('role', 'tree');
                 this.ui.treeView = treeContainer; // Cache the tree container
                 container.appendChild(treeContainer);
@@ -160,8 +160,8 @@ export class InspectorTab extends BaseComponent {
      * @private
      */
     _handleTreeClick(e) {
-        const editable = e.target.closest('.item-value.editable');
-        const nodeContent = e.target.closest('.tree-node-content');
+        const editable = e.target.closest('.pdt-item-value.editable');
+        const nodeContent = e.target.closest('.pdt-tree-node-content');
 
         // Handle editing a value
         if (editable && nodeContent) {
@@ -174,14 +174,14 @@ export class InspectorTab extends BaseComponent {
         }
 
         // Handle expanding/collapsing a parent node
-        const parentNode = e.target.closest('.tree-parent');
+        const parentNode = e.target.closest('.pdt-tree-parent');
         if (parentNode && nodeContent && parentNode.contains(nodeContent)) {
             // --- LAZY RENDERING LOGIC ---
             // If expanding for the first time, render its children.
-            if (parentNode.classList.contains('collapsed') && parentNode.dataset.rendered === 'false') {
+            if (parentNode.classList.contains('pdt-collapsed') && parentNode.dataset.rendered === 'false') {
                 const logicalName = nodeContent.dataset.logicalName;
                 const nodeData = findNodeInTree(this.hierarchy, 'logicalName', logicalName);
-                const childList = parentNode.querySelector('.tree-child');
+                const childList = parentNode.querySelector('.pdt-tree-child');
                 if (nodeData && childList) {
                     this._renderTree(childList, nodeData.children ?? []);
                     parentNode.dataset.rendered = 'true';
@@ -189,11 +189,11 @@ export class InspectorTab extends BaseComponent {
             }
             // --- END LAZY RENDERING LOGIC ---
 
-            parentNode.classList.toggle('collapsed');
-            parentNode.classList.toggle('expanded');
-            const content = parentNode.querySelector('.tree-node-content');
+            parentNode.classList.toggle('pdt-collapsed');
+            parentNode.classList.toggle('pdt-expanded');
+            const content = parentNode.querySelector('.pdt-tree-node-content');
             if (content) {
-                content.setAttribute('aria-expanded', String(parentNode.classList.contains('expanded')));
+                content.setAttribute('aria-expanded', String(parentNode.classList.contains('pdt-expanded')));
             }
         }
     }
@@ -205,7 +205,7 @@ export class InspectorTab extends BaseComponent {
      * @private
      */
     _handleMouseMove(event) {
-        const nodeContent = event.target.closest('.tree-node-content');
+        const nodeContent = event.target.closest('.pdt-tree-node-content');
         if (nodeContent === this.currentlyHoveredNode) {
             return;
         }
@@ -260,7 +260,7 @@ export class InspectorTab extends BaseComponent {
     /**
      * Renders the direct children for a given set of nodes into a parent element.
      * This is now non-recursive to support lazy loading.
-     * @param {HTMLElement} parentEl - The `<ul>` element to append children to.
+     * @param {HTMLElement} parentEl - The container element to append children to.
      * @param {Array<object>} nodes - The array of node objects to render.
      * @private
      */
@@ -268,11 +268,11 @@ export class InspectorTab extends BaseComponent {
         (nodes ?? []).forEach(node => {
             const li = this._createTreeNode(node);
             if (node.children?.length > 0) {
-                li.classList.add('tree-parent', 'collapsed');
+                li.classList.add('pdt-tree-parent', 'pdt-collapsed');
                 li.dataset.rendered = 'false';
 
-                const childList = document.createElement('ul');
-                childList.className = 'tree-child';
+                const childList = document.createElement('div');
+                childList.className = 'pdt-tree-child';
                 childList.setAttribute('role', 'group');
                 li.appendChild(childList);
             }
@@ -281,14 +281,14 @@ export class InspectorTab extends BaseComponent {
     }
 
     /**
-     * Creates a single tree node `<li>` element from a data object.
+     * Creates a single tree node element from a data object.
      * @param {object} node - The data object for the node.
-     * @returns {HTMLElement} The created `<li>` element.
+     * @returns {HTMLElement} The created element.
      * @private
      */
     _createTreeNode(node) {
-        const listItem = document.createElement('li');
-        listItem.className = 'tree-item';
+        const listItem = document.createElement('div');
+        listItem.className = 'pdt-tree-item';
 
         const valueStr = formatDisplayValue(node.value, node.editableAttr, node.controlType);
         const isEditable = !!node.editableAttr && !node.controlType?.includes('subgrid');
@@ -296,28 +296,28 @@ export class InspectorTab extends BaseComponent {
         // Omit `title` from the inline HTML – it will be set via setAttribute below to
         // avoid HTML attribute injection when valueStr contains double-quote characters.
         const valueHtml = node.value !== undefined
-            ? `<div class="item-value ${isEditable ? 'editable' : ''}">
+            ? `<div class="pdt-item-value ${isEditable ? 'editable' : ''}">
                 ${isEditable ? `<span class="edit-icon">${ICONS.edit}</span>` : ''}
                 ${escapeHtml(valueStr)}
               </div>`
             : '';
 
         listItem.innerHTML = `
-    <div class="tree-node-content"
+    <div class="pdt-tree-node-content"
          data-logical-name="${escapeHtml(node.logicalName || '')}"
          role="treeitem"
          tabindex="0"
          aria-expanded="false">
-      <div class="item-details">
-        <span class="item-label">${escapeHtml(node.label)}</span>
-        <span class="item-logical-name copyable" title="Click to copy">${escapeHtml(node.logicalName || '')}</span>
+      <div class="pdt-item-details">
+        <span class="pdt-item-label">${escapeHtml(node.label)}</span>
+        <span class="pdt-item-logical-name copyable" title="Click to copy">${escapeHtml(node.logicalName || '')}</span>
       </div>
       ${valueHtml}
     </div>`;
 
         // Set the value tooltip via DOM API so any characters in the value are safely handled.
         if (node.value !== undefined) {
-            listItem.querySelector('.item-value')?.setAttribute('title', valueStr);
+            listItem.querySelector('.pdt-item-value')?.setAttribute('title', valueStr);
         }
 
         return listItem;

@@ -104,7 +104,7 @@
  */
 
 .powerapps-dev-toolkit {
-    backdrop-filter: blur(10px);
+    --webkit-backdrop-filter: blur(10px);
     background: var(--pro-bg-light);
     border-radius: 12px;
     border: 1px solid var(--pro-border);
@@ -161,8 +161,8 @@
     min-height: 0;
     max-height: 0;
     overflow: hidden;
-    backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
 }
 
 .pdt-header {
@@ -173,6 +173,7 @@
     flex-shrink: 0;
     justify-content: space-between;
     padding: 5px 6px 5px 15px;
+    -webkit-user-select: none;
     user-select: none;
     -webkit-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     -moz-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -499,6 +500,7 @@ input[type="date"].pdt-input {
     align-items: center;
     color: var(--pro-text-primary);
     font-size: 14px;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -557,6 +559,7 @@ input[type="date"].pdt-input {
 }
 
 .pdt-multiselect-option span {
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -846,7 +849,7 @@ input[type="date"].pdt-input {
 /* --- Dialogs (Modals) --- */
 .pdt-dialog-overlay {
     align-items: center;
-    backdrop-filter: blur(4px);
+    --webkit-backdrop-filter: blur(4px);
     background: rgba(0,0,0,0.7);
     display: flex;
     height: 100%;
@@ -1045,6 +1048,7 @@ input[type="date"].pdt-input {
     cursor: pointer;
     position: sticky;
     top: 0;
+    -webkit-user-select: none;
     user-select: none;
     z-index: 1;
     transition: background-color 0.15s ease;
@@ -1244,7 +1248,7 @@ body.pdt-col-resize-active * {
     width: 60px;
     text-align: center;
     padding: 4px 8px;
-    -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 .pdt-pagination input[type=number]::-webkit-outer-spin-button,
@@ -1377,10 +1381,13 @@ body.pdt-col-resize-active * {
 }
 
 /* --- Lists --- */
-.tree-view, 
+.pdt-tree-view,
+.pdt-list {
+    padding-left: 0;
+}
+
 .pdt-list {
     list-style: none;
-    padding-left: 0;
 }
 
 .pdt-list li {
@@ -1493,6 +1500,7 @@ body.pdt-col-resize-active * {
     display: flex;
     font-size: 14px;
     gap: 8px;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -1720,52 +1728,52 @@ input:checked + .pdt-toggle-slider:before {
 }
 
 /* --- Inspector Tab --- */
-.tree-view {
+.pdt-tree-view {
     padding-left: 0;
 }
-.tree-item {
+.pdt-tree-item {
     border-bottom: 1px solid var(--pro-border);
 }
-.tree-child {
+.pdt-tree-child {
     padding-left: 20px;
 }
-.tree-parent.collapsed > .tree-child {
+.pdt-tree-parent.pdt-collapsed > .pdt-tree-child {
     display: none;
 }
-.tree-node-content {
+.pdt-tree-node-content {
     align-items: center;
     display: flex;
     justify-content: space-between;
     padding: 6px 5px;
     position: relative;
 }
-.tree-parent > .tree-node-content {
+.pdt-tree-parent > .pdt-tree-node-content {
     cursor: pointer;
 }
-.tree-view > .tree-item:hover > .tree-node-content {
+.pdt-tree-view > .pdt-tree-item:hover > .pdt-tree-node-content {
     background-color: var(--pro-hover-bg);
 }
-.tree-view > .tree-item > .tree-child > .tree-item:hover > .tree-node-content {
+.pdt-tree-view > .pdt-tree-item > .pdt-tree-child > .pdt-tree-item:hover > .pdt-tree-node-content {
     background-color: rgba(var(--pro-accent-rgb),0.15);
 }
-.tree-view > .tree-item > .tree-child > .tree-item > .tree-child > .tree-item:hover > .tree-node-content {
+.pdt-tree-view > .pdt-tree-item > .pdt-tree-child > .pdt-tree-item > .pdt-tree-child > .pdt-tree-item:hover > .pdt-tree-node-content {
     background-color: rgba(var(--pro-accent-rgb),0.25);
 }
-.item-details {
+.pdt-item-details {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
-.item-label {
+.pdt-item-label {
     font-size: 15px;
     font-weight: 600;
 }
-.item-logical-name {
+.pdt-item-logical-name {
     color: var(--pro-text-secondary);
     font-family: monospace;
     font-size: 12px;
 }
-.item-value {
+.pdt-item-value {
     font-family: monospace;
     max-width: 50%;
     overflow: hidden;
@@ -1773,27 +1781,27 @@ input:checked + .pdt-toggle-slider:before {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.item-value.editable {
+.pdt-item-value.editable {
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 4px;
 }
-.item-value.editable:hover {
+.pdt-item-value.editable:hover {
     color: var(--pro-accent-light);
 }
-.item-value .edit-icon {
+.pdt-item-value .edit-icon {
     display: inline-flex;
     width: 14px;
     height: 14px;
     opacity: 0.6;
     flex-shrink: 0;
 }
-.item-value.editable:hover .edit-icon {
+.pdt-item-value.editable:hover .edit-icon {
     opacity: 1;
 }
-.tree-parent > .tree-node-content::before {
+.pdt-tree-parent > .pdt-tree-node-content::before {
     color: var(--pro-text-secondary);
     content: '▸';
     font-size: 16px;
@@ -1803,14 +1811,14 @@ input:checked + .pdt-toggle-slider:before {
     transform: translateY(-50%);
     transition: transform 0.2s ease-in-out;
 }
-.tree-parent.expanded > .tree-node-content::before {
+.pdt-tree-parent.pdt-expanded > .pdt-tree-node-content::before {
     transform: translateY(-50%) rotate(90deg);
 }
-.tree-view .copyable {
+.pdt-tree-view .copyable {
   text-underline-offset: 2px;
 }
-.tree-view .copyable:hover,
-.tree-view .copyable:focus {
+.pdt-tree-view .copyable:hover,
+.pdt-tree-view .copyable:focus {
   text-decoration: underline;
   cursor: pointer;
   outline: none;
@@ -2017,6 +2025,7 @@ input:checked + .pdt-toggle-slider:before {
     gap: 10px;
     margin-bottom: 8px;
     padding: 12px;
+    -webkit-user-select: none;
     user-select: none;
 }
 #tab-settings-list li.dragging,
@@ -3166,6 +3175,7 @@ input:checked + .pdt-toggle-slider:before {
 }
 
 .pdt-radio-label span {
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -4265,6 +4275,7 @@ input:checked + .pdt-toggle-slider:before {
     gap: 8px;
     list-style: none;
     padding: 8px 12px;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -4957,6 +4968,7 @@ details[open] .pdt-details-summary {
     gap: 6px;
     list-style: none;
     padding: 6px 12px;
+    -webkit-user-select: none;
     user-select: none;
     justify-content: center;
 }
@@ -5026,5 +5038,6 @@ details[open] > .pdt-flow-scope-summary::before {
 .pdt-flow-id {
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 12px;
+    -webkit-user-select: all;
     user-select: all;
 }
