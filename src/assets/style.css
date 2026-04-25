@@ -104,7 +104,8 @@
  */
 
 .powerapps-dev-toolkit {
-    --webkit-backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
     background: var(--pro-bg-light);
     border-radius: 12px;
     border: 1px solid var(--pro-border);
@@ -835,6 +836,39 @@ input[type="date"].pdt-input {
     font-weight: bold;
 }
 
+.pdt-changelog-intro {
+    margin: 0 0 0.5rem;
+}
+
+.pdt-changelog-details {
+    cursor: pointer;
+    margin-top: 0.5rem;
+}
+
+.pdt-changelog-details > summary,
+.pdt-changelog-version > summary {
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.pdt-changelog-previous-releases {
+    margin-top: 1rem;
+}
+
+.pdt-changelog-version {
+    cursor: pointer;
+    margin-left: 1rem;
+}
+
+.pdt-changelog-version + .pdt-changelog-version {
+    margin-top: 0.5rem;
+}
+
+.pdt-changelog-version .pdt-changelog-list {
+    margin-top: 0.5rem;
+}
+
 .pdt-license-text {
     background-color: var(--pro-bg-surface);
     border-radius: 4px;
@@ -849,7 +883,8 @@ input[type="date"].pdt-input {
 /* --- Dialogs (Modals) --- */
 .pdt-dialog-overlay {
     align-items: center;
-    --webkit-backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
     background: rgba(0,0,0,0.7);
     display: flex;
     height: 100%;
@@ -877,7 +912,7 @@ input[type="date"].pdt-input {
     border-bottom: 1px solid var(--pro-border);
     display: flex;
     justify-content: space-between;
-    padding: 15px 20px;
+    padding: 7px 10px 7px 20px;
 }
 
 .pdt-dialog-header h3 {
@@ -965,7 +1000,7 @@ input[type="date"].pdt-input {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-    padding: 15px 20px;
+    padding: 10px 20px;
 }
 
 /* --- Toolbars & Pagination --- */
@@ -2843,7 +2878,8 @@ input:checked + .pdt-toggle-slider:before {
     min-width: 0;
 }
 
-.pdt-condition-grid .pdt-condition-remove {
+.pdt-condition-grid .pdt-condition-remove,
+.capi-remove-header-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3039,6 +3075,16 @@ input:checked + .pdt-toggle-slider:before {
     box-sizing: border-box;
 }
 
+.pdt-converter-output::-webkit-scrollbar,
+.pdt-capi-code-output::-webkit-scrollbar {
+    cursor: default;
+}
+
+.pdt-converter-output::-webkit-scrollbar-thumb,
+.pdt-capi-code-output::-webkit-scrollbar-thumb {
+    cursor: default;
+}
+
 .pdt-converter-copy-btn {
     position: absolute;
     top: 6px;
@@ -3101,6 +3147,8 @@ input:checked + .pdt-toggle-slider:before {
 }
 
 .pdt-dialog-narrow { min-width: 520px; max-width: 640px; }
+
+.pdt-capi-dialog { min-width: 600px; max-width: 700px; }
 
 .pdt-dialog-footer {
     display: flex;
@@ -4628,13 +4676,25 @@ details[open] .pdt-details-summary {
 }
 
 .pdt-badge--managed {
-    background-color: rgba(156, 39, 176, 0.15);
-    color: #9c27b0;
+    background: var(--pro-text-secondary);
+    border-radius: 4px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    text-transform: uppercase;
 }
 
 .pdt-badge--unmanaged {
-    background-color: rgba(76, 175, 80, 0.15);
-    color: #4caf50;
+    background: var(--pro-warn, #ffa726);
+    border-radius: 4px;
+    color: #000;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    text-transform: uppercase;
 }
 
 .pdt-flow-body {
@@ -5040,4 +5100,432 @@ details[open] > .pdt-flow-scope-summary::before {
     font-size: 12px;
     -webkit-user-select: all;
     user-select: all;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CUSTOM API MANAGER
+   ═══════════════════════════════════════════════════════════════ */
+
+.pdt-capi-view-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.pdt-capi-stats {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, 1fr);
+    margin-bottom: 15px;
+}
+
+/* Card enhancements */
+.pdt-capi-card .pdt-card-header {
+    cursor: default;
+}
+
+.pdt-capi-card-title-row {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.pdt-capi-name {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 14px;
+}
+
+.pdt-capi-badges {
+    display: flex;
+    gap: 6px;
+}
+
+/* Badge base styles — shared across CustomApiTab and PowerAutomateFlowsTab */
+.pdt-capi-badge {
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    text-transform: uppercase;
+}
+
+.pdt-capi-badge-action {
+    background: var(--pro-accent);
+    color: #fff;
+}
+
+.pdt-capi-badge-function {
+    background: var(--pro-success);
+    color: #fff;
+}
+
+.pdt-capi-badge-managed {
+    background: var(--pro-text-secondary);
+    color: #fff;
+}
+
+.pdt-capi-badge-unmanaged {
+    background: var(--pro-warn, #ffa726);
+    color: #000;
+}
+
+/* Expandable param/prop sections */
+.pdt-capi-expandable {
+    border-top: 1px solid var(--pro-border);
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.pdt-capi-params-section,
+.pdt-capi-props-section {
+    margin-bottom: 10px;
+}
+
+.pdt-capi-section-row {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.pdt-capi-mini-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pdt-capi-mini-actions .pdt-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    opacity: 0.7;
+    padding: 2px 4px;
+}
+
+.pdt-capi-mini-actions .pdt-icon-btn:hover {
+    opacity: 1;
+}
+
+/* Disabled input styling */
+.pdt-input-disabled,
+.pdt-input:disabled,
+.pdt-select:disabled,
+.pdt-textarea:disabled {
+    background: var(--pro-bg-surface) !important;
+    color: var(--pro-text-secondary) !important;
+    cursor: not-allowed !important;
+    opacity: 0.65;
+}
+
+/* Delete button red hover */
+.pdt-capi-delete-hover:hover {
+    background-color: var(--pro-error) !important;
+    border-color: var(--pro-error) !important;
+    color: white !important;
+}
+
+/* JSON validation error */
+.pdt-input-error {
+    border-color: var(--pro-error) !important;
+}
+
+.pdt-capi-json-error {
+    color: var(--pro-error);
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+/* Boolean row layout: text left, checkbox right */
+.pdt-capi-bool-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 6px 0;
+}
+
+.pdt-form-grid .pdt-toggle-switch {
+    justify-self: start;
+}
+
+.pdt-capi-bool-label {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    font-size: 13px;
+    gap: 8px;
+}
+
+.pdt-capi-bool-label input[type="checkbox"] {
+    order: 1;
+}
+
+.pdt-capi-mini-table {
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 6px;
+    width: 100%;
+}
+
+.pdt-capi-mini-table th {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    font-weight: 600;
+    padding: 4px 8px;
+    text-align: left;
+}
+
+.pdt-capi-mini-table td {
+    border: 1px solid var(--pro-border);
+    padding: 4px 8px;
+}
+
+/* Tester View */
+.pdt-capi-tester {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.pdt-capi-endpoint-preview {
+    background: var(--pro-bg-surface);
+    border-radius: 4px;
+    border: 1px solid var(--pro-border);
+    font-size: 12px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+
+.pdt-capi-method-badge {
+    border-radius: 4px;
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    text-transform: uppercase;
+}
+
+.pdt-capi-method-post {
+    background: var(--pro-accent);
+    color: #fff;
+}
+
+.pdt-capi-method-get {
+    background: var(--pro-success);
+    color: #fff;
+}
+
+.pdt-capi-section-header {
+    border-bottom: 1px solid var(--pro-border);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+}
+
+.pdt-capi-tester-section {
+    background: var(--pro-bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--pro-border);
+    padding: 12px;
+}
+
+.pdt-capi-tester-section .pdt-form-grid {
+    grid-template-columns: minmax(100px, max-content) 1fr;
+}
+
+.pdt-capi-tester-section .pdt-form-grid > label {
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.pdt-capi-tester-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Response Panel */
+.pdt-capi-response {
+    background: var(--pro-bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--pro-border);
+    overflow: hidden;
+}
+
+.pdt-capi-response-header {
+    align-items: center;
+    background: var(--pro-bg-surface);
+    border-bottom: 1px solid var(--pro-border);
+    display: flex;
+    gap: 15px;
+    padding: 10px 15px;
+}
+
+.pdt-capi-status-success {
+    color: var(--pro-success);
+    font-weight: 600;
+}
+
+.pdt-capi-status-error {
+    color: var(--pro-error);
+    font-weight: 600;
+}
+
+.pdt-capi-status-warn {
+    color: var(--pro-warning);
+    font-weight: 600;
+}
+
+.pdt-capi-response-tabs {
+    border-bottom: 1px solid var(--pro-border);
+    display: flex;
+    gap: 0;
+}
+
+.pdt-capi-resp-tab {
+    background: none;
+    border-bottom: 2px solid transparent;
+    border: none;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 16px;
+}
+
+.pdt-capi-resp-tab.active {
+    border-bottom-color: var(--pro-accent);
+    color: var(--pro-text-primary);
+    font-weight: 600;
+}
+
+.pdt-capi-resp-format-tabs {
+    border-bottom: 1px solid var(--pro-border);
+    display: flex;
+    gap: 0;
+    margin-bottom: 8px;
+}
+
+.pdt-capi-resp-format-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 12px;
+}
+
+.pdt-capi-resp-format-tab.active {
+    border-bottom: 2px solid var(--pro-accent);
+    color: var(--pro-text-primary);
+    font-weight: 600;
+}
+
+.pdt-capi-response-content {
+    max-height: 400px;
+    overflow: auto;
+    padding: 12px;
+}
+
+.pdt-capi-response-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Code Generation */
+.pdt-capi-code-gen {
+    background: var(--pro-bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--pro-border);
+    padding: 12px;
+}
+
+.pdt-capi-code-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 10px;
+}
+
+.pdt-capi-code-tab {
+    background: none;
+    border-bottom: 2px solid transparent;
+    border: none;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 14px;
+}
+
+.pdt-capi-code-tab.active {
+    border-bottom-color: var(--pro-accent);
+    color: var(--pro-text-primary);
+    font-weight: 600;
+}
+
+.pdt-capi-code-output {
+    background: var(--pro-bg-surface);
+    border-radius: 4px;
+    border: 1px solid var(--pro-border);
+    font-size: 12px;
+    max-height: 300px;
+    overflow: auto;
+    padding: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Execution History */
+.pdt-capi-history {
+    background: var(--pro-bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--pro-border);
+    padding: 12px;
+}
+
+.pdt-capi-history-entry {
+    align-items: center;
+    border-bottom: 1px solid var(--pro-border);
+    cursor: pointer;
+    display: flex;
+    gap: 10px;
+    padding: 6px 0;
+}
+
+.pdt-capi-history-entry:hover {
+    background: var(--pro-bg-surface);
+}
+
+.pdt-capi-history-entry:last-child {
+    border-bottom: none;
+}
+
+.pdt-capi-history-time {
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+    min-width: 60px;
+}
+
+.pdt-capi-history-name {
+    flex: 1;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+}
+
+.pdt-capi-history-duration {
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+}
+
+/* Immutable field notice */
+.pdt-capi-immutable-notice {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    font-style: italic;
+    grid-column: 1 / -1;
+    padding: 8px 0;
 }

@@ -363,7 +363,7 @@ describe('PowerAutomateFlowsTab', () => {
             tab = result.tab;
 
             const managedCard = result.el.querySelector('.pdt-flow-card[data-flow-id="flow-3"]');
-            expect(managedCard.querySelector('.pdt-badge--managed')).not.toBeNull();
+            expect(managedCard.querySelector('.pdt-capi-badge-managed')).not.toBeNull();
         });
 
         it('should show Unmanaged badge for unmanaged flows', async () => {
@@ -371,7 +371,7 @@ describe('PowerAutomateFlowsTab', () => {
             tab = result.tab;
 
             const unmanagedCard = result.el.querySelector('.pdt-flow-card[data-flow-id="flow-1"]');
-            expect(unmanagedCard.querySelector('.pdt-badge--unmanaged')).not.toBeNull();
+            expect(unmanagedCard.querySelector('.pdt-capi-badge-unmanaged')).not.toBeNull();
         });
 
         it('should set isManaged dataset attribute', async () => {

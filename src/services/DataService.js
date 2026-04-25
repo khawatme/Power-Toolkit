@@ -496,10 +496,11 @@ export const DataService = {
      * Create a record.
      * @param {string} entity
      * @param {object} data
+     * @param {HeadersInit} [customHeaders={}] - Custom headers (e.g. MSCRM.SolutionUniqueName)
      * @returns {Promise<object>} `{ id }` when available or response JSON
      */
-    createRecord(entity, data) {
-        return WebApiService.createRecord(_webApiFetch, entity, data);
+    createRecord(entity, data, customHeaders = {}) {
+        return WebApiService.createRecord(_webApiFetch, entity, data, customHeaders);
     },
 
     /**

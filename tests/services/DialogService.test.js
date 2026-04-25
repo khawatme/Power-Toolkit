@@ -211,4 +211,57 @@ describe('DialogService', () => {
             expect(document.activeElement).toBe(cancelBtn);
         });
     });
+
+    describe('options parameter', () => {
+        it('should use custom okText when provided', () => {
+            DialogService.show('Title', '<p>Content</p>', () => {}, { okText: 'Confirm' });
+
+            const okBtn = document.querySelector('.pdt-dialog-ok');
+            expect(okBtn?.textContent).toBe('Confirm');
+        });
+
+        it('should use custom cancelText when provided', () => {
+            DialogService.show('Title', '<p>Content</p>', null, { cancelText: 'Dismiss' });
+
+            const cancelBtn = document.querySelector('.pdt-dialog-cancel');
+            expect(cancelBtn?.textContent).toBe('Dismiss');
+        });
+
+        it('should use default OK text when options are omitted', () => {
+            DialogService.show('Title', '<p>Content</p>', () => {});
+
+            const okBtn = document.querySelector('.pdt-dialog-ok');
+            expect(okBtn?.textContent).toBe('OK');
+        });
+
+        it('should use default Close text when options are omitted', () => {
+            DialogService.show('Title', '<p>Content</p>');
+
+            const cancelBtn = document.querySelector('.pdt-dialog-cancel');
+            expect(cancelBtn?.textContent).toBe('Close');
+        });
+
+        it('should use default OK text when options object is empty', () => {
+            DialogService.show('Title', '<p>Content</p>', () => {}, {});
+
+            const okBtn = document.querySelector('.pdt-dialog-ok');
+            expect(okBtn?.textContent).toBe('OK');
+        });
+
+        it('should use default Close text when options object is empty', () => {
+            DialogService.show('Title', '<p>Content</p>', null, {});
+
+            const cancelBtn = document.querySelector('.pdt-dialog-cancel');
+            expect(cancelBtn?.textContent).toBe('Close');
+        });
+
+        it('should use both custom okText and cancelText simultaneously', () => {
+            DialogService.show('Title', '<p>Content</p>', () => {}, { okText: 'Save', cancelText: 'Cancel' });
+
+            const okBtn = document.querySelector('.pdt-dialog-ok');
+            const cancelBtn = document.querySelector('.pdt-dialog-cancel');
+            expect(okBtn?.textContent).toBe('Save');
+            expect(cancelBtn?.textContent).toBe('Cancel');
+        });
+    });
 });

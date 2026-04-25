@@ -1,6 +1,6 @@
 'use strict';
 /**
- * @file package-full.cjs
+ * @file package-all.cjs
  * @description Builds Chrome & Firefox extensions and packages each into a
  *   versioned ZIP, then archives the source tree.
  *
@@ -10,7 +10,7 @@
  *   source-v<version>.zip    — full source via `git archive`
  */
 
-const { execSync, spawnSync } = require('child_process');
+const { execSync } = require('child_process');
 const { readFileSync, mkdirSync } = require('fs');
 const path = require('path');
 

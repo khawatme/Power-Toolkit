@@ -62,7 +62,7 @@ export class PowerAutomateFlowsTab extends BaseComponent {
             <div class="section-title flex-shrink-0">Power Automate Cloud Flows</div>
             <div class="pdt-toolbar">
                 <select id="pdt-flow-solution-select" class="pdt-input" style="flex: 2;">
-                    <option value="">${M.selectSolution}</option>
+                    <option value="">${Config.MESSAGES.COMMON.selectSolutionDropdown}</option>
                 </select>
                 <input type="text" id="flow-search" class="pdt-input" placeholder="Search by name, status, or owner..." style="flex: 1;">
                 <button id="flow-refresh-btn" class="modern-button" disabled>${M.refreshFlows}</button>
@@ -132,7 +132,7 @@ export class PowerAutomateFlowsTab extends BaseComponent {
             this.ui.solutionSelect.disabled = true;
             this.solutions = await DataService.getSolutionsWithFlows();
 
-            this.ui.solutionSelect.innerHTML = `<option value="">${M.selectSolution}</option>`;
+            this.ui.solutionSelect.innerHTML = `<option value="">${Config.MESSAGES.COMMON.selectSolutionDropdown}</option>`;
             this.solutions.forEach(solution => {
                 const option = document.createElement('option');
                 option.value = solution.solutionid;
@@ -226,8 +226,8 @@ export class PowerAutomateFlowsTab extends BaseComponent {
         const statusClass = this._getStatusClass(flow.statecode);
         const statusText = this._getStatusText(flow.statecode);
         const managedBadge = flow.isManaged
-            ? `<span class="pdt-badge--managed pdt-badge-small">${M.managedLabel}</span>`
-            : `<span class="pdt-badge--unmanaged pdt-badge-small">${M.unmanagedLabel}</span>`;
+            ? `<span class="pdt-capi-badge pdt-capi-badge-managed">${M.managedLabel}</span>`
+            : `<span class="pdt-capi-badge pdt-capi-badge-unmanaged">${M.unmanagedLabel}</span>`;
 
         const searchText = [flow.name, flow.description, flow.owner, statusText]
             .join(' ').toLowerCase();
