@@ -16,14 +16,15 @@ The toolkit is organized into a clear, tab-based interface, with each tab provid
 * **Event Monitor:** Live console that logs `OnLoad`, `OnSave`, and `OnChange` events as they happen
 
 ### ⚙️ Automation & Logic Debugging
-* **Automation:** View, manage, activate, and deactivate Business Rules for any table. Inspect the underlying JavaScript logic. Lists `OnLoad`/`OnSave`/`OnChange` event handlers across all main forms with Managed/Custom badges, sourced from both formxml and formjson definitions
-* **Power Automate:** Browse, activate/deactivate, and delete cloud flows. View flow definitions with a visual step-by-step diagram and raw JSON, with direct links to the Power Automate portal
+* **Automation:** View, manage, activate, and deactivate Business Rules with JavaScript inspection. Edit and upload JavaScript web resources for form event handlers directly from the toolkit with Save & Publish support
+* **Power Automate:** Browse, activate/deactivate, delete, and edit cloud flows. View flow definitions as a visual diagram or raw JSON, edit the JSON of unmanaged flows and save back to Dataverse, with direct links to the Power Automate portal
 * **Plugin Context:** Simulate the `Target`, `PreEntityImage`, and `PostEntityImage` sent to server-side plugins. Includes a C# unit test generator for FakeXrmEasy
 * **Plugin Trace Logs:** Real-time viewer for server-side Plugin Trace Logs with live polling, powerful filtering, and search capabilities
 
 ### 📊 Data & API Interaction
 * **WebAPI Explorer:** Full-featured client to execute GET, POST, PATCH, and DELETE requests against the Dataverse Web API with intelligent query building
 * **FetchXML Tester:** Powerful builder and editor to write, format, and execute FetchXML queries with syntax highlighting. Convert FetchXML to C# QueryExpression, JavaScript Xrm, OData, SQL, Power Automate, and Web API URL formats
+* **Custom API Manager:** Browse, create, edit, delete, and test Dataverse Custom APIs scoped by solution. Built-in tester with code generation (JavaScript, C#, HTTP, Power Automate), export/import, and execution history
 * **Metadata Browser:** Complete, searchable dictionary of all tables and columns in the environment
 
 ### 🔐 Security & Configuration

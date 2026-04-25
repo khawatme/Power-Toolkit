@@ -85,6 +85,7 @@ function getDefaultTabSettings() {
         { id: 'solutionLayers', visible: true, formOnly: false },
         { id: 'apiExplorer', visible: true, formOnly: false },
         { id: 'fetchXmlTester', visible: true, formOnly: false },
+        { id: 'customApi', visible: true, formOnly: false },
         { id: 'envVars', visible: true, formOnly: false },
         { id: 'traces', visible: true, formOnly: false },
         { id: 'userContext', visible: true, formOnly: false },

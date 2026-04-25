@@ -312,7 +312,16 @@ describe('WebApiService', () => {
             const result = await WebApiService.createRecord(mockWebApiFetch, 'account', { name: 'New Account' });
 
             expect(result.id).toBe('12345678-1234-1234-1234-123456789012');
-            expect(mockWebApiFetch).toHaveBeenCalledWith('POST', 'account', '', { name: 'New Account' });
+            expect(mockWebApiFetch).toHaveBeenCalledWith('POST', 'account', '', { name: 'New Account' }, {});
+        });
+
+        it('should pass custom headers when provided', async () => {
+            mockWebApiFetch.mockResolvedValueOnce({ id: 'new-id' });
+            const headers = { 'MSCRM.SolutionUniqueName': 'MySolution' };
+
+            await WebApiService.createRecord(mockWebApiFetch, 'account', { name: 'Test' }, headers);
+
+            expect(mockWebApiFetch).toHaveBeenCalledWith('POST', 'account', '', { name: 'Test' }, headers);
         });
     });
 

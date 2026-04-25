@@ -246,8 +246,8 @@ export const WebApiService = {
      * @returns {Promise<object>}
      */
     // eslint-disable-next-line require-await
-    async createRecord(webApiFetch, entity, data) {
-        return webApiFetch('POST', entity, '', data);
+    async createRecord(webApiFetch, entity, data, customHeaders = {}) {
+        return webApiFetch('POST', entity, '', data, customHeaders);
     },
 
     /**

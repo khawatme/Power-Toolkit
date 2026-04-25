@@ -18,5 +18,6 @@ export const STORAGE_KEYS = {
     fetchXmlView: 'pdt-fetchxml-view',
     fetchXmlHideOdata: 'pdt-fetchxml-hide-odata',
     webApiView: 'pdt-webapi-view',
-    webApiHideOdata: 'pdt-webapi-hide-odata'
+    webApiHideOdata: 'pdt-webapi-hide-odata',
+    customApiView: 'pdt-customapi-view'
 };

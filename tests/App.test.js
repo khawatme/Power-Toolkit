@@ -171,8 +171,8 @@ describe('App', () => {
 
         it('should register all components before initializing UI', () => {
             App.init();
-            // 19 components should be registered
-            expect(ComponentRegistry.register).toHaveBeenCalledTimes(19);
+            // 20 components should be registered
+            expect(ComponentRegistry.register).toHaveBeenCalledTimes(20);
         });
 
         it('should set window initialized flag', () => {
@@ -363,10 +363,10 @@ describe('App', () => {
             expect(registeredIds).toContain('about');
         });
 
-        it('should register exactly 19 components', () => {
+        it('should register exactly 20 components', () => {
             App.init();
 
-            expect(ComponentRegistry.register).toHaveBeenCalledTimes(19);
+            expect(ComponentRegistry.register).toHaveBeenCalledTimes(20);
         });
 
         it('should register components with proper structure', () => {

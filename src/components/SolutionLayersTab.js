@@ -56,7 +56,7 @@ export class SolutionLayersTab extends BaseComponent {
             
             <div class="pdt-toolbar">
                 <select id="pdt-solution-select" class="pdt-input" style="flex: 2;">
-                    <option value="">Select a solution...</option>
+                    <option value="">${Config.MESSAGES.COMMON.selectSolutionDropdown}</option>
                 </select>
                 <input type="text" id="pdt-component-search" class="pdt-input" placeholder="Search components..." style="flex: 1;">
                 <select id="pdt-component-type-filter" class="pdt-input" style="flex: 1;">
@@ -70,7 +70,7 @@ export class SolutionLayersTab extends BaseComponent {
             </div>
 
             <div id="pdt-layers-container" class="pdt-content-host">
-                <p class="pdt-note">Select a solution to view its components.</p>
+                <p class="pdt-note">${Config.MESSAGES.SOLUTION_LAYERS.selectSolution}</p>
             </div>
         `;
 
@@ -119,7 +119,7 @@ export class SolutionLayersTab extends BaseComponent {
             this.solutions = await SolutionLayersService.getSolutions();
 
             // Clear and populate dropdown
-            this.ui.solutionSelect.innerHTML = '<option value="">Select a solution...</option>';
+            this.ui.solutionSelect.innerHTML = `<option value="">${Config.MESSAGES.COMMON.selectSolutionDropdown}</option>`;
 
             this.solutions.forEach(solution => {
                 const option = document.createElement('option');
@@ -149,7 +149,7 @@ export class SolutionLayersTab extends BaseComponent {
         if (!this.selectedSolutionId) {
             this.ui.refreshBtn.disabled = true;
             this.layers = [];
-            this.ui.layersContainer.innerHTML = '<p class="pdt-note">Select a solution to view its components.</p>';
+            this.ui.layersContainer.innerHTML = `<p class="pdt-note">${Config.MESSAGES.SOLUTION_LAYERS.selectSolution}</p>`;
             return;
         }
 

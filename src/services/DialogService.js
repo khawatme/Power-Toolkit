@@ -28,9 +28,14 @@ export const DialogService = {
      * @param {string | HTMLElement} content - The HTML string or DOM element to display in the dialog's body.
      * @param {DialogOkCallback} [callback] - An optional function to call when the 'OK' button is clicked.
      * If this function is provided, an 'OK' button will be rendered.
+     * @param {object} [options] - Additional dialog options.
+     * @param {string} [options.okText='OK'] - Custom text for the OK button.
+     * @param {string} [options.cancelText='Close'] - Custom text for the Cancel button.
      * @returns {{close: () => void}} An object with a `close` method to programmatically close the dialog.
      */
-    show(title, contentHTML, callback = null) {
+    show(title, contentHTML, callback = null, options = {}) {
+        const okText = options.okText || 'OK';
+        const cancelText = options.cancelText || 'Close';
         document.getElementById(Config.DIALOG_OVERLAY_ID)?.remove();
 
         const dialogOverlay = document.createElement('div');
@@ -49,8 +54,8 @@ export const DialogService = {
                 </div>
                 <div class="${Config.DIALOG_CLASSES.content}"></div>
                 <div class="${Config.DIALOG_CLASSES.footer}">
-                    ${callback ? `<button class="modern-button ${Config.DIALOG_CLASSES.okBtn}">OK</button>` : ''}
-                    <button class="modern-button secondary ${Config.DIALOG_CLASSES.cancelBtn}">Close</button>
+                    ${callback ? `<button class="modern-button ${Config.DIALOG_CLASSES.okBtn}">${okText}</button>` : ''}
+                    <button class="modern-button secondary ${Config.DIALOG_CLASSES.cancelBtn}">${cancelText}</button>
                 </div>
             </div>`;
 

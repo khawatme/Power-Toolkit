@@ -291,3 +291,67 @@ export const CACHE_KEY_PREFIXES = {
     ENTITY_DEFINITIONS: 'entityDefinitions',
     USER_CONTEXT: 'userContext'
 };
+
+/**
+ * Custom API field type codes (shared by request parameters and response properties).
+ * Maps numeric option values to human-readable labels.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/custom-api-tables
+ * @type {Object.<number, string>}
+ */
+export const CUSTOM_API_FIELD_TYPES = {
+    0: 'Boolean',
+    1: 'DateTime',
+    2: 'Decimal',
+    3: 'Entity',
+    4: 'EntityCollection',
+    5: 'EntityReference',
+    6: 'Float',
+    7: 'Integer',
+    8: 'Money',
+    9: 'Picklist',
+    10: 'String',
+    11: 'StringArray',
+    12: 'Guid'
+};
+
+/**
+ * Custom API binding type codes.
+ * @type {Object.<number, string>}
+ */
+export const CUSTOM_API_BINDING_TYPES = {
+    0: 'Global',
+    1: 'Entity',
+    2: 'EntityCollection'
+};
+
+/**
+ * Custom API allowed custom processing step type codes.
+ * @type {Object.<number, string>}
+ */
+export const CUSTOM_API_PROCESSING_TYPES = {
+    0: 'None',
+    1: 'Async Only',
+    2: 'Sync and Async'
+};
+
+/**
+ * Default values for each Custom API parameter type.
+ * Used when auto-generating request bodies for testing.
+ * DateTime (type 1) uses null here; consumers should call new Date().toISOString() for a fresh timestamp.
+ * @type {Object.<number, *>}
+ */
+export const CUSTOM_API_TYPE_DEFAULTS = {
+    0: false,          // Boolean
+    1: null,           // DateTime — resolved dynamically by consumers
+    2: 0.0,            // Decimal
+    3: {},             // Entity
+    4: [],             // EntityCollection
+    5: null,           // EntityReference
+    6: 0.0,            // Float
+    7: 0,              // Integer
+    8: 0.0,            // Money
+    9: 0,              // Picklist
+    10: '',            // String
+    11: [],            // StringArray
+    12: '00000000-0000-0000-0000-000000000000' // Guid
+};

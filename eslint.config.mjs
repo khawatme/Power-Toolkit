@@ -44,6 +44,7 @@ export default [
                 ResizeObserver: 'readonly',
                 AbortController: 'readonly',
                 crypto: 'readonly',
+                CSS: 'readonly',
                 // Power Apps/Dynamics 365 globals
                 Xrm: 'readonly',
                 GetGlobalContext: 'readonly',
