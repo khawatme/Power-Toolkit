@@ -18,7 +18,9 @@ bundle-stats.json
 /package-lock.json
 
 /.github
+/.claude
 /coverage
+CLAUDE.md
 AGENTS.md
 
 # Release packages

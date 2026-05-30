@@ -373,7 +373,12 @@ export class FilterGroupManager {
             if (currentValueInput) {
                 currentValueInput.disabled = !shouldShow;
                 if (currentValueInput.tagName === 'INPUT') {
-                    currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
+                    const op = operatorSelect.value;
+                    if (op === 'in' || op === 'not-in') {
+                        currentValueInput.placeholder = 'val1,val2,val3';
+                    } else {
+                        currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
+                    }
                 }
                 if (!shouldShow) {
                     currentValueInput.value = '';
@@ -412,7 +417,12 @@ export class FilterGroupManager {
         if (currentValueInput) {
             currentValueInput.disabled = !shouldShow;
             if (currentValueInput.tagName === 'INPUT') {
-                currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
+                const op = operatorSelect?.value;
+                if (op === 'in' || op === 'not-in') {
+                    currentValueInput.placeholder = 'val1,val2,val3';
+                } else {
+                    currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
+                }
             }
             if (!shouldShow) {
                 currentValueInput.value = '';

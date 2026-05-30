@@ -315,6 +315,64 @@ describe('FormInspectionService', () => {
             expect(result).toEqual([]);
         });
 
+        it('should skip attributes that throw during processing', () => {
+            const badAttribute = {
+                getName: vi.fn(() => { throw new Error('Internal Xrm error'); })
+            };
+            const goodAttribute = {
+                getName: vi.fn(() => 'safefield'),
+                getAttributeType: vi.fn(() => 'string'),
+                getValue: vi.fn(() => 'ok'),
+                getIsDirty: vi.fn(() => false),
+                getRequiredLevel: vi.fn(() => 'none'),
+                controls: { getLength: vi.fn(() => 0) }
+            };
+
+            vi.spyOn(PowerAppsApiService, 'getAllAttributes').mockReturnValue([badAttribute, goodAttribute]);
+
+            const result = FormInspectionService.getFormColumns();
+
+            expect(result).toHaveLength(1);
+            expect(result[0].logicalName).toBe('safefield');
+        });
+
+        it('should handle attributes with undefined controls', () => {
+            const mockAttribute = {
+                getName: vi.fn(() => 'nocontrols'),
+                getAttributeType: vi.fn(() => 'string'),
+                getValue: vi.fn(() => 'value'),
+                getIsDirty: vi.fn(() => false),
+                getRequiredLevel: vi.fn(() => 'none'),
+                controls: undefined
+            };
+
+            vi.spyOn(PowerAppsApiService, 'getAllAttributes').mockReturnValue([mockAttribute]);
+
+            const result = FormInspectionService.getFormColumns();
+
+            expect(result).toHaveLength(1);
+            expect(result[0].displayName).toBe('nocontrols');
+            expect(result[0].logicalName).toBe('nocontrols');
+        });
+
+        it('should handle attributes with null controls', () => {
+            const mockAttribute = {
+                getName: vi.fn(() => 'nullcontrols'),
+                getAttributeType: vi.fn(() => 'string'),
+                getValue: vi.fn(() => 'value'),
+                getIsDirty: vi.fn(() => false),
+                getRequiredLevel: vi.fn(() => 'none'),
+                controls: null
+            };
+
+            vi.spyOn(PowerAppsApiService, 'getAllAttributes').mockReturnValue([mockAttribute]);
+
+            const result = FormInspectionService.getFormColumns();
+
+            expect(result).toHaveLength(1);
+            expect(result[0].displayName).toBe('nullcontrols');
+        });
+
         it('should return dirty status for modified fields', () => {
             const mockAttribute = {
                 getName: vi.fn(() => 'modifiedfield'),

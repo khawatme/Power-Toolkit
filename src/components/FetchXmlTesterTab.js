@@ -1860,6 +1860,14 @@ export class FetchXmlTesterTab extends BaseComponent {
                 if (op === 'null' || op === 'not-null') {
                     return `${indentStr}  <condition attribute="${attr}" operator="${op}" />`;
                 }
+                if (op === 'in' || op === 'not-in') {
+                    if (!value) {
+                        return null;
+                    }
+                    const valueElements = value.split(',').map(v => v.trim()).filter(Boolean)
+                        .map(v => `${indentStr}    <value>${v}</value>`).join('\n');
+                    return `${indentStr}  <condition attribute="${attr}" operator="${op}">\n${valueElements}\n${indentStr}  </condition>`;
+                }
                 if (value) {
                     return `${indentStr}  <condition attribute="${attr}" operator="${op}" value="${value}" />`;
                 }

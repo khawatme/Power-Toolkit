@@ -97,6 +97,12 @@ describe('FormattingHelpers', () => {
             expect(result.length).toBeLessThanOrEqual(200);
         });
 
+        it('should handle non-serializable values (function) where JSON.stringify returns undefined', () => {
+            const fn = () => {};
+            const result = FormattingHelpers.formatValuePreview(fn);
+            expect(typeof result).toBe('string');
+        });
+
         it('should handle circular references gracefully', () => {
             const circular = { a: 1 };
             circular.self = circular;

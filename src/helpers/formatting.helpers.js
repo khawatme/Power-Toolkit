@@ -78,6 +78,9 @@ export const FormattingHelpers = {
         }
         try {
             const json = JSON.stringify(value);
+            if (json === undefined) {
+                return String(value);
+            }
             return json.length > maxLength ? json.slice(0, maxLength - 1) + '…' : json;
         } catch {
             return String(value);

@@ -408,22 +408,30 @@ export const FormInspectionService = {
      * @returns {FormColumn[]} Array of form columns
      */
     getFormColumns() {
-        return PowerAppsApiService.getAllAttributes().map(attribute => {
-            let displayName = attribute.getName();
-            if (attribute.controls.getLength() > 0) {
-                displayName = attribute.controls.get(0).getLabel();
-            }
+        return PowerAppsApiService.getAllAttributes().reduce((acc, attribute) => {
+            try {
+                const logicalName = attribute.getName();
+                let displayName = logicalName;
 
-            return {
-                displayName,
-                logicalName: attribute.getName(),
-                value: formatDisplayValue(attribute.getValue(), attribute),
-                type: attribute.getAttributeType(),
-                isDirty: attribute.getIsDirty(),
-                requiredLevel: attribute.getRequiredLevel(),
-                attribute
-            };
-        });
+                const controlsLength = attribute.controls?.getLength?.() ?? 0;
+                if (controlsLength > 0) {
+                    displayName = attribute.controls.get(0)?.getLabel?.() ?? logicalName;
+                }
+
+                acc.push({
+                    displayName,
+                    logicalName,
+                    value: formatDisplayValue(attribute.getValue(), attribute),
+                    type: attribute.getAttributeType(),
+                    isDirty: attribute.getIsDirty(),
+                    requiredLevel: attribute.getRequiredLevel(),
+                    attribute
+                });
+            } catch (_e) {
+                // Skip attributes that throw during inspection
+            }
+            return acc;
+        }, []);
     },
 
     /**

@@ -73,7 +73,7 @@ export class AboutTab extends BaseComponent {
                     <div class="info-grid">
                         <strong>GitHub:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit', 'View on GitHub')}
                         <strong>Documentation:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit#readme', 'Read the Docs')}
-                        <strong>Report Issue:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit/issues/new', 'Submit a Bug Report')}
+                        <strong>Report Issue:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit/issues/new/choose', 'Submit a Bug Report')}
                     </div>
                 </div>
             </section>
