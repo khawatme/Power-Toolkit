@@ -18,6 +18,7 @@ vi.mock('../../src/helpers/file.helpers.js', () => {
         FileHelpers: {
             copyToClipboard: vi.fn(),
             downloadJson: vi.fn(),
+            downloadText: vi.fn(),
             createFileInputElement: vi.fn(),
             readJsonFile: vi.fn(() => Promise.resolve({}))
         }

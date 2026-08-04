@@ -7,13 +7,20 @@
  * The current version number of the toolkit.
  * @type {string}
  */
-export const TOOL_VERSION = '4.3.0';
+export const TOOL_VERSION = '5.0.0';
 
 /**
  * The name of the application's author.
  * @type {string}
  */
 export const DEVELOPER_NAME = 'Mohammed Khawatme';
+
+/**
+ * Where the tab color picker opens when a tab has no color yet. Not a color the tab uses — an
+ * uncolored tab stores null — just a sensible starting point for the native picker.
+ * @type {string}
+ */
+export const DEFAULT_TAB_COLOR = '#4f8ef7';
 
 /**
  * The MIT license text for the application.
@@ -60,6 +67,18 @@ export const MAIN = {
     alerts: {
         startupError: (message) => `Power-Toolkit could not start. Check the console for errors.\n\nError: ${message}`
     }
+};
+
+/**
+ * Copilot Studio agent publishing. `PvaPublish` queues a job and its response says nothing about
+ * the outcome, so `bot.publishedon` changing is the only confirmation. Polled in two phases: a
+ * short foreground wait for the common fast case, then a background watch that reports late.
+ * @type {Object}
+ */
+export const AGENT_PUBLISH = {
+    pollingInterval: 3000,
+    maxPollingAttempts: 5,
+    backgroundPollingAttempts: 60
 };
 
 /**

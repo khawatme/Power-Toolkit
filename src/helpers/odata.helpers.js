@@ -37,8 +37,61 @@ export const ODataHelpers = {
         { text: 'Greater Than', fetch: 'gt', odata: 'gt' },
         { text: 'Greater or Equal', fetch: 'ge', odata: 'ge' },
         { text: 'Less Than', fetch: 'lt', odata: 'lt' },
-        { text: 'Less or Equal', fetch: 'le', odata: 'le' }
+        { text: 'Less or Equal', fetch: 'le', odata: 'le' },
+
+        // Dataverse date query functions. Comparing a DateTimeOffset with `eq` needs an exact
+        // instant, which is unusable for "this day", so these cover the real cases. The `fn:`
+        // prefix marks them as function calls rather than binary operators, `types` limits them
+        // to date columns, and `arg` says whether a value is needed.
+        { text: 'On (whole day)', fetch: null, odata: 'fn:On', types: ['date'], arg: 'date' },
+        { text: 'On or After', fetch: null, odata: 'fn:OnOrAfter', types: ['date'], arg: 'date' },
+        { text: 'On or Before', fetch: null, odata: 'fn:OnOrBefore', types: ['date'], arg: 'date' },
+        { text: 'Today', fetch: null, odata: 'fn:Today', types: ['date'], arg: 'none' },
+        { text: 'Yesterday', fetch: null, odata: 'fn:Yesterday', types: ['date'], arg: 'none' },
+        { text: 'Tomorrow', fetch: null, odata: 'fn:Tomorrow', types: ['date'], arg: 'none' },
+        { text: 'This Week', fetch: null, odata: 'fn:ThisWeek', types: ['date'], arg: 'none' },
+        { text: 'This Month', fetch: null, odata: 'fn:ThisMonth', types: ['date'], arg: 'none' },
+        { text: 'This Year', fetch: null, odata: 'fn:ThisYear', types: ['date'], arg: 'none' },
+        { text: 'Last 7 Days', fetch: null, odata: 'fn:Last7Days', types: ['date'], arg: 'none' },
+        { text: 'Next 7 Days', fetch: null, odata: 'fn:Next7Days', types: ['date'], arg: 'none' },
+        { text: 'Last X Days', fetch: null, odata: 'fn:LastXDays', types: ['date'], arg: 'number' },
+        { text: 'Next X Days', fetch: null, odata: 'fn:NextXDays', types: ['date'], arg: 'number' },
+        { text: 'Older Than X Months', fetch: null, odata: 'fn:OlderThanXMonths', types: ['date'], arg: 'number' }
     ],
+
+    /**
+     * Finds a filter operator definition by its dialect value.
+     * @param {string} value - The operator value, e.g. 'eq' or 'fn:On'.
+     * @param {'fetch'|'odata'} [dialect='odata'] - Which dialect the value belongs to.
+     * @returns {{text: string, fetch: string|null, odata: string|null, types?: string[], arg?: string}|undefined}
+     */
+    findFilterOperator(value, dialect = 'odata') {
+        if (!value) {
+            return undefined;
+        }
+        return this.FILTER_OPERATORS.find(op => op[dialect] === value);
+    },
+
+    /**
+     * Lists the operators valid for a dialect, optionally narrowed to a column type.
+     *
+     * An operator with no `types` applies to every column; one with `types` only appears for
+     * those, so date functions never show up on a text column.
+     * @param {'fetch'|'odata'} dialect - Dialect to list operators for.
+     * @param {string|null} [attrType=null] - Resolved column type, or null when unknown.
+     * @returns {Array<object>} Matching operator definitions.
+     */
+    filterOperatorsFor(dialect, attrType = null) {
+        return this.FILTER_OPERATORS.filter(op => {
+            if (!op[dialect]) {
+                return false;
+            }
+            if (!op.types) {
+                return true;
+            }
+            return attrType ? op.types.includes(attrType) : false;
+        });
+    },
 
     /**
      * Escapes special characters in a string for safe use in OData query strings.
@@ -101,6 +154,13 @@ export const ODataHelpers = {
         if (!operator) {
             return true;
         }
+
+        // Date functions such as Today carry no value of their own.
+        const definition = this.findFilterOperator(operator);
+        if (definition?.arg === 'none') {
+            return false;
+        }
+
         const op = String(operator).toLowerCase().trim();
         return op !== 'null' && op !== 'not-null' && op !== 'eq null' && op !== 'ne null';
     },

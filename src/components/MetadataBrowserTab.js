@@ -14,6 +14,12 @@ import { DialogService } from '../services/DialogService.js';
 import { Store } from '../core/Store.js';
 import { Config } from '../constants/index.js';
 
+/** @private Dataverse has no Customer/Owner/PartyList metadata type - all are LookupAttributeMetadata. */
+const LOOKUP_TYPES = new Set(['LookupType', 'CustomerType', 'OwnerType', 'PartyListType']);
+
+/** @private @type {Set<string>} */
+const CHOICE_TYPES = new Set(['PicklistType', 'MultiSelectPicklistType', 'StateType', 'StatusType']);
+
 const _debounce = debounce || ((fn, wait = 200) => {
     let t;
     const debouncedFn = (...args) => {
@@ -53,6 +59,7 @@ export class MetadataBrowserTab extends BaseComponent {
         this.unsubscribe = null;
         /** @private */ this._loadToken = 0;
         /** @private */ this._attrLoadToken = 0;
+        /** @private */ this._detailDialogToken = 0;
         /** @private */ this._persistKey = 'pdt-metadata:lastEntity';
 
         // Event handler references for cleanup
@@ -93,7 +100,7 @@ export class MetadataBrowserTab extends BaseComponent {
                         <input type="text" id="pdt-entity-search" class="pdt-input" placeholder="${Config.COMMON_PLACEHOLDERS.searchTables}">
                     </div>
                     <div id="pdt-entity-list-container" class="pdt-metadata-panel-body">
-                        <p class="pdt-note">Loading tables...</p>
+                        <p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.loadingTables}</p>
                     </div>
                 </div>
 
@@ -101,10 +108,10 @@ export class MetadataBrowserTab extends BaseComponent {
 
                 <div class="pdt-metadata-panel attributes">
                     <div class="pdt-metadata-panel-header">
-                        <input type="text" id="pdt-attribute-search" class="pdt-input" placeholder="Search columns..." disabled>
+                        <input type="text" id="pdt-attribute-search" class="pdt-input" placeholder="${Config.MESSAGES.METADATA_BROWSER.searchColumns}" disabled>
                     </div>
                     <div id="pdt-attribute-list-container" class="pdt-metadata-panel-body">
-                        <p class="pdt-note">Select a table to view its columns.</p>
+                        <p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.selectTable}</p>
                     </div>
                 </div>
                 
@@ -142,8 +149,10 @@ export class MetadataBrowserTab extends BaseComponent {
         this._entitySearchHandler = _debounce(() => this._filterEntityList(), 200);
         this._attributeSearchHandler = _debounce(() => this._filterAttributeList(), 200);
 
-        this.ui.entitySearch.addEventListener('keyup', this._entitySearchHandler);
-        this.ui.attributeSearch.addEventListener('keyup', this._attributeSearchHandler);
+        // 'input' rather than 'keyup': a paste from the context menu, a drag-drop or an
+        // autofill changes the value without ever firing a key event.
+        this.ui.entitySearch.addEventListener('input', this._entitySearchHandler);
+        this.ui.attributeSearch.addEventListener('input', this._attributeSearchHandler);
 
         // Helper to handle sorting (stored as instance property to avoid closure leak)
         this._handleEntitySort = (header) => {
@@ -162,24 +171,52 @@ export class MetadataBrowserTab extends BaseComponent {
             }
 
             const row = e.target.closest('tr[data-logical-name]');
-            if (row) {
-                const logicalName = row.dataset.logicalName;
+            if (!row) {
+                return;
+            }
+
+            const logicalName = row.dataset.logicalName;
+
+            // Re-selecting the current table would reload it and discard the column search.
+            if (logicalName !== this.selectedEntity?.LogicalName) {
                 this._handleEntitySelect(logicalName);
-                const entity = this.allEntities.find(ent => ent.LogicalName === row.dataset.logicalName);
-                if (entity) {
-                    const title = getMetadataDisplayName(entity);
-                    this._showMetadataDetailsDialog(`Table Details: ${title}`, entity);
-                }
-                this.ui.entityList.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
+                this.ui.entityList.querySelectorAll('tr').forEach(r => {
+                    r.classList.remove('active');
+                    r.setAttribute('aria-pressed', 'false');
+                });
                 row.classList.add('active');
+                row.setAttribute('aria-pressed', 'true');
+            }
+
+            // The info button sits inside the row, so the selection above already started
+            // loading columns - they are ready behind the dialog once it is dismissed.
+            if (e.target.closest('.pdt-metadata-info-btn')) {
+                const entity = this.allEntities.find(ent => ent.LogicalName === logicalName);
+                if (entity) {
+                    this._showMetadataDetailsDialog(
+                        Config.MESSAGES.METADATA_BROWSER.tableDetailsTitle(getMetadataDisplayName(entity)),
+                        entity
+                    );
+                }
             }
         };
 
         this._entityListKeydownHandler = (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') {
+                return;
+            }
+
             const header = e.target.closest('th[data-sort-key]');
-            if (header && (e.key === 'Enter' || e.key === ' ')) {
+            if (header) {
                 e.preventDefault();
                 this._handleEntitySort(header);
+                return;
+            }
+
+            // Rows are role="button", so they must respond to Enter/Space like the click path.
+            if (e.target.matches('tr[data-logical-name]')) {
+                e.preventDefault();
+                this._entityListClickHandler(e);
             }
         };
 
@@ -205,17 +242,30 @@ export class MetadataBrowserTab extends BaseComponent {
             if (row) {
                 const attribute = this.selectedEntityAttributes.find(a => a.LogicalName === row.dataset.logicalName);
                 if (attribute) {
-                    const title = getMetadataDisplayName(attribute);
-                    this._showMetadataDetailsDialog(`Column Details: ${title}`, attribute);
+                    this._showMetadataDetailsDialog(
+                        Config.MESSAGES.METADATA_BROWSER.columnDetailsTitle(getMetadataDisplayName(attribute)),
+                        attribute,
+                        { entityLogicalName: this.selectedEntity?.LogicalName }
+                    );
                 }
             }
         };
 
         this._attributeListKeydownHandler = (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') {
+                return;
+            }
+
             const header = e.target.closest('th[data-sort-key]');
-            if (header && (e.key === 'Enter' || e.key === ' ')) {
+            if (header) {
                 e.preventDefault();
                 this._handleAttributeSort(header);
+                return;
+            }
+
+            if (e.target.matches('tr[data-logical-name]')) {
+                e.preventDefault();
+                this._attributeListClickHandler(e);
             }
         };
 
@@ -274,6 +324,7 @@ export class MetadataBrowserTab extends BaseComponent {
     _cleanupStoreSubscription() {
         if (this.unsubscribe) {
             this.unsubscribe();
+            this.unsubscribe = null;
         }
     }
 
@@ -283,13 +334,13 @@ export class MetadataBrowserTab extends BaseComponent {
      */
     _removeSearchHandlers() {
         if (this.ui.entitySearch && this._entitySearchHandler) {
-            this.ui.entitySearch.removeEventListener('keyup', this._entitySearchHandler);
+            this.ui.entitySearch.removeEventListener('input', this._entitySearchHandler);
             if (this._entitySearchHandler.cancel) {
                 this._entitySearchHandler.cancel();
             }
         }
         if (this.ui.attributeSearch && this._attributeSearchHandler) {
-            this.ui.attributeSearch.removeEventListener('keyup', this._attributeSearchHandler);
+            this.ui.attributeSearch.removeEventListener('input', this._attributeSearchHandler);
             if (this._attributeSearchHandler.cancel) {
                 this._attributeSearchHandler.cancel();
             }
@@ -394,6 +445,10 @@ export class MetadataBrowserTab extends BaseComponent {
     async _loadData() {
         const myToken = ++this._loadToken;
 
+        // The reset below detaches any impersonation notice from a previous run; without
+        // this its listener entry would pin a detached node in the map.
+        this._cleanupDynamicHandlers();
+
         this.ui.entityList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.loadingTables}</p>`;
         this.ui.attributeList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.selectTable}</p>`;
         this.ui.attributeSearch.value = '';
@@ -442,8 +497,8 @@ export class MetadataBrowserTab extends BaseComponent {
             const last = sessionStorage.getItem(this._persistKey);
             if (last && this.allEntities.some(e => e.LogicalName === last)) {
                 this._handleEntitySelect(last); // async, race-safe in its own method
-                // visually select the row
-                const row = this.ui.entityList.querySelector(`tr[data-logical-name="${last}"]`);
+                // visually select the row (escaped: the value comes from sessionStorage)
+                const row = this.ui.entityList.querySelector(`tr[data-logical-name="${CSS.escape(last)}"]`);
                 row?.classList.add('active');
             }
         } catch (e) {
@@ -470,8 +525,14 @@ export class MetadataBrowserTab extends BaseComponent {
         // Persist selection
         sessionStorage.setItem(this._persistKey, logicalName);
 
+        // The search box is live while the fetch runs, so stale columns must go first or
+        // filtering would render the previous table's data.
+        this.selectedEntityAttributes = [];
+
+        // A term left over from the previous table would contradict the full list rendered below.
+        this.ui.attributeSearch.value = '';
         this.ui.attributeSearch.disabled = false;
-        this.ui.attributeSearch.placeholder = `Search columns in ${this.selectedEntity.LogicalName}...`;
+        this.ui.attributeSearch.placeholder = Config.MESSAGES.METADATA_BROWSER.searchColumnsIn(this.selectedEntity.LogicalName);
         this.ui.attributeList.innerHTML = `<p class="pdt-note">${Config.MESSAGES.METADATA_BROWSER.loadingColumns}</p>`;
 
         try {
@@ -507,15 +568,26 @@ export class MetadataBrowserTab extends BaseComponent {
 
         sortArrayByColumn(validEntities, this.entitySortState.column, this.entitySortState.direction);
 
-        const rows = validEntities.map(item => `
-            <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details and load columns">
-                <td>${item._displayName}</td>
-                <td class="code-like">${item.LogicalName}</td>
-            </tr>`).join('');
+        const M = Config.MESSAGES.METADATA_BROWSER;
+        const selectedName = this.selectedEntity?.LogicalName;
+
+        const rows = validEntities.map(item => {
+            const logicalName = escapeHtml(item.LogicalName);
+            // Keep the highlight on the selected table when the list is re-rendered by a search.
+            const activeClass = item.LogicalName === selectedName ? ' active' : '';
+            return `
+            <tr class="copyable-cell${activeClass}" data-logical-name="${logicalName}" title="${escapeHtml(M.selectTableRowHint)}" role="button" tabindex="0" aria-pressed="${activeClass ? 'true' : 'false'}">
+                <td>
+                    <button type="button" class="pdt-metadata-info-btn" title="${escapeHtml(M.viewTableDetails)}" aria-label="${escapeHtml(M.viewTableDetails)}">&#9432;</button>
+                    ${escapeHtml(item._displayName)}
+                </td>
+                <td class="code-like">${logicalName}</td>
+            </tr>`;
+        }).join('');
 
         const headers = [
-            { key: '_displayName', label: 'Display Name' },
-            { key: 'LogicalName', label: 'Logical Name' }
+            { key: '_displayName', label: M.labelDisplayName },
+            { key: 'LogicalName', label: M.labelLogicalName }
         ];
         const headerHtml = generateSortableTableHeaders(headers, this.entitySortState);
 
@@ -564,17 +636,19 @@ export class MetadataBrowserTab extends BaseComponent {
 
         sortArrayByColumn(validAttributes, this.attributeSortState.column, this.attributeSortState.direction);
 
+        const M = Config.MESSAGES.METADATA_BROWSER;
+
         const rows = validAttributes.map(item => `
-            <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="Click to view details">
-                <td>${item._displayName}</td>
-                <td class="code-like">${item.LogicalName}</td>
-                <td>${item.AttributeType}</td>
+            <tr class="copyable-cell" data-logical-name="${escapeHtml(item.LogicalName)}" title="${escapeHtml(M.viewColumnDetails)}" role="button" tabindex="0">
+                <td>${escapeHtml(item._displayName)}</td>
+                <td class="code-like">${escapeHtml(item.LogicalName)}</td>
+                <td>${escapeHtml(item.AttributeType)}</td>
             </tr>`).join('');
 
         const headers = [
-            { key: '_displayName', label: 'Display Name' },
-            { key: 'LogicalName', label: 'Logical Name' },
-            { key: 'AttributeType', label: 'Type' }
+            { key: '_displayName', label: M.labelDisplayName },
+            { key: 'LogicalName', label: M.labelLogicalName },
+            { key: 'AttributeType', label: M.labelType }
         ];
         const headerHtml = generateSortableTableHeaders(headers, this.attributeSortState);
 
@@ -620,32 +694,59 @@ export class MetadataBrowserTab extends BaseComponent {
 
     /**
      * Creates and shows a dialog with a filterable grid of a metadata object's properties.
+     *
+     * Column dialogs additionally get a key-facts block and, for choice and lookup columns,
+     * the option values or target tables. Those live on derived metadata types that the raw
+     * property grid cannot show, because it only renders scalar values.
      * @param {string} title - The title for the dialog window.
      * @param {object} metadataObject - The entity or attribute metadata object to display.
+     * @param {{entityLogicalName: string}|null} [attributeContext=null] - Set when opened from a column row.
+     * @returns {{close: Function}} The dialog handle.
      * @private
      */
-    _showMetadataDetailsDialog(title, metadataObject) {
+    _showMetadataDetailsDialog(title, metadataObject, attributeContext = null) {
+        const M = Config.MESSAGES.METADATA_BROWSER;
         const content = document.createElement('div');
-        content.innerHTML = `
-            <input type="text" class="pdt-input" placeholder="Filter properties..." style="margin-bottom: 15px;">
-            <div class="info-grid" style="height: 50vh;"></div>
-        `;
-        const grid = content.querySelector('.info-grid');
-        const searchInput = content.querySelector('input');
+        content.className = 'pdt-metadata-details';
 
-        // Filter and sort the properties
-        const properties = filterODataProperties(metadataObject);
+        const isColumn = Boolean(attributeContext?.entityLogicalName);
+        let keyFactsGrid = null;
+        let typeSection = null;
 
-        // Create and append the grid rows
-        properties.forEach(([key, value]) => {
-            const strong = document.createElement('strong');
-            strong.textContent = `${key}:`;
-            const span = document.createElement('span');
-            span.className = 'copyable';
-            span.title = 'Click to copy';
-            span.textContent = value;
-            grid.append(strong, span);
-        });
+        if (isColumn) {
+            const keyFacts = this._buildKeyFactsSection(metadataObject);
+            keyFactsGrid = keyFacts.querySelector('.info-grid');
+            content.appendChild(keyFacts);
+
+            typeSection = document.createElement('div');
+            typeSection.className = 'pdt-metadata-section';
+            content.appendChild(typeSection);
+        }
+
+        // --- All properties (raw scalar grid) ---
+        const propsSection = document.createElement('div');
+        propsSection.className = 'pdt-metadata-section';
+
+        if (isColumn) {
+            const propsTitle = document.createElement('div');
+            propsTitle.className = 'pdt-metadata-section-title';
+            propsTitle.textContent = M.allPropertiesTitle;
+            propsSection.appendChild(propsTitle);
+        }
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.className = 'pdt-input';
+        searchInput.placeholder = M.filterProperties;
+        searchInput.style.marginBottom = '15px';
+
+        const grid = document.createElement('div');
+        grid.className = 'info-grid';
+
+        propsSection.append(searchInput, grid);
+        content.appendChild(propsSection);
+
+        this._appendFacts(grid, filterODataProperties(metadataObject));
 
         // Attach the live filter listener
         const filterHandler = debounce(() => {
@@ -660,17 +761,275 @@ export class MetadataBrowserTab extends BaseComponent {
             }
         }, 200);
 
-        searchInput.addEventListener('keyup', filterHandler);
+        searchInput.addEventListener('input', filterHandler);
 
-        const dialog = DialogService.show(title, content);
+        // A newer dialog (or any close) invalidates an in-flight type lookup.
+        const myToken = ++this._detailDialogToken;
+        let isOpen = true;
 
-        // Override dialog close to cancel pending debounced filter
-        const originalClose = dialog.close;
-        dialog.close = () => {
-            if (filterHandler?.cancel) {
-                filterHandler.cancel();
+        const dialog = DialogService.show(title, content, null, {
+            onClose: () => {
+                isOpen = false;
+                if (filterHandler?.cancel) {
+                    filterHandler.cancel();
+                }
             }
-            originalClose();
-        };
+        });
+
+        if (isColumn) {
+            this._fillTypeSection(
+                typeSection,
+                keyFactsGrid,
+                metadataObject,
+                attributeContext.entityLogicalName,
+                () => isOpen && myToken === this._detailDialogToken
+            );
+        }
+
+        return dialog;
+    }
+
+    /**
+     * Builds the key-facts block for a column, surfacing the label-and-managed-property
+     * values that the raw scalar grid drops.
+     * @param {object} attribute - The attribute metadata object.
+     * @returns {HTMLElement} The section element.
+     * @private
+     */
+    _buildKeyFactsSection(attribute) {
+        const M = Config.MESSAGES.METADATA_BROWSER;
+
+        const section = document.createElement('div');
+        section.className = 'pdt-metadata-section';
+
+        const heading = document.createElement('div');
+        heading.className = 'pdt-metadata-section-title';
+        heading.textContent = M.keyFactsTitle;
+
+        const grid = document.createElement('div');
+        grid.className = 'info-grid';
+
+        section.append(heading, grid);
+
+        const typeName = attribute.AttributeTypeName?.Value;
+        const typeLabel = typeName && typeName !== attribute.AttributeType
+            ? `${attribute.AttributeType} (${typeName})`
+            : attribute.AttributeType;
+
+        this._appendFacts(grid, [
+            [M.labelDisplayName, getMetadataDisplayName(attribute)],
+            [M.labelLogicalName, attribute.LogicalName],
+            [M.labelType, typeLabel],
+            [M.labelRequired, attribute.RequiredLevel?.Value],
+            [M.labelDescription, attribute.Description?.UserLocalizedLabel?.Label]
+        ]);
+
+        return section;
+    }
+
+    /**
+     * Appends label/value pairs to an info-grid, skipping empty values.
+     * @param {HTMLElement} grid - The info-grid element.
+     * @param {Array<[string, *]>} facts - Label/value pairs.
+     * @private
+     */
+    _appendFacts(grid, facts) {
+        facts.forEach(([label, value]) => {
+            if (value === null || value === undefined || value === '') {
+                return;
+            }
+            const strong = document.createElement('strong');
+            strong.textContent = `${label}:`;
+            const span = document.createElement('span');
+            span.className = 'copyable';
+            span.title = Config.MESSAGES.METADATA_BROWSER.clickToCopy;
+            span.textContent = String(value);
+            grid.append(strong, span);
+        });
+    }
+
+    /**
+     * Fills the type-specific section of a column dialog.
+     *
+     * Lookup targets arrive with the column list, so they render immediately. Everything
+     * else needs a cast request for its derived metadata type, which is fetched lazily and
+     * discarded if the dialog closed in the meantime.
+     * @param {HTMLElement} section - The section to fill.
+     * @param {HTMLElement} keyFactsGrid - The key-facts grid, for types that only add facts.
+     * @param {object} attribute - The attribute metadata object.
+     * @param {string} entityLogicalName - The owning table's logical name.
+     * @param {Function} isCurrent - Returns false once the dialog is closed or replaced.
+     * @private
+     */
+    async _fillTypeSection(section, keyFactsGrid, attribute, entityLogicalName, isCurrent) {
+        const M = Config.MESSAGES.METADATA_BROWSER;
+        const typeName = attribute.AttributeTypeName?.Value || '';
+
+        if (LOOKUP_TYPES.has(typeName)) {
+            this._renderLookupTargets(section, attribute.Targets || []);
+            return;
+        }
+
+        const isChoice = CHOICE_TYPES.has(typeName);
+        const isBoolean = typeName === 'BooleanType';
+
+        section.textContent = '';
+        this._appendNote(section, M.loadingDetails);
+
+        let detail = null;
+        try {
+            detail = await DataService.getAttributeDetail(entityLogicalName, attribute.LogicalName, typeName);
+        } catch (_e) {
+            detail = null;
+        }
+
+        if (!isCurrent()) {
+            return;
+        }
+        section.textContent = '';
+
+        if (!detail) {
+            // Types with nothing extra to show get no section at all; only the ones that
+            // should have had options explain themselves.
+            if (isChoice || isBoolean) {
+                this._appendNote(section, M.detailsUnavailable);
+            }
+            return;
+        }
+
+        if (isChoice) {
+            this._renderChoiceOptions(section, detail.Options || []);
+            return;
+        }
+
+        if (isBoolean) {
+            this._renderChoiceOptions(section, detail.Options || [], M.booleanValuesTitle);
+            return;
+        }
+
+        // Numeric and text types contribute extra key facts rather than a section of their own.
+        this._appendFacts(keyFactsGrid, [
+            [M.labelMaxLength, detail.MaxLength],
+            [M.labelPrecision, detail.Precision],
+            [M.labelRange, this._formatRange(detail)],
+            [M.labelFormat, detail.Format],
+            [M.labelDateBehavior, detail.DateTimeBehavior?.Value]
+        ]);
+    }
+
+    /**
+     * Renders the target tables of a lookup column as chips.
+     * @param {HTMLElement} section - The section to fill.
+     * @param {string[]} targets - Target table logical names.
+     * @private
+     */
+    _renderLookupTargets(section, targets) {
+        const M = Config.MESSAGES.METADATA_BROWSER;
+        section.textContent = '';
+
+        const heading = document.createElement('div');
+        heading.className = 'pdt-metadata-section-title';
+        heading.textContent = targets.length > 1
+            ? M.lookupTargetsPolymorphic(targets.length)
+            : M.lookupTargetsTitle(targets.length);
+        section.appendChild(heading);
+
+        if (!targets.length) {
+            this._appendNote(section, M.noTargets);
+            return;
+        }
+
+        const group = document.createElement('div');
+        group.className = 'pdt-metadata-targets';
+        targets.forEach(target => {
+            const chip = document.createElement('span');
+            chip.className = 'pdt-badge-small copyable';
+            chip.title = M.clickToCopy;
+            chip.textContent = target;
+            group.appendChild(chip);
+        });
+        section.appendChild(group);
+    }
+
+    /**
+     * Renders option value/label pairs as a compact table.
+     * @param {HTMLElement} section - The section to fill.
+     * @param {Array<{value: number, label: string}>} options - The parsed options.
+     * @param {string} [titleOverride] - Heading to use instead of the choice-options heading.
+     * @private
+     */
+    _renderChoiceOptions(section, options, titleOverride) {
+        const M = Config.MESSAGES.METADATA_BROWSER;
+        section.textContent = '';
+
+        const heading = document.createElement('div');
+        heading.className = 'pdt-metadata-section-title';
+        heading.textContent = titleOverride || M.choiceOptionsTitle(options.length);
+        section.appendChild(heading);
+
+        if (!options.length) {
+            this._appendNote(section, M.noOptions);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'pdt-table pdt-metadata-options';
+
+        const headRow = document.createElement('tr');
+        [M.optionValueHeader, M.optionLabelHeader].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        const thead = document.createElement('thead');
+        thead.appendChild(headRow);
+
+        const tbody = document.createElement('tbody');
+        options.forEach(option => {
+            const tr = document.createElement('tr');
+
+            const valueCell = document.createElement('td');
+            valueCell.className = 'code-like copyable';
+            valueCell.title = M.clickToCopy;
+            valueCell.textContent = String(option.value);
+
+            const labelCell = document.createElement('td');
+            labelCell.className = 'copyable';
+            labelCell.title = M.clickToCopy;
+            labelCell.textContent = option.label;
+
+            tr.append(valueCell, labelCell);
+            tbody.appendChild(tr);
+        });
+
+        table.append(thead, tbody);
+        section.appendChild(table);
+    }
+
+    /**
+     * Formats a numeric attribute's allowed range, when it declares one.
+     * @param {object} detail - Derived-type attribute metadata.
+     * @returns {string|null} The formatted range, or null when unbounded.
+     * @private
+     */
+    _formatRange(detail) {
+        const { MinValue: min, MaxValue: max } = detail;
+        if (min === null || min === undefined || max === null || max === undefined) {
+            return null;
+        }
+        return Config.MESSAGES.METADATA_BROWSER.rangeValue(min, max);
+    }
+
+    /**
+     * Appends a single-line note to a section.
+     * @param {HTMLElement} section - The section to append to.
+     * @param {string} text - The note text.
+     * @private
+     */
+    _appendNote(section, text) {
+        const note = document.createElement('p');
+        note.className = 'pdt-note';
+        note.textContent = text;
+        section.appendChild(note);
     }
 }

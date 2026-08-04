@@ -9,7 +9,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { formatXml, normalizeApiResponse, showColumnBrowser, copyToClipboard } from '../helpers/index.js';
+import { escapeHtml, escapeXml, formatXml, normalizeApiResponse, showColumnBrowser, copyToClipboard } from '../helpers/index.js';
 import { FetchXmlConverterService } from '../services/FetchXmlConverterService.js';
 import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { MetadataBrowserDialog } from '../ui/MetadataBrowserDialog.js';
@@ -22,6 +22,75 @@ import { EntityContextResolver } from '../utils/resolvers/EntityContextResolver.
 import { BulkTouchService } from '../services/BulkTouchService.js';
 import { Config } from '../constants/index.js';
 import { FilterGroupManager } from '../ui/FilterGroupManager.js';
+import { JoinTree, PRIMARY_PARENT } from '../utils/JoinTree.js';
+
+/**
+ * Dataverse evaluates at most this many rows in an aggregate query before failing with
+ * `AggregateQueryRecordLimit exceeded`. The optional `aggregatelimit` attribute may lower
+ * this per query but cannot raise it.
+ * @private @type {number}
+ */
+const MAX_AGGREGATE_LIMIT = 50000;
+
+/**
+ * @private Lower-case fragments identifying the aggregate row-limit error.
+ *
+ * Matched case-insensitively and against several forms: the Web API returns the code as
+ * lower-case hex ("0x8004e023") and the wording observed in practice ("The maximum record limit
+ * of 50000 is exceeded") differs from the "AggregateQueryRecordLimit exceeded" the docs quote.
+ */
+const AGGREGATE_LIMIT_ERROR_MARKERS = [
+    'aggregatequeryrecordlimit',
+    '8004e023',
+    'maximum record limit'
+];
+
+/**
+ * @private Lower-case fragments identifying an aggregate whose result type does not match the
+ * source column, e.g. a counting function against a Money column.
+ */
+const AGGREGATE_TYPE_ERROR_MARKERS = ['80060888', 'when the expected was of type'];
+
+/**
+ * @private Lower-case fragments identifying columns requested from an exists/in join. Reachable
+ * from hand-written XML in the editor, which the builder's suppression cannot cover.
+ */
+const LINK_COLUMN_ERROR_MARKERS = ['80041121', 'support attribute inside linkentity'];
+
+/**
+ * @private Lower-case fragments identifying a duplicate result alias, which a
+ * matchfirstrowusingcrossapply join hits as soon as it returns unprefixed column names.
+ */
+const ALIAS_CLASH_ERROR_MARKERS = ['80041130', 'is not a unique alias'];
+
+/**
+ * @private Lower-case fragments identifying too many link-entity elements. The builder blocks
+ * this, but hand-written XML in the editor can still reach it. Live wording is "Number of link
+ * entity: 16 exceed limit 15", not the "exceeded maximum limit" the docs quote.
+ */
+const LINK_LIMIT_ERROR_MARKERS = ['8004430d', 'exceed limit'];
+
+/** @private Settle time before looking up a typed column name, in milliseconds. */
+const COLUMN_DETECT_DELAY_MS = 400;
+
+/**
+ * @private Link types that filter the parent rows without returning any columns of their own.
+ * Documented as "Neither of these link types returns the column values of the link entity rows",
+ * so an all-attributes fallback would be asking for data they cannot provide.
+ * @type {Set<string>}
+ */
+const NON_PROJECTING_LINK_TYPES = new Set(['exists', 'in']);
+
+/**
+ * @private Link types that return columns, but named by SchemaName with no table-alias prefix.
+ * That makes an all-attributes fallback unusable: the linked table's CreatedBy and friends
+ * collide with the primary table's own, failing with 0x80041130. Columns must be listed.
+ * @type {Set<string>}
+ */
+const EXPLICIT_COLUMN_LINK_TYPES = new Set(['matchfirstrowusingcrossapply']);
+
+/** @private Dataverse rejects a query with more link-entity elements than this (0x8004430D). */
+const MAX_LINK_ENTITIES = 15;
 
 /**
  * Represents the result of a FetchXML query.
@@ -74,6 +143,8 @@ export class FetchXmlTesterTab extends BaseComponent {
         this.lastExecutedFetchXml = '';
         /** @type {string} */
         this.lastEntityName = '';
+        /** @private @type {boolean} Set by destroy() so in-flight paging loops stop. */
+        this._destroyed = false;
 
         // Event handler references for cleanup
         /** @private {HTMLElement|null} */ this._rootElement = null;
@@ -97,10 +168,13 @@ export class FetchXmlTesterTab extends BaseComponent {
 
     /**
      * Generates FetchXML templates, including a contextual one if on a form.
+     * @param {string|null} [primaryIdAttribute=null] - The current table's primary key. Falls
+     *   back to the `{table}id` convention, which does not hold for every table
+     *   (activitypointer uses activityid, usersettings uses systemuserid).
      * @returns {Array<{label: string, xml: string}>} An array of template objects.
      * @private
      */
-    _getFetchTemplates() {
+    _getFetchTemplates(primaryIdAttribute = null) {
         const currentEntityId = PowerAppsApiService.getEntityId();
         const currentEntityName = PowerAppsApiService.getEntityName();
         const templates = [
@@ -166,13 +240,14 @@ export class FetchXmlTesterTab extends BaseComponent {
         ];
 
         if (currentEntityId && currentEntityName) {
+            const idAttribute = primaryIdAttribute || `${currentEntityName}id`;
             templates.splice(1, 0, {
                 label: `Contextual: Current ${currentEntityName} Record`,
                 xml: `<fetch>
                         <entity name="${currentEntityName}">
                             <all-attributes />
                             <filter>
-                            <condition attribute="${currentEntityName}id" operator="eq" value="${currentEntityId}" />
+                            <condition attribute="${idAttribute}" operator="eq" value="${currentEntityId}" />
                             </filter>
                         </entity>
                     </fetch>`
@@ -248,6 +323,8 @@ export class FetchXmlTesterTab extends BaseComponent {
                         <div id="builder-aggregates-container" class="pdt-builder-group"></div>
                         <div class="pdt-toolbar mt-10">
                             <button id="fetch-add-aggregate-btn" class="modern-button secondary">${Config.MESSAGES.FETCHXML.addAggregate}</button>
+                            <label class="pdt-inline-label" for="builder-aggregate-limit">${Config.MESSAGES.FETCHXML.aggregateLimitLabel}</label>
+                            <input id="builder-aggregate-limit" type="number" min="1" max="${MAX_AGGREGATE_LIMIT}" class="pdt-input" placeholder="${Config.MESSAGES.FETCHXML.aggregateLimitPlaceholder(MAX_AGGREGATE_LIMIT)}">
                         </div>
                     </div>
                     <div id="builder-groupby-section" style="display:none;">
@@ -491,10 +568,26 @@ export class FetchXmlTesterTab extends BaseComponent {
 
     /**
      * Populates the template dropdown select element.
+     *
+     * Resolves the current table's real primary key first so the contextual template filters
+     * on the right column; falls back to the naming convention if metadata is unavailable.
+     * @returns {Promise<void>}
      * @private
      */
-    _populateTemplateDropdown() {
-        const templates = this._getFetchTemplates();
+    async _populateTemplateDropdown() {
+        let primaryIdAttribute = null;
+        const currentEntityName = PowerAppsApiService.getEntityName();
+
+        if (currentEntityName) {
+            try {
+                const metadata = await PowerAppsApiService.getEntityMetadata(currentEntityName);
+                primaryIdAttribute = metadata?.PrimaryIdAttribute || null;
+            } catch (_e) {
+                // Fall back to the convention below.
+            }
+        }
+
+        const templates = this._getFetchTemplates(primaryIdAttribute);
         templates.forEach(t => this.ui.templateSelect.add(new Option(t.label, t.xml)));
     }
 
@@ -504,7 +597,8 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _handleDelegatedClick(e) {
-        const target = e.target.closest('button, th[data-column]');
+        // Buttons only - result-table sorting is owned by ResultPanel's own listener.
+        const target = e.target.closest('button');
         if (!target) {
             return;
         }
@@ -545,7 +639,9 @@ export class FetchXmlTesterTab extends BaseComponent {
             'fetch-add-section-btn': () => this._toggleAddSectionMenu(),
             'fetch-converter-copy-btn': () => this._handleCopyConverted(),
             'fetch-converter-toggle-btn': () => this._toggleConverterPanel(),
-            'fetch-converter-close-btn': () => this._closeConverterPanel()
+            'fetch-converter-close-btn': () => this._closeConverterPanel(),
+            'fetchxml-load-more-btn': () => this._loadMoreRecords(),
+            'fetchxml-load-all-btn': () => this._loadAllRecords()
         };
 
         const handler = idRoutes[id];
@@ -657,7 +753,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         // Table name check
         const entityName = this.ui.builderEntityInput?.value?.trim();
         if (!entityName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return;
         }
 
@@ -666,7 +762,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             const aggCount = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length || 0;
             const aggSectionVisible = this.ui.aggregatesSection?.style.display !== 'none';
             if (aggCount === 0 || !aggSectionVisible) {
-                NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warn');
                 return;
             }
         }
@@ -764,7 +860,8 @@ export class FetchXmlTesterTab extends BaseComponent {
     _handleBrowseEntity() {
         MetadataBrowserDialog.show('entity', (selected) => {
             this.ui.builderEntityInput.value = selected.LogicalName;
-            this.ui.builderEntityInput.dispatchEvent(new Event('keyup'));
+            // Existing joins show the primary table by name, so they need rebuilding.
+            this._refreshJoinParentOptions();
         });
     }
 
@@ -857,6 +954,10 @@ export class FetchXmlTesterTab extends BaseComponent {
         const input = target.previousElementSibling;
         MetadataBrowserDialog.show('entity', async (selected) => {
             input.value = selected.LogicalName;
+            // Other joins label this one by its table name, and assigning value here fires no
+            // blur, so the handler that normally refreshes them never runs.
+            this._refreshJoinParentOptions();
+
             try {
                 const metadata = await PowerAppsApiService.getEntityMetadata(selected.LogicalName);
                 joinGroup.querySelector('[data-prop="from"]').value = metadata.PrimaryIdAttribute;
@@ -874,7 +975,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         const linkedEntityName = joinGroup.querySelector('[data-prop="name"]').value.trim();
         const input = target.previousElementSibling;
         if (!linkedEntityName) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warn');
             return;
         }
         showColumnBrowser(
@@ -899,7 +1000,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         const parent = joinGroup.querySelector('[data-prop="parent"]')?.value;
 
         if (!parent) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.selectJoinParent, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.selectJoinParent, 'warn');
             return;
         }
 
@@ -929,7 +1030,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         if (parent === 'primary') {
             const entityName = this.ui.builderEntityInput?.value?.trim();
             if (!entityName) {
-                NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 return null;
             }
             return entityName;
@@ -938,7 +1039,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         const parentGroup = this.ui.joinsContainer.querySelector(`[data-join-id="${parent}"]`);
         const parentEntityName = parentGroup?.querySelector('[data-prop="name"]')?.value?.trim();
         if (!parentEntityName) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.parentJoinRequiresTableName, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.parentJoinRequiresTableName, 'warn');
             return null;
         }
         return parentEntityName;
@@ -953,7 +1054,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         const joinGroup = target.closest('.link-entity-group');
         const linkedEntityName = joinGroup.querySelector('[data-prop="name"]').value.trim();
         if (!linkedEntityName) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkToTableName, 'warn');
             return;
         }
         showColumnBrowser(
@@ -975,7 +1076,7 @@ export class FetchXmlTesterTab extends BaseComponent {
     _handleAddFilterGroup() {
         const entityName = this.ui.builderEntityInput?.value?.trim();
         if (!entityName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return;
         }
         const isFirst = this.ui.filtersContainer.querySelectorAll('.pdt-filter-group').length === 0;
@@ -989,7 +1090,7 @@ export class FetchXmlTesterTab extends BaseComponent {
     _handleAddJoin() {
         const entityName = this.ui.builderEntityInput?.value?.trim();
         if (!entityName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return;
         }
         this._addLinkEntityUI();
@@ -1032,7 +1133,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         if (dependentJoins.length > 0) {
             NotificationService.show(
                 Config.MESSAGES.FETCHXML.cannotRemoveJoin(dependentJoins.length),
-                'warning'
+                'warn'
             );
             return;
         }
@@ -1044,6 +1145,9 @@ export class FetchXmlTesterTab extends BaseComponent {
                 this._dynamicHandlers.delete(el);
             }
         });
+
+        // The manager holds callbacks over this group's DOM, so it must go with the group.
+        this.joinFilterManagers.delete(parseInt(joinId.split('_')[1], 10));
 
         joinGroup.remove();
         this._refreshJoinParentOptions();
@@ -1109,38 +1213,51 @@ export class FetchXmlTesterTab extends BaseComponent {
         const joinGroup = this._createJoinGroupElement(joinId, parentOptions);
 
         const { parentSelect, aliasInput, nameInput } = this._getJoinGroupInputs(joinGroup);
+
+        // Default to the primary table. Left on the placeholder, the join matches no parent in
+        // _buildNestedJoins and would be dropped from the generated XML without explanation.
+        if (parentSelect && [...parentSelect.options].some(o => o.value === 'primary')) {
+            parentSelect.value = 'primary';
+        }
+
         this._setupJoinIndentationHandlers(joinGroup, parentSelect);
         this._setupJoinParentOptionsHandlers(aliasInput, nameInput);
 
-        const removeBtn = joinGroup.querySelector('.remove-join');
         const addFilterGroupBtn = joinGroup.querySelector('.add-join-filter-group');
-        this._setupJoinButtonHandlers(joinGroup, joinId, removeBtn, addFilterGroupBtn, parentSelect, aliasInput, nameInput);
+        this._setupJoinButtonHandlers(joinGroup, joinId, addFilterGroupBtn);
 
         this.ui.joinsContainer.appendChild(joinGroup);
-        this._updateJoinIndentation(joinGroup, parentSelect);
+        this._updateJoinIndentation(joinGroup);
+
+        // Existing joins were built before this one existed, so they need rebuilding to offer
+        // it as a parent.
+        this._refreshJoinParentOptions();
     }
 
     /**
-     * Builds parent options HTML for join dropdown.
+     * Builds parent options HTML for a join dropdown: the primary table plus every other join.
+     * @param {HTMLElement|null} [excludeGroup=null] - Join group to omit, so it cannot parent itself.
      * @returns {string} HTML string of options
      * @private
      */
-    _buildJoinParentOptions() {
-        const options = ['<option value=\'\'>-- Select Parent --</option>'];
+    _buildJoinParentOptions(excludeGroup = null) {
+        const M = Config.MESSAGES.FETCHXML;
+        const options = [`<option value=''>${escapeHtml(M.selectParentOption)}</option>`];
+
         const primaryEntity = this.ui.builderEntityInput?.value?.trim();
         if (primaryEntity) {
-            options.push(`<option value="primary">${primaryEntity} (Primary)</option>`);
+            options.push(`<option value="${PRIMARY_PARENT}">${escapeHtml(M.primaryParentOption(primaryEntity))}</option>`);
         }
 
-        this.ui.joinsContainer.querySelectorAll('.link-entity-group').forEach(group => {
+        // eligibleParents omits the group itself and its descendants, so a cycle - which would
+        // leave both joins unreachable and silently absent from the XML - cannot be selected.
+        JoinTree.eligibleParents(this.ui.joinsContainer, excludeGroup).forEach(group => {
+            const groupId = group.dataset.joinId;
             const alias = group.querySelector('[data-prop="alias"]')?.value?.trim();
             const name = group.querySelector('[data-prop="name"]')?.value?.trim();
-            const groupId = group.dataset.joinId;
-            if (groupId) {
-                const displayLabel = alias || name || `Join #${groupId.split('_')[1]}`;
-                const displayEntity = name ? ` (${name})` : '';
-                options.push(`<option value="${groupId}">${displayLabel}${displayEntity}</option>`);
-            }
+            // Aliases are optional, so fall back to the table name and then the join number.
+            const label = alias || name || M.joinFallbackLabel(groupId.split('_')[1]);
+            options.push(`<option value="${groupId}">${escapeHtml(M.joinParentOption(label, name))}</option>`);
         });
 
         return options.join('');
@@ -1163,7 +1280,13 @@ export class FetchXmlTesterTab extends BaseComponent {
             <label>Join From</label>
             <select class="pdt-select" data-prop="parent">${parentOptions}</select>
             <label>Link Type</label>
-            <select class="pdt-select" data-prop="link-type"><option selected>inner</option><option>outer</option></select>
+            <select class="pdt-select" data-prop="link-type">
+                <option selected>inner</option>
+                <option>outer</option>
+                <option>exists</option>
+                <option>in</option>
+                <option>matchfirstrowusingcrossapply</option>
+            </select>
             <label>Link to Table</label>
             <div class="pdt-input-with-button">
                 <input type="text" class="pdt-input" data-prop="name" placeholder="e.g., contact">
@@ -1181,6 +1304,10 @@ export class FetchXmlTesterTab extends BaseComponent {
             </div>
             <label>Alias</label>
             <input type="text" class="pdt-input" data-prop="alias" placeholder="e.g., contact_alias">
+            <label>Options</label>
+            <label class="pdt-inline-check" title="${escapeHtml(Config.MESSAGES.FETCHXML.intersectTitle)}">
+                <input type="checkbox" data-prop="intersect"> ${escapeHtml(Config.MESSAGES.FETCHXML.intersectLabel)}
+            </label>
             <label>Columns</label>
             <div class="pdt-input-with-button">
                 <textarea class="pdt-textarea" data-prop="attributes" rows="2" spellcheck="false" placeholder="fullname\nemailaddress1"></textarea>
@@ -1217,26 +1344,32 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _setupJoinIndentationHandlers(joinGroup, parentSelect) {
-        const updateIndentation = () => this._updateJoinIndentation(joinGroup, parentSelect);
+        const updateIndentation = () => {
+            // Reparenting shifts every descendant's depth, and changes which joins may legally
+            // be chosen as a parent, so both are recomputed across the whole list.
+            this._refreshAllJoinIndentation();
+            this._refreshJoinParentOptions();
+        };
         parentSelect.addEventListener('change', updateIndentation);
         this._dynamicHandlers.set(parentSelect, { event: 'change', handler: updateIndentation });
     }
 
     /**
-     * Updates join group indentation based on parent selection.
-     * @param {HTMLElement} joinGroup - The join group element
-     * @param {HTMLElement} parentSelect - The parent select element
+     * Recomputes indentation for every join, so descendants follow a reparented ancestor.
      * @private
      */
-    _updateJoinIndentation(joinGroup, parentSelect) {
-        const parent = parentSelect.value;
-        let depth = 0;
-        if (parent && parent !== 'primary') {
-            const parentGroup = this.ui.joinsContainer.querySelector(`[data-join-id="${parent}"]`);
-            if (parentGroup) {
-                depth = parseInt(parentGroup.dataset.depth || '0') + 1;
-            }
-        }
+    _refreshAllJoinIndentation() {
+        this.ui.joinsContainer?.querySelectorAll('.link-entity-group')
+            .forEach(group => this._updateJoinIndentation(group));
+    }
+
+    /**
+     * Updates join group indentation based on how deeply it is nested.
+     * @param {HTMLElement} joinGroup - The join group element
+     * @private
+     */
+    _updateJoinIndentation(joinGroup) {
+        const depth = JoinTree.depthOf(this.ui.joinsContainer, joinGroup);
         joinGroup.dataset.depth = depth.toString();
         joinGroup.style.marginLeft = `${depth * 20}px`;
 
@@ -1269,16 +1402,13 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @param {string} joinId - Join identifier
      * @param {HTMLElement} removeBtn - Remove button
      * @param {HTMLElement} addFilterGroupBtn - Add filter group button
-     * @param {HTMLElement} parentSelect - Parent select element
-     * @param {HTMLElement} aliasInput - Alias input element
-     * @param {HTMLElement} nameInput - Name input element
      * @private
      */
-    _setupJoinButtonHandlers(joinGroup, joinId, removeBtn, addFilterGroupBtn, parentSelect, aliasInput, nameInput) {
+    _setupJoinButtonHandlers(joinGroup, joinId, addFilterGroupBtn) {
         const addFilterGroupHandler = () => {
             const linkedEntityName = joinGroup.querySelector('[data-prop="name"]').value.trim();
             if (!linkedEntityName) {
-                NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkEntityTableName, 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.enterLinkEntityTableName, 'warn');
                 return;
             }
             const filterGroupsContainer = joinGroup.querySelector('.join-filter-groups-container');
@@ -1291,17 +1421,9 @@ export class FetchXmlTesterTab extends BaseComponent {
             manager.addFilterGroup(filterGroupsContainer, isFirst);
         };
 
-        const removeHandler = () => {
-            this._removeJoinGroup(
-                joinGroup, joinId, removeHandler, addFilterGroupHandler,
-                parentSelect, aliasInput, nameInput, removeBtn, addFilterGroupBtn
-            );
-        };
-
-        if (removeBtn) {
-            removeBtn.addEventListener('click', removeHandler);
-            this._dynamicHandlers.set(removeBtn, { event: 'click', handler: removeHandler });
-        }
+        // Removal is handled by the delegated `.remove-join` route in _routeByClass. Binding a
+        // second listener here would run both paths on one click, warning twice when the join
+        // has dependents.
         if (addFilterGroupBtn) {
             addFilterGroupBtn.addEventListener('click', addFilterGroupHandler);
             this._dynamicHandlers.set(addFilterGroupBtn, { event: 'click', handler: addFilterGroupHandler });
@@ -1309,57 +1431,10 @@ export class FetchXmlTesterTab extends BaseComponent {
     }
 
     /**
-     * Removes a join group and cleans up handlers.
-     * @param {HTMLElement} joinGroup - The join group element
-     * @param {string} joinId - Join identifier
-     * @param {Function} removeHandler - Remove handler function
-     * @param {Function} addFilterGroupHandler - Add filter group handler
-     * @param {HTMLElement} parentSelect - Parent select element
-     * @param {HTMLElement} aliasInput - Alias input element
-     * @param {HTMLElement} nameInput - Name input element
-     * @param {HTMLElement} removeBtn - Remove button
-     * @param {HTMLElement} addFilterGroupBtn - Add filter group button
-     * @private
-     */
-    _removeJoinGroup(joinGroup, joinId, removeHandler, addFilterGroupHandler, parentSelect, aliasInput, nameInput, removeBtn, addFilterGroupBtn) {
-        const dependentJoins = Array.from(this.ui.joinsContainer.querySelectorAll('.link-entity-group'))
-            .filter(g => g.querySelector('[data-prop="parent"]')?.value === joinId);
-
-        if (dependentJoins.length > 0) {
-            NotificationService.show(
-                Config.MESSAGES.FETCHXML.cannotRemoveJoin(dependentJoins.length),
-                'warning'
-            );
-            return;
-        }
-
-        const handlersToClean = [
-            [parentSelect, 'change'],
-            [aliasInput, 'blur'],
-            [nameInput, 'blur'],
-            [removeBtn, 'click'],
-            [addFilterGroupBtn, 'click']
-        ];
-
-        handlersToClean.forEach(([element, event]) => {
-            if (element && this._dynamicHandlers.has(element)) {
-                const { handler } = this._dynamicHandlers.get(element);
-                element.removeEventListener(event, handler);
-                this._dynamicHandlers.delete(element);
-            }
-        });
-
-        joinGroup.remove();
-        this._refreshJoinParentOptions();
-    }
-
-    /**
      * Refreshes parent dropdown options in all join groups after joins are added/removed.
      * @private
      */
     _refreshJoinParentOptions() {
-        const primaryEntity = this.ui.builderEntityInput?.value?.trim();
-
         this.ui.joinsContainer.querySelectorAll('.link-entity-group').forEach(joinGroup => {
             const parentSelect = joinGroup.querySelector('[data-prop="parent"]');
             if (!parentSelect) {
@@ -1367,30 +1442,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             }
 
             const currentValue = parentSelect.value;
-            const parentOptions = ['<option value=\'\'>-- Select Parent --</option>'];
-
-            if (primaryEntity) {
-                parentOptions.push(`<option value="primary">${primaryEntity} (Primary)</option>`);
-            }
-
-            // Add other joins as options (excluding self, show even if alias is empty)
-            this.ui.joinsContainer.querySelectorAll('.link-entity-group').forEach(otherGroup => {
-                if (otherGroup === joinGroup) {
-                    return;
-                }
-
-                const alias = otherGroup.querySelector('[data-prop="alias"]')?.value?.trim();
-                const name = otherGroup.querySelector('[data-prop="name"]')?.value?.trim();
-                const groupId = otherGroup.dataset.joinId;
-                if (groupId) {
-                    // Use alias if available, otherwise show "Join #N" or table name
-                    const displayLabel = alias || name || `Join #${groupId.split('_')[1]}`;
-                    const displayEntity = name ? ` (${name})` : '';
-                    parentOptions.push(`<option value="${groupId}">${displayLabel}${displayEntity}</option>`);
-                }
-            });
-
-            parentSelect.innerHTML = parentOptions.join('');
+            parentSelect.innerHTML = this._buildJoinParentOptions(joinGroup);
             parentSelect.value = currentValue;
         });
     }
@@ -1409,7 +1461,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         // Table name guard
         const entityName = this.ui.builderEntityInput?.value?.trim();
         if (!entityName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return;
         }
 
@@ -1429,6 +1481,9 @@ export class FetchXmlTesterTab extends BaseComponent {
                 <option value="max">max</option>
             </select>
             <input type="text" class="pdt-input aggregate-alias-input" placeholder="${Config.MESSAGES.FETCHXML.aggregateAliasPlaceholder}" data-prop="alias">
+            <label class="pdt-inline-check aggregate-distinct-label" title="${escapeHtml(Config.MESSAGES.FETCHXML.distinctCountTitle)}">
+                <input type="checkbox" data-prop="distinct"> ${escapeHtml(Config.MESSAGES.FETCHXML.distinctCountLabel)}
+            </label>
             <select class="pdt-select aggregate-order-select" data-prop="order">
                 <option value="">No Order</option>
                 <option value="false">Ascending</option>
@@ -1446,13 +1501,42 @@ export class FetchXmlTesterTab extends BaseComponent {
         browseBtn.addEventListener('click', browseHandler);
         this._dynamicHandlers.set(browseBtn, { event: 'click', handler: browseHandler });
 
-        // Auto-generate alias when function changes
-        const funcHandler = () => this._autoGenerateAlias(columnInput, funcSelect, aliasInput, 'aggregate');
+        // A typed or pasted name must detect the column just like the browser does.
+        this._setupAggregateColumnDetection(columnInput, funcSelect, aliasInput, 'aggregate');
+
+        // Auto-generate alias and re-check distinct availability when the function changes
+        const funcHandler = () => {
+            this._autoGenerateAlias(columnInput, funcSelect, aliasInput, 'aggregate');
+            this._syncDistinctAvailability(row);
+        };
         funcSelect.addEventListener('change', funcHandler);
         this._dynamicHandlers.set(funcSelect, { event: 'change', handler: funcHandler });
 
+        this._syncDistinctAvailability(row);
         container.appendChild(row);
         this._updateGroupByAvailability();
+    }
+
+    /**
+     * Enables the distinct checkbox only for countcolumn, the one function Dataverse
+     * documents it for, and clears a stale tick when switching away.
+     * @param {HTMLElement} row - The aggregate row element
+     * @private
+     */
+    _syncDistinctAvailability(row) {
+        const funcSelect = row.querySelector('[data-prop="function"]');
+        const distinct = row.querySelector('[data-prop="distinct"]');
+        const label = row.querySelector('.aggregate-distinct-label');
+        if (!funcSelect || !distinct) {
+            return;
+        }
+
+        const supported = funcSelect.value === 'countcolumn';
+        distinct.disabled = !supported;
+        if (!supported) {
+            distinct.checked = false;
+        }
+        label?.classList.toggle('pdt-inline-check--disabled', !supported);
     }
 
     /**
@@ -1469,14 +1553,14 @@ export class FetchXmlTesterTab extends BaseComponent {
         // Table name guard
         const entityName = this.ui.builderEntityInput?.value?.trim();
         if (!entityName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return;
         }
 
         // GroupBy requires at least one aggregate
         const aggCount = this.ui.aggregatesContainer?.querySelectorAll('.pdt-aggregate-row').length || 0;
         if (aggCount === 0) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.groupByRequiresAggregate, 'warn');
             return;
         }
 
@@ -1498,6 +1582,9 @@ export class FetchXmlTesterTab extends BaseComponent {
                 <option value="fiscal-period">Fiscal Period</option>
                 <option value="fiscal-year">Fiscal Year</option>
             </select>
+            <label class="pdt-inline-check groupby-utc-label" title="${escapeHtml(Config.MESSAGES.FETCHXML.utcTitle)}">
+                <input type="checkbox" data-prop="utc"> ${escapeHtml(Config.MESSAGES.FETCHXML.utcLabel)}
+            </label>
             <button class="modern-button secondary small remove-groupby-row" title="${Config.MESSAGES.FETCHXML.removeGroupBy}">&times;</button>
         `;
 
@@ -1508,6 +1595,8 @@ export class FetchXmlTesterTab extends BaseComponent {
         const browseHandler = () => this._handleBrowseAggregateColumn(columnInput, null, aliasInput, 'groupby');
         browseBtn.addEventListener('click', browseHandler);
         this._dynamicHandlers.set(browseBtn, { event: 'click', handler: browseHandler });
+
+        this._setupAggregateColumnDetection(columnInput, null, aliasInput, 'groupby');
 
         container.appendChild(row);
     }
@@ -1533,35 +1622,160 @@ export class FetchXmlTesterTab extends BaseComponent {
             },
             (attr) => {
                 input.value = attr.LogicalName;
-
-                // Filter aggregate functions by column type
-                if (funcSelect && mode === 'aggregate') {
-                    this._filterAggregateFunctionsByType(funcSelect, attr);
-                }
-
-                // Auto-generate alias
-                this._autoGenerateAlias(input, funcSelect, aliasInput, mode);
-
-                // For groupby: auto-enable date grouping for DateTime columns
-                if (mode === 'groupby') {
-                    const row = input.closest('.pdt-groupby-row');
-                    const dateGroupSelect = row?.querySelector('[data-prop="dategrouping"]');
-                    const typeName = attr.AttributeTypeName?.Value || attr.AttributeType || '';
-                    if (dateGroupSelect && typeName.toLowerCase().includes('datetime')) {
-                        dateGroupSelect.value = 'month';
-                    }
-                }
+                this._applyAggregateColumnMetadata(input, funcSelect, aliasInput, mode, attr);
             }
         );
     }
 
     /**
+     * Applies a resolved column's metadata to an aggregate or group-by row.
+     *
+     * Shared by the column browser and by typing a name directly, so both routes behave
+     * identically.
+     * @param {HTMLInputElement} columnInput - The column input element
+     * @param {HTMLSelectElement|null} funcSelect - The aggregate function select (null for groupby)
+     * @param {HTMLInputElement} aliasInput - The alias input element
+     * @param {'aggregate'|'groupby'} mode - Whether this is for aggregate or groupby
+     * @param {Object|null} attr - Column metadata, or null when the name matched nothing
+     * @private
+     */
+    _applyAggregateColumnMetadata(columnInput, funcSelect, aliasInput, mode, attr) {
+        if (funcSelect && mode === 'aggregate') {
+            this._filterAggregateFunctionsByType(funcSelect, attr);
+        }
+
+        this._autoGenerateAlias(columnInput, funcSelect, aliasInput, mode);
+
+        // For groupby: auto-enable date grouping for DateTime columns
+        if (mode === 'groupby') {
+            const row = columnInput.closest('.pdt-groupby-row');
+            const dateGroupSelect = row?.querySelector('[data-prop="dategrouping"]');
+            const typeName = attr?.AttributeTypeName?.Value || attr?.AttributeType || '';
+            if (dateGroupSelect && typeName.toLowerCase().includes('datetime')) {
+                dateGroupSelect.value = 'month';
+            }
+        }
+    }
+
+    /**
+     * Wires a typed or pasted column name to the same detection the column browser triggers.
+     *
+     * The alias is pure string work, so it updates immediately and is never left unset when
+     * Generate is clicked. Type-dependent behaviour needs metadata, so it is debounced.
+     * @param {HTMLInputElement} columnInput - The column input element
+     * @param {HTMLSelectElement|null} funcSelect - The aggregate function select (null for groupby)
+     * @param {HTMLInputElement} aliasInput - The alias input element
+     * @param {'aggregate'|'groupby'} mode - Whether this is for aggregate or groupby
+     * @private
+     */
+    _setupAggregateColumnDetection(columnInput, funcSelect, aliasInput, mode) {
+        let detectTimer = null;
+
+        // One 'input' listener: the map holds a single handler per element, and 'input' also
+        // covers pastes that never raise a key event.
+        const handler = () => {
+            // Clearing the column has to clear what detection derived from it, or the row keeps
+            // describing a column it no longer names.
+            if (columnInput.value.trim()) {
+                this._autoGenerateAlias(columnInput, funcSelect, aliasInput, mode);
+            } else {
+                this._resetAggregateColumnState(columnInput, funcSelect, aliasInput, mode);
+            }
+
+            clearTimeout(detectTimer);
+            detectTimer = setTimeout(
+                () => this._detectAggregateColumnType(columnInput, funcSelect, aliasInput, mode),
+                COLUMN_DETECT_DELAY_MS
+            );
+        };
+
+        columnInput.addEventListener('input', handler);
+        this._dynamicHandlers.set(columnInput, { event: 'input', handler });
+    }
+
+    /**
+     * Clears everything detection derived from a column, for when the column is emptied.
+     * @param {HTMLInputElement} columnInput - The column input element
+     * @param {HTMLSelectElement|null} funcSelect - The aggregate function select (null for groupby)
+     * @param {HTMLInputElement} aliasInput - The alias input element
+     * @param {'aggregate'|'groupby'} mode - Whether this is for aggregate or groupby
+     * @private
+     */
+    _resetAggregateColumnState(columnInput, funcSelect, aliasInput, mode) {
+        // The alias is derived from the column, so it goes with it.
+        aliasInput.value = '';
+
+        if (mode === 'aggregate') {
+            const row = columnInput.closest('.pdt-aggregate-row');
+            if (funcSelect) {
+                // Passing null re-enables every function: no column means no type to restrict by.
+                this._filterAggregateFunctionsByType(funcSelect, null);
+            }
+            if (row) {
+                this._syncDistinctAvailability(row);
+            }
+            return;
+        }
+
+        const row = columnInput.closest('.pdt-groupby-row');
+        const dateGrouping = row?.querySelector('[data-prop="dategrouping"]');
+        if (dateGrouping) {
+            dateGrouping.value = '';
+        }
+        const utc = row?.querySelector('[data-prop="utc"]');
+        if (utc) {
+            utc.checked = false;
+        }
+    }
+
+    /**
+     * Looks up the typed column and applies its metadata to the row.
+     * @param {HTMLInputElement} columnInput - The column input element
+     * @param {HTMLSelectElement|null} funcSelect - The aggregate function select
+     * @param {HTMLInputElement} aliasInput - The alias input element
+     * @param {'aggregate'|'groupby'} mode - Whether this is for aggregate or groupby
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _detectAggregateColumnType(columnInput, funcSelect, aliasInput, mode) {
+        const entityName = this.ui.builderEntityInput?.value?.trim();
+        const column = columnInput.value.trim();
+        // isConnected guards the debounce firing after the row or tab was torn down. An empty
+        // column was already reset synchronously by the input handler.
+        if (!columnInput.isConnected || !entityName || !column) {
+            return;
+        }
+
+        let attr = null;
+        try {
+            const attributes = await DataService.getAttributeDefinitions(entityName);
+            attr = attributes?.find(a => a.LogicalName === column) || null;
+        } catch (_e) {
+            attr = null;
+        }
+
+        if (!columnInput.isConnected) {
+            return;
+        }
+        this._applyAggregateColumnMetadata(columnInput, funcSelect, aliasInput, mode, attr);
+    }
+
+    /**
      * Filters the aggregate function dropdown options based on column type.
      * @param {HTMLSelectElement} funcSelect - The function select element
-     * @param {Object} attr - Column attribute metadata
+     * @param {Object|null} attr - Column attribute metadata, or null when the type is unknown
      * @private
      */
     _filterAggregateFunctionsByType(funcSelect, attr) {
+        // An unrecognised column name must not restrict the choices.
+        if (!attr) {
+            Array.from(funcSelect.options).forEach(option => {
+                option.disabled = false;
+                option.title = '';
+            });
+            return;
+        }
+
         const typeName = attr.AttributeTypeName?.Value || attr.AttributeType || '';
         const categoryMap = Config.ATTRIBUTE_TYPE_TO_AGGREGATE_CATEGORY;
         const compatMap = Config.AGGREGATE_TYPE_COMPAT;
@@ -1643,8 +1857,11 @@ export class FetchXmlTesterTab extends BaseComponent {
             const func = row.querySelector('[data-prop="function"]')?.value;
             const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
             const order = row.querySelector('[data-prop="order"]')?.value || '';
+            // Only countcolumn supports distinct; ignore a stale tick left by a function change.
+            const distinct = func === 'countcolumn'
+                && Boolean(row.querySelector('[data-prop="distinct"]')?.checked);
             if (column && alias) {
-                rows.push({ column, func, alias, order });
+                rows.push({ column, func, alias, order, distinct });
             }
         });
         return rows;
@@ -1661,8 +1878,11 @@ export class FetchXmlTesterTab extends BaseComponent {
             const column = row.querySelector('[data-prop="column"]')?.value?.trim();
             const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
             const dategrouping = row.querySelector('[data-prop="dategrouping"]')?.value;
+            // usertimezone only affects date groupings, so it is meaningless without one.
+            const utc = Boolean(dategrouping)
+                && Boolean(row.querySelector('[data-prop="utc"]')?.checked);
             if (column && alias) {
-                rows.push({ column, alias, dategrouping });
+                rows.push({ column, alias, dategrouping, utc });
             }
         });
         return rows;
@@ -1676,7 +1896,13 @@ export class FetchXmlTesterTab extends BaseComponent {
      */
     _buildAggregateAttributesXml(aggregateRows) {
         return aggregateRows
-            .map(row => `    <attribute name="${row.column}" alias="${row.alias}" aggregate="${row.func}" />`)
+            .map(row => {
+                let xml = `    <attribute name="${escapeXml(row.column)}" alias="${escapeXml(row.alias)}" aggregate="${escapeXml(row.func)}"`;
+                if (row.distinct) {
+                    xml += ' distinct="true"';
+                }
+                return `${xml} />`;
+            })
             .join('\n');
     }
 
@@ -1689,9 +1915,12 @@ export class FetchXmlTesterTab extends BaseComponent {
     _buildGroupByAttributesXml(groupByRows) {
         return groupByRows
             .map(row => {
-                let xml = `    <attribute name="${row.column}" alias="${row.alias}" groupby="true"`;
+                let xml = `    <attribute name="${escapeXml(row.column)}" alias="${escapeXml(row.alias)}" groupby="true"`;
                 if (row.dategrouping) {
-                    xml += ` dategrouping="${row.dategrouping}"`;
+                    xml += ` dategrouping="${escapeXml(row.dategrouping)}"`;
+                }
+                if (row.utc) {
+                    xml += ' usertimezone="false"';
                 }
                 xml += ' />';
                 return xml;
@@ -1712,11 +1941,11 @@ export class FetchXmlTesterTab extends BaseComponent {
             const column = row.querySelector('[data-prop="column"]')?.value?.trim();
             const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
             if (!column) {
-                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateColumnRequired, 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateColumnRequired, 'warn');
                 return false;
             }
             if (!alias) {
-                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateAliasRequired, 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.aggregateAliasRequired, 'warn');
                 return false;
             }
         }
@@ -1724,11 +1953,131 @@ export class FetchXmlTesterTab extends BaseComponent {
         for (const row of groupByRows) {
             const alias = row.querySelector('[data-prop="alias"]')?.value?.trim();
             if (!alias) {
-                NotificationService.show(Config.MESSAGES.FETCHXML.groupByAliasRequired, 'warning');
+                NotificationService.show(Config.MESSAGES.FETCHXML.groupByAliasRequired, 'warn');
                 return false;
             }
         }
 
+        return true;
+    }
+
+    /**
+     * Validates the Top Count input. FetchXML `top` must be a positive whole number;
+     * `type="number"` still admits negatives, decimals and exponent notation.
+     * @param {string} topCount - Raw input value, empty meaning "all records".
+     * @returns {boolean} True when the value is usable.
+     * @private
+     */
+    /**
+     * Verifies every join names a parent. _buildNestedJoins walks down from the primary table,
+     * so a parentless join is unreachable and would be omitted with no indication.
+     * @returns {boolean} True when every join is reachable.
+     * @private
+     */
+    _validateJoinParents() {
+        const groups = [...(this.ui.joinsContainer?.querySelectorAll('.link-entity-group') || [])];
+
+        if (groups.some(group => !JoinTree.getParentId(group))) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.selectJoinParent, 'warn');
+            return false;
+        }
+
+        // A join whose chain never reaches the primary table is unreachable in the output, so
+        // catch it here rather than letting it disappear from the generated XML.
+        const unreachable = groups.some(
+            group => !JoinTree.reachesPrimary(this.ui.joinsContainer, group)
+        );
+        if (unreachable) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.joinNotReachable, 'warn');
+            return false;
+        }
+
+        if (groups.length > MAX_LINK_ENTITIES) {
+            NotificationService.show(
+                Config.MESSAGES.FETCHXML.tooManyJoins(MAX_LINK_ENTITIES, groups.length),
+                'warn'
+            );
+            return false;
+        }
+
+        this._warnOnNonProjectingColumns(groups);
+        return true;
+    }
+
+    /**
+     * Warns when columns are listed on a join that cannot return them.
+     *
+     * exists and in filter the parent rows via a subquery, so any columns typed against them are
+     * silently absent from the results - worth saying rather than leaving the user puzzled.
+     * @param {HTMLElement[]} groups - Join group elements
+     * @private
+     */
+    _warnOnNonProjectingColumns(groups) {
+        const details = groups.map(group => ({
+            linkType: group.querySelector('[data-prop="link-type"]')?.value || '',
+            columns: group.querySelector('[data-prop="attributes"]')?.value?.trim() || ''
+        }));
+
+        const dropped = details.find(
+            d => d.columns && NON_PROJECTING_LINK_TYPES.has(d.linkType)
+        );
+        if (dropped) {
+            NotificationService.show(
+                Config.MESSAGES.FETCHXML.linkTypeReturnsNoColumns(dropped.linkType),
+                'warn'
+            );
+        }
+
+        // Without explicit columns this link type has nothing to return, and cannot fall back
+        // to all-attributes.
+        const needsColumns = details.find(
+            d => !d.columns && EXPLICIT_COLUMN_LINK_TYPES.has(d.linkType)
+        );
+        if (needsColumns) {
+            NotificationService.show(
+                Config.MESSAGES.FETCHXML.linkTypeNeedsColumns(needsColumns.linkType),
+                'warn'
+            );
+        }
+    }
+
+    /**
+     * Validates the Top Count input. FetchXML `top` must be a positive whole number;
+     * `type="number"` still admits negatives, decimals and exponent notation.
+     * @param {string} topCount - Raw input value, empty meaning "all records".
+     * @returns {boolean} True when the value is usable.
+     * @private
+     */
+    _validateTopCount(topCount) {
+        if (!topCount) {
+            return true;
+        }
+        if (!/^\d+$/.test(topCount) || Number(topCount) < 1) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.invalidTopCount, 'warn');
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Validates the optional Aggregate Limit. Dataverse rejects a value above the default
+     * aggregate limit, so it is bounded here rather than at the server.
+     * @param {string} limit - Raw input value, empty meaning "use the default limit".
+     * @returns {boolean} True when the value is usable.
+     * @private
+     */
+    _validateAggregateLimit(limit) {
+        if (!limit) {
+            return true;
+        }
+        const parsed = Number(limit);
+        if (!/^\d+$/.test(limit) || parsed < 1 || parsed > MAX_AGGREGATE_LIMIT) {
+            NotificationService.show(
+                Config.MESSAGES.FETCHXML.invalidAggregateLimit(MAX_AGGREGATE_LIMIT),
+                'warn'
+            );
+            return false;
+        }
         return true;
     }
 
@@ -1751,9 +2100,25 @@ export class FetchXmlTesterTab extends BaseComponent {
             return;
         }
 
-        const topCount = this.ui.builderContent.querySelector('#builder-top-count').value;
+        if (!this._validateJoinParents()) {
+            return;
+        }
+
+        const topCount = this.ui.builderContent.querySelector('#builder-top-count').value.trim();
+        if (!this._validateTopCount(topCount)) {
+            return;
+        }
+
+        const aggregateLimit = isAggregate
+            ? (this.ui.builderContent.querySelector('#builder-aggregate-limit')?.value?.trim() || '')
+            : '';
+        if (!this._validateAggregateLimit(aggregateLimit)) {
+            return;
+        }
+
         const aggregateAttr = isAggregate ? ' aggregate="true"' : '';
-        const fetchTag = `<fetch${aggregateAttr}${topCount ? ` top="${topCount}"` : ''}>`;
+        const aggregateLimitAttr = aggregateLimit ? ` aggregatelimit="${aggregateLimit}"` : '';
+        const fetchTag = `<fetch${aggregateAttr}${aggregateLimitAttr}${topCount ? ` top="${topCount}"` : ''}>`;
 
         let primaryAttributesXml;
         if (isAggregate) {
@@ -1786,7 +2151,7 @@ export class FetchXmlTesterTab extends BaseComponent {
     async _resolveAndValidateEntity() {
         const primaryEntity = this.ui.builderContent.querySelector('#builder-entity').value.trim();
         if (!primaryEntity) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return null;
         }
 
@@ -1797,9 +2162,11 @@ export class FetchXmlTesterTab extends BaseComponent {
 
             if (primaryEntity !== logicalName) {
                 this.ui.builderContent.querySelector('#builder-entity').value = logicalName;
+                // Joins label their parent with this name, so correcting it must relabel them.
+                this._refreshJoinParentOptions();
             }
         } catch (error) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.resolveEntityFailed(error.message), 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.resolveEntityFailed(error.message), 'warn');
         }
 
         return logicalEntityName;
@@ -1816,7 +2183,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             .split('\n')
             .map(s => s.trim())
             .filter(Boolean)
-            .map(attr => `    <attribute name="${attr}" />`)
+            .map(attr => `    <attribute name="${escapeXml(attr)}" />`)
             .join('\n');
     }
 
@@ -1857,19 +2224,20 @@ export class FetchXmlTesterTab extends BaseComponent {
         return filterGroups.map(group => {
             const conditions = group.filters.map(f => {
                 const { attr, op, value } = f;
+                // Values are free text: an unescaped & or < makes the whole fetch unparseable.
                 if (op === 'null' || op === 'not-null') {
-                    return `${indentStr}  <condition attribute="${attr}" operator="${op}" />`;
+                    return `${indentStr}  <condition attribute="${escapeXml(attr)}" operator="${escapeXml(op)}" />`;
                 }
                 if (op === 'in' || op === 'not-in') {
                     if (!value) {
                         return null;
                     }
                     const valueElements = value.split(',').map(v => v.trim()).filter(Boolean)
-                        .map(v => `${indentStr}    <value>${v}</value>`).join('\n');
-                    return `${indentStr}  <condition attribute="${attr}" operator="${op}">\n${valueElements}\n${indentStr}  </condition>`;
+                        .map(v => `${indentStr}    <value>${escapeXml(v)}</value>`).join('\n');
+                    return `${indentStr}  <condition attribute="${escapeXml(attr)}" operator="${escapeXml(op)}">\n${valueElements}\n${indentStr}  </condition>`;
                 }
                 if (value) {
-                    return `${indentStr}  <condition attribute="${attr}" operator="${op}" value="${value}" />`;
+                    return `${indentStr}  <condition attribute="${escapeXml(attr)}" operator="${escapeXml(op)}" value="${escapeXml(value)}" />`;
                 }
                 return null;
             }).filter(Boolean);
@@ -1914,7 +2282,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             return '';
         }
         const isDescending = this.ui.builderContent.querySelector('#builder-order-direction').value === 'true';
-        return `    <order attribute="${orderAttribute}" descending="${isDescending}" />\n`;
+        return `    <order attribute="${escapeXml(orderAttribute)}" descending="${isDescending}" />\n`;
     }
 
     /**
@@ -1925,23 +2293,59 @@ export class FetchXmlTesterTab extends BaseComponent {
      */
     _buildAggregateOrderXml() {
         let orderXml = '';
+        const ordered = new Set();
 
         // Gather per-row orders from aggregate rows
         const aggregateRows = this._extractAggregateRows();
         for (const row of aggregateRows) {
             if (row.order !== '') {
-                orderXml += `    <order alias="${row.alias}" descending="${row.order}" />\n`;
+                orderXml += `    <order alias="${escapeXml(row.alias)}" descending="${escapeXml(row.order)}" />\n`;
+                ordered.add(row.alias);
             }
         }
 
-        // Also check the global order input (used as alias in aggregate mode)
+        // The global order box holds a column name, but an aggregate query can only order by
+        // alias, so it has to be translated before it is emitted.
         const orderAttribute = this.ui.builderContent.querySelector('#builder-order-attribute').value.trim();
-        if (orderAttribute) {
-            const isDescending = this.ui.builderContent.querySelector('#builder-order-direction').value === 'true';
-            orderXml += `    <order alias="${orderAttribute}" descending="${isDescending}" />\n`;
+        if (!orderAttribute) {
+            return orderXml;
         }
 
+        const alias = this._resolveAggregateOrderAlias(orderAttribute, aggregateRows);
+        if (!alias) {
+            NotificationService.show(Config.MESSAGES.FETCHXML.orderAliasNotFound(orderAttribute), 'warn');
+            return orderXml;
+        }
+        if (ordered.has(alias)) {
+            return orderXml;
+        }
+
+        const isDescending = this.ui.builderContent.querySelector('#builder-order-direction').value === 'true';
+        orderXml += `    <order alias="${escapeXml(alias)}" descending="${isDescending}" />\n`;
+
         return orderXml;
+    }
+
+    /**
+     * Maps the global order value onto an aggregate or group-by alias.
+     *
+     * Accepts an alias directly, or a column name that one of the rows aliases, since the order
+     * box is normally filled from the column browser.
+     * @param {string} value - Raw order box value
+     * @param {Array<{column: string, alias: string}>} aggregateRows - Extracted aggregate rows
+     * @returns {string|null} The alias to order by, or null when it cannot be resolved
+     * @private
+     */
+    _resolveAggregateOrderAlias(value, aggregateRows) {
+        const candidates = [...aggregateRows, ...this._extractGroupByRows()];
+
+        const byAlias = candidates.find(row => row.alias === value);
+        if (byAlias) {
+            return byAlias.alias;
+        }
+
+        const byColumn = candidates.find(row => row.column === value);
+        return byColumn ? byColumn.alias : null;
     }
 
     /**
@@ -1975,7 +2379,7 @@ export class FetchXmlTesterTab extends BaseComponent {
     /**
      * Extracts join data from join group element.
      * @param {HTMLElement} group - Join group element
-     * @returns {{name: string, from: string, to: string, linkType: string, alias: string, joinId: string, attributesValue: string}|null}
+     * @returns {{name: string, from: string, to: string, linkType: string, alias: string, joinId: string, attributesValue: string, intersect: boolean}|null}
      * @private
      */
     _extractJoinData(group) {
@@ -1986,12 +2390,13 @@ export class FetchXmlTesterTab extends BaseComponent {
         const alias = group.querySelector('[data-prop="alias"]')?.value?.trim();
         const joinId = group.dataset.joinId;
         const attributesValue = group.querySelector('[data-prop="attributes"]')?.value || '';
+        const intersect = Boolean(group.querySelector('[data-prop="intersect"]')?.checked);
 
         if (!name || !from || !to) {
             return null;
         }
 
-        return { name, from, to, linkType, alias, joinId, attributesValue };
+        return { name, from, to, linkType, alias, joinId, attributesValue, intersect };
     }
 
     /**
@@ -2004,14 +2409,28 @@ export class FetchXmlTesterTab extends BaseComponent {
      * @private
      */
     _buildLinkEntityXml(joinData, group, indentStr, indent) {
-        const { name, from, to, linkType, alias, joinId, attributesValue } = joinData;
+        const { name, from, to, linkType, alias, joinId, attributesValue, intersect } = joinData;
 
-        let xml = `${indentStr}<link-entity name="${name}" from="${from}" to="${to}" link-type="${linkType}" alias="${alias}">\n`;
+        let xml = `${indentStr}<link-entity name="${escapeXml(name)}" from="${escapeXml(from)}" to="${escapeXml(to)}" link-type="${escapeXml(linkType)}"`;
+        // Alias is optional; Dataverse generates one when it is absent, so omit it rather than
+        // emitting an empty value.
+        if (alias) {
+            xml += ` alias="${escapeXml(alias)}"`;
+        }
+        if (intersect) {
+            xml += ' intersect="true"';
+        }
+        xml += '>\n';
 
-        const attributesXml = this._buildAttributesXml(attributesValue);
+        // exists/in reject any attribute inside the link-entity outright (0x80041121), so no
+        // columns may be emitted for them - not even the all-attributes fallback.
+        const suppressColumns = NON_PROJECTING_LINK_TYPES.has(linkType);
+        const attributesXml = suppressColumns ? '' : this._buildAttributesXml(attributesValue);
+
         if (attributesXml) {
             xml += attributesXml.split('\n').map(line => line ? `  ${indentStr}${line}` : '').join('\n') + '\n';
-        } else {
+        } else if (!intersect && !suppressColumns && !EXPLICIT_COLUMN_LINK_TYPES.has(linkType)) {
+            // intersect declares the join returns no columns, so all-attributes would contradict it.
             xml += `${indentStr}  <all-attributes />\n`;
         }
 
@@ -2118,7 +2537,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         try {
             this.ui.xmlArea.value = formatXml(xmlStr);
         } catch (e) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.formatFailed(e.message), 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.formatFailed(e.message), 'warn');
         }
     }
 
@@ -2130,7 +2549,7 @@ export class FetchXmlTesterTab extends BaseComponent {
     _handleConvert(format) {
         const fetchXml = this.ui.xmlArea?.value?.trim();
         if (!fetchXml) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.convertNoXml, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.convertNoXml, 'warn');
             return;
         }
 
@@ -2220,9 +2639,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         const entityNameFromXml = entityMatch[1];
 
         this._removePaginationBanner();
-        if (this.resultPanel) {
-            this.resultPanel._selectedIndices?.clear();
-        }
+        this.resultPanel?.clearSelection();
 
         if (this.ui.executeBtn) {
             this.ui.executeBtn.disabled = true;
@@ -2236,9 +2653,11 @@ export class FetchXmlTesterTab extends BaseComponent {
 
             let correctedFetchXml = fetchXml;
             if (entityNameFromXml !== logicalName) {
+                // Replace the already-matched text literally. Building a RegExp from the name
+                // would let regex metacharacters in it match the wrong span, or throw.
                 correctedFetchXml = fetchXml.replace(
-                    new RegExp(`<entity\\s+name=["']${entityNameFromXml}["']`, 'i'),
-                    `<entity name="${logicalName}"`
+                    entityMatch[0],
+                    () => `<entity name="${logicalName}"`
                 );
                 this.ui.xmlArea.value = correctedFetchXml;
             }
@@ -2274,7 +2693,7 @@ export class FetchXmlTesterTab extends BaseComponent {
 
             this.ui.resultRoot?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (e) {
-            const friendly = ErrorParser.extract(e);
+            const friendly = this._explainQueryError(ErrorParser.extract(e));
             NotificationService.show(friendly, 'error');
             this.lastResult = normalizeApiResponse(null);
             this.resultSortState = { column: null, direction: 'asc' };
@@ -2291,20 +2710,49 @@ export class FetchXmlTesterTab extends BaseComponent {
     }
 
     /**
+     * Replaces the opaque aggregate row-limit error with guidance on how to resolve it.
+     * @param {string} message - Parsed error message from the API
+     * @returns {string} The message, or a clearer explanation when recognised
+     * @private
+     */
+    _explainQueryError(message) {
+        const text = String(message ?? '');
+        // Dataverse varies the casing of error codes between responses, so match case-insensitively.
+        const haystack = text.toLowerCase();
+
+        if (AGGREGATE_LIMIT_ERROR_MARKERS.some(marker => haystack.includes(marker))) {
+            return Config.MESSAGES.FETCHXML.aggregateLimitExceeded(MAX_AGGREGATE_LIMIT);
+        }
+        if (AGGREGATE_TYPE_ERROR_MARKERS.some(marker => haystack.includes(marker))) {
+            return Config.MESSAGES.FETCHXML.aggregateTypeMismatch;
+        }
+        if (LINK_COLUMN_ERROR_MARKERS.some(marker => haystack.includes(marker))) {
+            return Config.MESSAGES.FETCHXML.linkColumnsNotSupported;
+        }
+        if (ALIAS_CLASH_ERROR_MARKERS.some(marker => haystack.includes(marker))) {
+            return Config.MESSAGES.FETCHXML.aliasClash;
+        }
+        if (LINK_LIMIT_ERROR_MARKERS.some(marker => haystack.includes(marker))) {
+            return Config.MESSAGES.FETCHXML.linkLimitExceeded(MAX_LINK_ENTITIES);
+        }
+        return text;
+    }
+
+    /**
      * Handles bulk touch operation for selected records from the ResultPanel.
      * @param {Array<Object>} records - Selected records to touch
      * @private
      */
     async _handleBulkTouch(records) {
         if (!records || records.length === 0) {
-            NotificationService.show(Config.MESSAGES.FETCHXML.noRecordsSelected, 'warning');
+            NotificationService.show(Config.MESSAGES.FETCHXML.noRecordsSelected, 'warn');
             return;
         }
 
         try {
             const entityName = this.lastEntityName;
             if (!entityName) {
-                NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 return;
             }
 
@@ -2341,7 +2789,7 @@ export class FetchXmlTesterTab extends BaseComponent {
             } else {
                 NotificationService.show(
                     Config.MESSAGES.FETCHXML.touchFailed(finalSuccessCount, finalFailCount, records.length),
-                    'warning'
+                    'warn'
                 );
                 for (const err of finalErrors) {
                     NotificationService.show(err.error || String(err), 'error');
@@ -2425,17 +2873,17 @@ export class FetchXmlTesterTab extends BaseComponent {
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'pdt-pagination-banner-buttons';
 
+        // Both buttons are routed by id through the delegated click handler, so they need no
+        // listener of their own to attach or clean up.
         const loadMoreBtn = document.createElement('button');
         loadMoreBtn.id = 'fetchxml-load-more-btn';
         loadMoreBtn.className = 'modern-button secondary';
         loadMoreBtn.textContent = Config.PAGINATION.buttons.loadMore;
-        loadMoreBtn.onclick = () => this._loadMoreRecords();
 
         const loadAllBtn = document.createElement('button');
         loadAllBtn.id = 'fetchxml-load-all-btn';
         loadAllBtn.className = 'modern-button';
         loadAllBtn.textContent = Config.PAGINATION.buttons.loadAll;
-        loadAllBtn.onclick = () => this._loadAllRecords();
 
         buttonContainer.appendChild(loadMoreBtn);
         buttonContainer.appendChild(loadAllBtn);
@@ -2480,6 +2928,9 @@ export class FetchXmlTesterTab extends BaseComponent {
             const fetchXmlWithPaging = this._injectPagingCookie(this.lastExecutedFetchXml, this.pagingCookie, this.currentPage + 1);
 
             const res = await DataService.executeFetchXml(this.lastEntityName, fetchXmlWithPaging);
+            if (this._destroyed) {
+                return;
+            }
 
             this.allLoadedRecords = this.allLoadedRecords.concat(res.entities || []);
             this.pagingCookie = res.pagingCookie || null;
@@ -2533,7 +2984,7 @@ export class FetchXmlTesterTab extends BaseComponent {
 
             let pagesLoaded = 0;
 
-            while (this.pagingCookie) {
+            while (this.pagingCookie && !this._destroyed) {
                 pagesLoaded++;
                 this.currentPage++;
 
@@ -2607,7 +3058,7 @@ export class FetchXmlTesterTab extends BaseComponent {
         let cookieValue = pagingCookieMatch ? pagingCookieMatch[1] : '';
 
         if (!cookieValue) {
-            return fetchXml.replace(
+            return this._stripTopAttribute(fetchXml).replace(
                 /<fetch(\s|>)/i,
                 `<fetch page="${pageNumber}"$1`
             );
@@ -2625,14 +3076,10 @@ export class FetchXmlTesterTab extends BaseComponent {
             cookieValue = previousValue || cookieValue;
         }
 
-        const escapedCookie = cookieValue
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+        const escapedCookie = escapeXml(cookieValue);
 
-        let modifiedFetchXml = fetchXml.replace(/\s+page=["'][^"']*["']/gi, '');
+        let modifiedFetchXml = this._stripTopAttribute(fetchXml);
+        modifiedFetchXml = modifiedFetchXml.replace(/\s+page=["'][^"']*["']/gi, '');
         modifiedFetchXml = modifiedFetchXml.replace(/\s+paging-cookie=["'][^"']*["']/gi, '');
         modifiedFetchXml = modifiedFetchXml.replace(
             /<fetch(\s|>)/i,
@@ -2640,6 +3087,19 @@ export class FetchXmlTesterTab extends BaseComponent {
         );
 
         return modifiedFetchXml;
+    }
+
+    /**
+     * Removes the `top` attribute from the fetch element.
+     *
+     * Dataverse documents `top` as incompatible with paging - the two ways of limiting
+     * results cannot be combined - so paging drops it rather than emitting both.
+     * @param {string} fetchXml - FetchXML to clean
+     * @returns {string} FetchXML without a top attribute on the fetch element
+     * @private
+     */
+    _stripTopAttribute(fetchXml) {
+        return fetchXml.replace(/(<fetch\b[^>]*?)\s+top=["'][^"']*["']/i, '$1');
     }
 
     /**
@@ -2683,6 +3143,9 @@ export class FetchXmlTesterTab extends BaseComponent {
      * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
      */
     destroy() {
+        // Stops a Load All loop from continuing to request pages for a tab that is gone.
+        this._destroyed = true;
+
         if (this._rootElement && this._handleDelegatedClickBound) {
             this._rootElement.removeEventListener('click', this._handleDelegatedClickBound);
             this._handleDelegatedClickBound = null;

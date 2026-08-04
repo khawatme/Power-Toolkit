@@ -139,7 +139,7 @@
 
 .powerapps-dev-toolkit.pdt-minimized {
     height: auto !important;
-    min-height: auto;
+    min-height: 0;
     min-width: 130px !important;
     resize: horizontal;
     box-shadow: 0 8px 25px var(--pro-shadow);
@@ -329,6 +329,17 @@
 
 .pdt-nav-tab.active svg {
     color: white;
+}
+
+/* Per-tab accent color (Settings → Tab Configuration). Paints an edge bar and the icon, never the
+   label, so a tab stays readable in both themes whatever color is chosen. An inset shadow is used
+   instead of a border so the bar costs no layout and doesn't fight the rounded corners. */
+.pdt-nav-tab--colored {
+    box-shadow: inset 3px 0 0 var(--pdt-tab-color);
+}
+
+.pdt-nav-tab--colored:not(.active) svg {
+    color: var(--pdt-tab-color);
 }
 
 .pdt-nav-tab.coffee.active, .pdt-nav-tab.coffee:hover {
@@ -840,6 +851,17 @@ input[type="date"].pdt-input {
     margin: 0 0 0.5rem;
 }
 
+.pdt-changelog-group {
+    color: var(--pro-text-primary);
+    font-size: 0.95em;
+    font-weight: 600;
+    margin: 14px 0 0;
+}
+
+.pdt-changelog-group:first-of-type {
+    margin-top: 4px;
+}
+
 .pdt-changelog-details {
     cursor: pointer;
     margin-top: 0.5rem;
@@ -928,6 +950,13 @@ input[type="date"].pdt-input {
 
 .pdt-dialog-content:has(.pdt-flow-definition-container) {
     max-height: 80vh;
+    overflow: hidden;
+}
+
+/* Agent/model dialogs size themselves (see .pdt-agent-def-container) */
+.pdt-dialog-content:has(.pdt-agent-def-container),
+.pdt-dialog-content:has(.pdt-agent-model-dialog) {
+    max-height: 82vh;
     overflow: hidden;
 }
 
@@ -1030,6 +1059,10 @@ input[type="date"].pdt-input {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.pdt-trace-status-select {
+  min-width: 150px;
 }
 
 .pdt-toolbar:last-child {
@@ -1332,6 +1365,7 @@ body.pdt-col-resize-active * {
     display: grid;
     gap: 15px;
     align-content: start;
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .pdt-card {
@@ -1487,7 +1521,7 @@ body.pdt-col-resize-active * {
     margin: 0;
     overflow-wrap: break-word;
     white-space: pre-wrap;
-    word-break: break-all;
+    word-break: break-word;
 }
 
 .codehub-list li .copyable-code-block button {
@@ -1715,7 +1749,7 @@ input:checked + .pdt-toggle-slider:before {
     line-height: 1.6;
     margin-bottom: 0;
 }
-.help-card-details, .codehub-list {
+.help-card-details {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease-in-out;
@@ -1729,6 +1763,9 @@ input:checked + .pdt-toggle-slider:before {
     border: 1px solid var(--pro-border);
     margin-bottom: 15px;
     overflow: hidden;
+    display: grid;
+    grid-template-rows: min-content 0fr;
+    transition: grid-template-rows 0.3s ease-in-out;
 }
 .codehub-category-header {
     background: var(--pro-bg-surface);
@@ -1750,8 +1787,12 @@ input:checked + .pdt-toggle-slider:before {
 .codehub-category.expanded > .codehub-category-header::after {
     transform: rotate(90deg);
 }
-.codehub-category.expanded > .codehub-list {
-    max-height: 2000px;
+.codehub-category.expanded {
+    grid-template-rows: min-content 1fr;
+}
+.codehub-list {
+    min-height: 0;
+    overflow: hidden;
 }
 .codehub-list li:first-child {
     border-top: none;
@@ -1892,6 +1933,96 @@ input:checked + .pdt-toggle-slider:before {
     overflow: auto;
 }
 
+/* Rows are role="button"/tabindex="0", so keyboard focus must be visible. */
+.pdt-metadata-panel-body .pdt-table tr[data-logical-name]:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: -2px;
+}
+
+.pdt-metadata-info-btn {
+    background: none;
+    border: none;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    margin-right: 6px;
+    padding: 0 2px;
+}
+
+.pdt-metadata-info-btn:hover {
+    color: var(--pro-accent);
+}
+
+.pdt-metadata-info-btn:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
+}
+
+/* Table and column details dialogs. Fixed width so long GUIDs and descriptions wrap
+   instead of stretching .pdt-dialog (min-width 600px, max-width 90%) toward the viewport
+   edge. .pdt-dialog-content is the scroll region, so nothing below adds another one. */
+.pdt-metadata-details {
+    width: min(72vw, 640px);
+    max-width: 100%;
+}
+
+.pdt-metadata-details .info-grid {
+    /* minmax(0, ...) lets both tracks shrink below their content, which is what stops the
+       grid forcing a horizontal scrollbar. */
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    max-height: none;
+    overflow-y: visible;
+}
+
+.pdt-metadata-details .info-grid strong,
+.pdt-metadata-details .info-grid span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.pdt-metadata-section + .pdt-metadata-section {
+    margin-top: 18px;
+}
+
+.pdt-metadata-section-title {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.pdt-metadata-targets {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.pdt-metadata-targets .pdt-badge-small {
+    margin-left: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.pdt-metadata-options {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.pdt-metadata-options td,
+.pdt-metadata-options th {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.pdt-metadata-options td:first-child,
+.pdt-metadata-options th:first-child {
+    width: 90px;
+}
+
 .pdt-resizer {
     flex: 0 0 5px;
     cursor: col-resize;
@@ -1966,6 +2097,38 @@ input:checked + .pdt-toggle-slider:before {
 .pdt-perf-legend i.pdt-perf-client { background-color: #34a853; }
 .pdt-perf-section {
   margin-bottom: 24px;
+}
+
+/* Performance Review — reuses the .pdt-review-finding family from the agent review. */
+.pdt-perf-review-summary {
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.pdt-perf-review-intro {
+    margin: 0 0 10px;
+    padding: 0;
+    text-align: left;
+}
+
+.pdt-perf-scan-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.pdt-perf-scan-bar .pdt-perf-scan-status {
+    margin-right: auto;
+    text-align: left;
+}
+
+.pdt-perf-scan-status {
+    color: var(--pro-text-secondary);
+    font-size: 0.85em;
+}
+
+.pdt-perf-scan-status.is-error {
+    color: var(--pro-error);
 }
 /* --- Plugin Traces Tab --- */
 .trace-item {
@@ -2068,6 +2231,47 @@ input:checked + .pdt-toggle-slider:before {
     background: var(--pro-accent);
     opacity: 0.5;
 }
+/* Tab color picker in Settings → Tab Configuration. */
+.pdt-tab-color {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+}
+
+.pdt-tab-color .tab-color-input {
+    background: none;
+    border: 1px solid var(--pro-border);
+    border-radius: 4px;
+    cursor: pointer;
+    height: 26px;
+    padding: 2px;
+    width: 34px;
+}
+
+/* No color chosen yet: read as an empty slot rather than as the picker's starting color. */
+.pdt-tab-color .tab-color-input.is-unset {
+    border-style: dashed;
+    opacity: 0.45;
+}
+
+.pdt-tab-color .tab-color-clear {
+    background: none;
+    border: none;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+}
+
+.pdt-tab-color .tab-color-clear:hover {
+    color: var(--pro-text-primary);
+}
+
+.pdt-tab-color .tab-color-clear[hidden] {
+    display: none;
+}
+
 .drag-handle {
     color: var(--pro-text-secondary);
     cursor: grab;
@@ -2175,7 +2379,6 @@ input:checked + .pdt-toggle-slider:before {
   cursor: pointer;
 }
 
-
 /**
  * ------------------------------------------------------------------------
  * 6. UTILITY & HELPER CLASSES
@@ -2248,6 +2451,17 @@ input:checked + .pdt-toggle-slider:before {
     font-weight: bold;
 }
 
+/* Inline error block (load/API failures rendered in place of a list or panel) */
+.pdt-error {
+    background: rgba(var(--pro-error-rgb, 244, 67, 54), 0.1);
+    border-left: 3px solid var(--pro-error);
+    border-radius: 4px;
+    color: var(--pro-error);
+    margin: 8px 0;
+    padding: 10px 12px;
+    word-break: break-word;
+}
+
 .pdt-text-info {
     color: var(--pro-info);
     font-weight: bold;
@@ -2288,6 +2502,12 @@ input:checked + .pdt-toggle-slider:before {
         color: var(--pro-accent);
         border-bottom-color: var(--pro-accent);
 }
+.pdt-sub-tab:focus-visible {
+        outline: 2px solid var(--pro-accent);
+        outline-offset: -2px;
+        border-radius: 4px;
+        color: var(--pro-text-primary);
+}
 
 .pdt-status-badge {
     border-radius: 12px;
@@ -2307,18 +2527,211 @@ input:checked + .pdt-toggle-slider:before {
     color: var(--pro-error);
 }
 
-.pdt-status-badge.managed {
+/* Where a form event handler was registered: by the platform, or on the form itself. */
+.pdt-status-badge.system {
     color: var(--pro-muted);
     border: 1px solid var(--pro-border);
     font-size: 10px;
     padding: 2px 7px;
 }
 
-.pdt-status-badge.customizable {
+.pdt-status-badge.form {
     color: var(--pro-accent);
     border: 1px solid var(--pro-accent);
     font-size: 10px;
     padding: 2px 7px;
+}
+
+.pdt-diagnostic-banner {
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    background: var(--pro-bg-surface);
+    border-left: 3px solid var(--pro-border);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-diagnostic-banner--warn {
+    border-left-color: var(--pro-warn);
+    color: var(--pro-warn);
+}
+
+.pdt-diagnostic-banner--info {
+    border-left-color: var(--pro-info);
+}
+
+/* Which form a handler is registered on — subdued next to the field/event badges. */
+.pdt-form-badge {
+    background: var(--pro-bg-overlay);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-diagnostic-banner:empty,
+.pdt-diagnostic-banner[hidden] {
+    display: none;
+}
+
+/* Banner that carries a control (e.g. the plugin-trace logging level): note left, control right. */
+.pdt-diagnostic-banner-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    justify-content: space-between;
+}
+
+.pdt-diagnostic-banner-control {
+    align-items: center;
+    color: var(--pro-text-secondary);
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.pdt-diagnostic-banner-select {
+    font-size: 13px;
+    padding: 5px 8px;
+    width: auto;
+}
+
+.pdt-eval-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.pdt-eval-grader {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.pdt-eval-grader-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.pdt-eval-grader-name {
+    font-weight: 600;
+    color: var(--pro-text-primary);
+}
+
+.pdt-eval-instructions {
+    margin: 4px 0 10px;
+}
+
+.pdt-eval-labels {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.pdt-eval-labels th,
+.pdt-eval-labels td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--pro-border);
+}
+
+.pdt-eval-labels th {
+    color: var(--pro-text-secondary);
+    font-weight: 600;
+}
+
+.pdt-eval-labels td:last-child,
+.pdt-eval-labels th:last-child {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pdt-eval-labels .pdt-status-badge {
+    margin-right: 0;
+}
+
+.pdt-eval-note {
+    margin-top: 10px;
+    font-style: italic;
+}
+
+/* Evaluation test case: the expected multi-turn conversation. */
+.pdt-eval-case-heading {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.pdt-eval-turn {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: var(--pro-bg-surface);
+}
+
+.pdt-eval-turn--agent {
+    background: rgba(var(--pro-accent-rgb), 0.08);
+}
+
+.pdt-eval-turn-role {
+    flex-shrink: 0;
+    font-weight: 600;
+    font-size: 0.85em;
+    min-width: 48px;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-eval-turn-text {
+    color: var(--pro-text-primary);
+    white-space: pre-wrap;
+}
+
+/* Activity: publish readiness, composition, and unpublished-change markers. */
+.pdt-agent-publish-status {
+    font-weight: 600;
+}
+
+.pdt-agent-publish-status--ok {
+    color: var(--pro-success);
+}
+
+.pdt-agent-publish-status--pending,
+.pdt-agent-publish-status--draft {
+    color: var(--pro-warn);
+}
+
+.pdt-agent-composition {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.pdt-capi-badge.pdt-agent-unpublished-tag {
+    color: var(--pro-warn);
+    border: 1px solid var(--pro-warn);
+}
+
+/* Agent publish state (Draft/Published) — Copilot Studio's primary status, shown as a bordered
+   badge so it reads as distinct from the plain-text Active/Inactive record-state badge. */
+.pdt-status-badge.pdt-agent-publish-badge {
+    border: 1px solid currentColor;
+}
+
+.pdt-agent-publish-badge.published {
+    color: var(--pro-success);
+}
+
+.pdt-agent-publish-badge.draft {
+    color: var(--pro-warn);
 }
 
 .pdt-list-item-spacer {
@@ -2700,7 +3113,6 @@ input:checked + .pdt-toggle-slider:before {
     min-height: 0;
 }
 
-
 .pdt-result-wrapper {
     overflow: auto;
     flex: 1 1 auto;
@@ -2930,12 +3342,55 @@ input:checked + .pdt-toggle-slider:before {
     margin-bottom: 8px;
 }
 
+/* Column, function, alias, distinct, order, remove */
 .pdt-aggregate-row {
-    grid-template-columns: 1fr 120px 1fr 110px auto;
+    grid-template-columns: 1fr 120px 1fr auto 110px auto;
 }
 
+/* Column, alias, date grouping, UTC, remove. The date-grouping track fits its widest option
+   ("No Date Grouping") plus the select chevron. */
 .pdt-groupby-row {
-    grid-template-columns: 1fr 1fr 140px auto;
+    grid-template-columns: 1fr 1fr 170px auto auto;
+}
+
+/* Inline checkbox + caption, used for optional FetchXML attributes. */
+.pdt-inline-check {
+    align-items: center;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.pdt-inline-check input {
+    cursor: pointer;
+    margin: 0;
+}
+
+.pdt-inline-check--disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.pdt-inline-check--disabled input {
+    cursor: not-allowed;
+}
+
+.pdt-inline-label {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+/* Keep the aggregate limit box proportional to its short numeric value instead of letting it
+   absorb the rest of the toolbar. */
+#builder-aggregate-limit {
+    flex: 0 0 auto;
+    max-width: 100%;
+    width: 280px;
 }
 
 .pdt-aggregate-row .pdt-input-with-button,
@@ -3317,6 +3772,20 @@ input:checked + .pdt-toggle-slider:before {
     border: 1px solid var(--pro-border);
 }
 
+.pdt-quick-check-panel:not(:empty) {
+    margin-bottom: 10px;
+}
+
+.pdt-quick-check-panel .pdt-note {
+    margin: 0 0 6px;
+}
+
+.pdt-quick-check-heading {
+    color: var(--pro-text-primary);
+    font-weight: 600;
+    margin: 0 0 8px;
+}
+
 .pdt-compare-user-selector .pdt-label {
     color: var(--pro-text-secondary);
     font-size: 13px;
@@ -3587,7 +4056,12 @@ input:checked + .pdt-toggle-slider:before {
     color: #f44336;
 }
 
-.pdt-priv-cell--denied .pdt-priv-label {
+.pdt-priv-indicator--unknown {
+    color: var(--pro-text-secondary);
+}
+
+.pdt-priv-cell--denied .pdt-priv-label,
+.pdt-priv-cell--unknown .pdt-priv-label {
     color: var(--pro-text-secondary);
     font-size: 12px;
     font-style: italic;
@@ -4091,12 +4565,6 @@ input:checked + .pdt-toggle-slider:before {
     padding: 2px 4px;
 }
 
-.pdt-blocked-reason {
-    color: var(--pro-error);
-    font-size: 10px;
-    margin-left: auto;
-}
-
 .pdt-inline-badge {
     background: var(--pro-bg-overlay);
     border-radius: 3px;
@@ -4104,79 +4572,8 @@ input:checked + .pdt-toggle-slider:before {
     padding: 2px 6px;
 }
 
-/* Custom rules styling */
-.pdt-command-item--custom-rules {
-    border-left: 3px solid #ff9800;
-}
-
-.pdt-custom-rules-details {
-    background: rgba(255, 152, 0, 0.1);
-    border-radius: 4px;
-    margin-top: 8px;
-    padding: 8px;
-}
-
-.pdt-custom-rules-details .pdt-label {
-    color: var(--pro-text-secondary);
-    display: block;
-    font-size: 11px;
-    font-weight: 500;
-    margin-bottom: 4px;
-}
-
-.pdt-custom-rules-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.pdt-custom-rules-list li {
-    font-size: 12px;
-    padding: 3px 0;
-}
-
-.pdt-custom-rules-list li::before {
-    content: '';
-}
-
-.pdt-custom-rules-list--evaluated li::before {
-    content: '';
-}
-
-.pdt-custom-rules-list--unevaluated li::before {
-    content: '';
-}
-
-.pdt-rules-group {
-    margin-bottom: 8px;
-}
-
-.pdt-rules-group:last-child {
-    margin-bottom: 0;
-}
-
-.pdt-label--success {
-    color: #4caf50 !important;
-}
-
-.pdt-label--warning {
-    color: #ff9800 !important;
-}
-
-.pdt-code-inline {
-    background: var(--pro-bg-dark);
-    border-radius: 3px;
-    font-family: monospace;
-    font-size: 11px;
-    padding: 2px 4px;
-}
-
 .pdt-text-muted {
     color: var(--pro-text-secondary);
-}
-
-.pdt-text-small {
-    font-size: 10px;
 }
 
 .pdt-command-blocked {
@@ -4188,78 +4585,12 @@ input:checked + .pdt-toggle-slider:before {
     padding: 6px 8px;
 }
 
-.pdt-custom-rules-note {
-    background: rgba(255, 152, 0, 0.1);
-    border-radius: 4px;
-    color: #ff9800;
-    font-size: 11px;
-    margin-top: 8px;
-    padding: 8px;
-}
-
-.pdt-custom-rules-note .pdt-label {
-    font-weight: 600;
-    margin-right: 6px;
-}
-
-.pdt-custom-rules-note .pdt-text-muted {
-    color: var(--pro-text-secondary);
-}
-
 .pdt-details-summary--danger {
     color: var(--pro-error) !important;
 }
 
 .pdt-details-summary--success {
     color: var(--pro-success) !important;
-}
-
-/* Command item - compact */
-.pdt-command-item-compact {
-    align-items: center;
-    display: flex;
-    gap: 8px;
-    padding: 4px 8px;
-    border-radius: 4px;
-}
-
-.pdt-command-item-compact:hover {
-    background: var(--pro-bg-light);
-}
-
-.pdt-command-item-compact .pdt-command-status {
-    flex-shrink: 0;
-    font-size: 11px;
-    width: 14px;
-}
-
-.pdt-command-item-compact.pdt-visible .pdt-command-status {
-    color: var(--pro-success);
-}
-
-.pdt-command-item-compact.pdt-hidden .pdt-command-status {
-    color: var(--pro-text-secondary);
-}
-
-.pdt-command-item-compact .pdt-command-name {
-    flex: 1;
-    font-size: 12px;
-    font-weight: normal;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pdt-command-id-small {
-    background: var(--pro-bg-overlay);
-    border-radius: 3px;
-    flex-shrink: 0;
-    font-size: 9px;
-    max-width: 150px;
-    overflow: hidden;
-    padding: 1px 4px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 /* Security Context Differences */
@@ -4373,248 +4704,6 @@ details[open] .pdt-details-summary {
     width: 80px;
 }
 
-/* LIVE IMPERSONATION PANEL */
-.pdt-live-btn-toggle {
-    transition: all 0.2s ease;
-}
-
-.pdt-live-btn-toggle.pdt-live-active {
-    background: var(--pro-god-mode) !important;
-    color: #fff !important;
-    animation: pdt-live-pulse 2s infinite;
-}
-
-@keyframes pdt-live-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(199, 44, 65, 0.4); }
-    50% { box-shadow: 0 0 0 6px rgba(199, 44, 65, 0); }
-}
-
-/* Floating panel container */
-.pdt-live-panel {
-    background: var(--pro-bg-dark);
-    border: 1px solid var(--pro-border);
-    border-radius: 8px;
-    box-shadow: 0 8px 32px var(--pro-shadow);
-    display: none;
-    flex-direction: column;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    font-size: 13px;
-    max-height: 70vh;
-    max-width: 420px;
-    min-width: 320px;
-    position: fixed;
-    right: 20px;
-    top: 80px;
-    z-index: 999999;
-}
-
-/* Panel header */
-.pdt-live-header {
-    align-items: flex-start;
-    background: linear-gradient(135deg, var(--pro-god-mode), #a02538);
-    border-radius: 7px 7px 0 0;
-    color: #fff;
-    display: flex;
-    gap: 12px;
-    justify-content: space-between;
-    padding: 10px 12px;
-}
-
-.pdt-live-header-left {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-}
-
-.pdt-live-title {
-    align-items: center;
-    display: flex;
-    font-size: 14px;
-    font-weight: 600;
-    gap: 6px;
-}
-
-.pdt-live-icon {
-    font-size: 16px;
-}
-
-.pdt-live-user {
-    font-size: 12px;
-    opacity: 0.9;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pdt-live-controls {
-    display: flex;
-    gap: 6px;
-    flex-shrink: 0;
-    align-self: flex-start;
-}
-
-.pdt-live-btn {
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    border-radius: 4px;
-    color: #fff;
-    cursor: pointer;
-    font-size: 12px;
-    padding: 4px 10px;
-    transition: background 0.2s;
-}
-
-.pdt-live-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
-}
-
-.pdt-live-btn-stop {
-    background: rgba(0, 0, 0, 0.3);
-    font-weight: 600;
-}
-
-.pdt-live-btn-stop:hover {
-    background: rgba(0, 0, 0, 0.5);
-}
-
-/* Panel body */
-.pdt-live-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-height: calc(70vh - 80px);
-    overflow-y: auto;
-    padding: 12px;
-}
-
-/* Summary stats */
-.pdt-live-summary {
-    display: grid;
-    gap: 8px;
-    grid-template-columns: repeat(4, 1fr);
-}
-
-.pdt-live-stat {
-    align-items: center;
-    background: var(--pro-bg-surface);
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    padding: 8px 4px;
-}
-
-.pdt-live-stat-value {
-    font-size: 20px;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.pdt-live-stat-label {
-    color: var(--pro-text-secondary);
-    font-size: 10px;
-    margin-top: 4px;
-    text-align: center;
-}
-
-.pdt-live-stat-error .pdt-live-stat-value { color: var(--pro-error); }
-.pdt-live-stat-warning .pdt-live-stat-value { color: var(--pro-warn); }
-.pdt-live-stat-info .pdt-live-stat-value { color: var(--pro-info); }
-
-/* Action buttons */
-.pdt-live-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.pdt-live-actions .pdt-button--small {
-    flex: 1;
-    font-size: 11px;
-    padding: 6px 8px;
-}
-
-/* Results list */
-.pdt-live-results {
-    flex: 1;
-    list-style: none;
-    margin: 0;
-    overflow-y: auto;
-    padding: 0;
-}
-
-.pdt-live-empty {
-    color: var(--pro-text-secondary);
-    font-style: italic;
-    padding: 20px;
-    text-align: center;
-}
-
-.pdt-live-item {
-    background: var(--pro-bg-surface);
-    border-left: 3px solid var(--pro-border);
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    gap: 10px;
-    margin-bottom: 6px;
-    padding: 8px 10px;
-    transition: background 0.2s;
-}
-
-.pdt-live-item:hover {
-    background: var(--pro-hover-bg);
-}
-
-.pdt-live-item-error { border-left-color: var(--pro-error); }
-.pdt-live-item-warning { border-left-color: var(--pro-warn); }
-.pdt-live-item-info { border-left-color: var(--pro-info); }
-
-.pdt-live-item-icon {
-    flex-shrink: 0;
-    font-size: 16px;
-}
-
-.pdt-live-item-content {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.pdt-live-item-header {
-    align-items: center;
-    display: flex;
-    gap: 8px;
-    justify-content: space-between;
-}
-
-.pdt-live-item-entity {
-    color: var(--pro-text-primary);
-    font-weight: 600;
-}
-
-.pdt-live-item-time {
-    color: var(--pro-text-secondary);
-    flex-shrink: 0;
-    font-size: 11px;
-}
-
-.pdt-live-item-url {
-    color: var(--pro-text-secondary);
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pdt-live-item-details {
-    margin-top: 4px;
-}
-
-.pdt-live-error { color: var(--pro-error); font-size: 12px; }
-.pdt-live-warning { color: var(--pro-warn); font-size: 12px; }
-.pdt-live-info { color: var(--pro-info); font-size: 12px; }
-
 /* ── Power Automate Flows Tab ── */
 
 .pdt-flow-card {
@@ -4687,7 +4776,7 @@ details[open] .pdt-details-summary {
 }
 
 .pdt-badge--unmanaged {
-    background: var(--pro-warn, #ffa726);
+    background: var(--pro-warn);
     border-radius: 4px;
     color: #000;
     font-size: 11px;
@@ -4747,7 +4836,7 @@ details[open] .pdt-details-summary {
     position: sticky;
     top: 0;
     left: 0;
-    z-index: 1;
+    z-index: 3;
     background-color: var(--pro-bg-surface);
     padding: 0px 10px 0px 10px;
 }
@@ -4768,6 +4857,7 @@ details[open] .pdt-details-summary {
 
 .pdt-flow-visual {
     box-sizing: border-box;
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -4830,11 +4920,148 @@ details[open] .pdt-details-summary {
     padding: 6px 12px 8px;
     font-size: 12px;
     color: var(--pro-text-primary);
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* A step that runs after more than one predecessor — flag the convergence/join. */
+.pdt-flow-node-runafter--join {
+    border-left: 2px solid var(--pro-accent);
+    padding-left: 10px;
+}
+
+.pdt-flow-runafter-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .pdt-flow-runafter-label {
     font-weight: 600;
+}
+
+.pdt-flow-runafter-join {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--pro-text-secondary);
+    background: var(--pro-bg-overlay);
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+.pdt-flow-runafter-deps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pdt-flow-runafter-dep {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pdt-flow-runafter-name {
+    color: var(--pro-text-secondary);
+    word-break: break-word;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pdt-flow-runafter-statuses {
+    display: inline-flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+/* Remove (×) a predecessor. */
+.pdt-runafter-remove {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--pro-text-secondary);
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.pdt-runafter-remove:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+/* Add-predecessor dropdown. */
+.pdt-runafter-add {
+    margin-top: 2px;
+    width: 100%;
+    font-size: 12px;
+    padding: 3px 6px;
+}
+
+.pdt-runafter-add:disabled {
+    display: none;
+}
+
+/* Each status is an accessible checkbox rendered as a colour-coded dot. */
+.pdt-runafter-chip {
+    display: inline-flex;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+}
+
+.pdt-runafter-chip:hover {
+    background: var(--pro-hover);
+}
+
+.pdt-runafter-toggle {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    margin: 0;
+}
+
+.pdt-runafter-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+    opacity: 0.3;
+    transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+.pdt-runafter-toggle:checked + .pdt-runafter-dot {
+    opacity: 1;
+}
+
+.pdt-runafter-toggle:focus-visible + .pdt-runafter-dot {
+    box-shadow: 0 0 0 2px rgba(var(--pro-accent-rgb), 0.6);
+}
+
+.pdt-runafter-dot--succeeded {
+    background: #22c55e;
+}
+
+.pdt-runafter-dot--failed {
+    background: #ef4444;
+}
+
+.pdt-runafter-dot--timedout {
+    background: #f59e0b;
+}
+
+.pdt-runafter-dot--skipped,
+.pdt-runafter-dot--unknown {
+    background: var(--pro-text-secondary);
 }
 
 .pdt-flow-node--clickable > .pdt-flow-node-header {
@@ -4963,6 +5190,22 @@ details[open] .pdt-details-summary {
     font-size: 10px;
     line-height: 1;
     margin-top: -2px;
+}
+
+.pdt-flow-edges {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.pdt-flow-edge {
+    fill: none;
+    stroke: var(--pro-accent); /* fallback; per-target colour is applied inline */
+    stroke-width: 2;
+    opacity: 0.9;
 }
 
 /* Branches (If/Switch) */
@@ -5119,6 +5362,10 @@ details[open] > .pdt-flow-scope-summary::before {
     margin-bottom: 15px;
 }
 
+.pdt-capi-stats:empty {
+    display: none;
+}
+
 /* Card enhancements */
 .pdt-capi-card .pdt-card-header {
     cursor: default;
@@ -5167,8 +5414,2114 @@ details[open] > .pdt-flow-scope-summary::before {
 }
 
 .pdt-capi-badge-unmanaged {
-    background: var(--pro-warn, #ffa726);
+    background: var(--pro-warn);
     color: #000;
+}
+
+.pdt-capi-badge-agent-flow {
+    background: var(--pro-accent);
+    color: #fff;
+}
+
+/* AI Builder model families and configuration-iteration states. */
+.pdt-capi-badge-kind-prompt {
+    background: var(--pro-accent);
+    color: #fff;
+}
+
+.pdt-capi-badge-kind-custom {
+    background: var(--pro-success);
+    color: #fff;
+}
+
+.pdt-capi-badge-kind-prebuilt {
+    background: var(--pro-text-secondary);
+    color: #fff;
+}
+
+.pdt-capi-badge-active {
+    background: var(--pro-success);
+    color: #fff;
+}
+
+.pdt-capi-badge-failed,
+.pdt-capi-badge-config-failed {
+    background: var(--pro-error);
+    color: #fff;
+}
+
+/* Latest-configuration status on a model card. */
+.pdt-capi-badge-config-live,
+.pdt-capi-badge-config-published {
+    background: var(--pro-success);
+    color: #fff;
+}
+
+.pdt-capi-badge-config-draft {
+    background: var(--pro-warn);
+    color: #000;
+}
+
+/* Agent kind ("Powered by") — modern generative agent vs classic topic-based bot. */
+.pdt-agent-kind-badge.modern {
+    background: rgba(var(--pro-accent-rgb), 0.15);
+    color: var(--pro-accent);
+}
+
+.pdt-agent-kind-badge.classic {
+    background: var(--pro-bg-overlay);
+    color: var(--pro-text-secondary);
+}
+
+/* ── Power Automate: Run History sub-view ── */
+.pdt-flow-subview {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.pdt-flow-runs-toolbar2 {
+    align-items: center;
+}
+
+.pdt-flow-runs-controls {
+    flex-shrink: 0;
+}
+
+.pdt-flow-run-status-select {
+    min-width: 120px;
+}
+
+.pdt-flow-run-summary {
+    align-items: center;
+    border-bottom: 1px solid var(--pro-border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-bottom: 8px;
+    padding: 8px 4px 12px;
+}
+
+.pdt-flow-run-summary-metric {
+    color: var(--pro-text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pdt-flow-run-summary-rate {
+    color: var(--pro-accent);
+}
+
+.pdt-flow-run-summary-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.pdt-flow-run-pill {
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+}
+
+/* Run rows */
+.pdt-flow-run-row {
+    background: var(--pro-bg-light);
+    border: 1px solid var(--pro-border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+}
+
+.pdt-flow-run-row-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+}
+
+.pdt-flow-run-row-header:hover {
+    background: var(--pro-hover-bg);
+}
+
+.pdt-flow-run-row-header:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: -2px;
+}
+
+.pdt-flow-run-status-badge {
+    border-radius: 10px;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    min-width: 84px;
+    padding: 3px 10px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.pdt-flow-run-trigger {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    min-width: 80px;
+}
+
+.pdt-flow-run-start {
+    color: var(--pro-text-primary);
+    flex: 1;
+    font-size: 13px;
+}
+
+.pdt-flow-run-duration {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.pdt-flow-run-expand-icon {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    width: 12px;
+}
+
+.pdt-flow-run-row-error {
+    color: var(--pro-error);
+    font-size: 12px;
+    padding: 0 12px 8px;
+}
+
+/* Status colours (shared by row badges and summary pills) */
+.pdt-flow-run-status--succeeded {
+    background: rgba(102, 187, 106, 0.15);
+    color: var(--pro-success);
+}
+
+.pdt-flow-run-status--failed {
+    background: rgba(244, 67, 54, 0.15);
+    color: var(--pro-error);
+}
+
+.pdt-flow-run-status--cancelled {
+    background: rgba(158, 158, 158, 0.15);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-flow-run-status--running {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--pro-warning, #f59e0b);
+}
+
+.pdt-flow-run-status--other {
+    background: var(--pro-hover-bg);
+    color: var(--pro-text-secondary);
+}
+
+/* Run details */
+.pdt-flow-run-details {
+    border-top: 1px solid var(--pro-border);
+    padding: 12px;
+}
+
+.pdt-flow-run-detail-grid {
+    margin-bottom: 10px;
+}
+
+.pdt-flow-run-detail-actions {
+    margin-bottom: 8px;
+}
+
+.pdt-flow-run-portal-note {
+    border-left-color: var(--pro-accent);
+}
+
+.pdt-flow-run-logs-title {
+    font-weight: 600;
+    margin: 6px 0;
+}
+
+.pdt-flow-run-log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.pdt-flow-run-log {
+    border-top: 1px solid var(--pro-border);
+    padding: 8px 0;
+}
+
+.pdt-flow-run-log-head {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+}
+
+.pdt-flow-run-log-level {
+    background: var(--pro-hover-bg);
+    border-radius: 4px;
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+    padding: 1px 6px;
+}
+
+.pdt-flow-run-log-name {
+    color: var(--pro-text-primary);
+    font-weight: 500;
+}
+
+.pdt-flow-run-log-duration {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    margin-left: auto;
+}
+
+.pdt-flow-run-log-data {
+    background: var(--pro-bg-dark);
+    border: 1px solid var(--pro-border);
+    border-radius: 4px;
+    margin: 6px 0 0;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ── AI Workbench Tab ── */
+.pdt-agents-host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.pdt-agents-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.pdt-agent-card {
+    transition: box-shadow 0.2s;
+}
+
+.pdt-agent-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.pdt-agent-header {
+    display: flex;
+    align-items: center;
+}
+
+.pdt-agent-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+}
+
+.pdt-agent-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdt-agent-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.pdt-agent-info-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 12px;
+    align-items: center;
+}
+
+.pdt-agent-card .pdt-card-footer {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.pdt-agent-actions-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Transcript rows are native <details> cards that open/close on click (mirrors the AI Builder run
+   and evaluation rows). */
+.pdt-agent-transcript-row {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.pdt-agent-transcript-row > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.pdt-agent-transcript-row > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* The date leads in bold with the at-a-glance meta (turns · duration · locale) stacked beneath it. */
+.pdt-agent-transcript-summary-lead {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.pdt-agent-transcript-when {
+    font-weight: 600;
+    color: var(--pro-text-primary);
+}
+
+.pdt-agent-transcript-submeta {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Session (engagement, outcome, test-pane) and source badges trail on the right of the summary. */
+.pdt-agent-transcript-summary-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.pdt-agent-transcript-body {
+    padding: 0 14px 12px;
+}
+
+.pdt-agent-transcript-empty-note {
+    margin: 4px 0 10px;
+}
+
+/* Switching sub-tabs never resizes the dialog. */
+.pdt-agent-def-container,
+.pdt-agent-model-dialog {
+    display: flex;
+    flex-direction: column;
+    height: min(72vh, 680px);
+    max-width: 100%;
+    width: min(72vw, 700px);
+}
+
+/* The active panel is the single scroller inside that box. */
+.pdt-agent-def-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.pdt-agent-def-panel--fill {
+    display: flex;
+    flex-direction: column;
+}
+
+.pdt-agent-def-panel--fill .pdt-agent-edit,
+.pdt-agent-def-panel--fill > .copyable-code-block {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.pdt-agent-def-panel--fill .pdt-agent-edit-textarea {
+    white-space: normal;
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 180px;
+}
+
+.pdt-agent-def-heading {
+    font-weight: 600;
+    margin: 12px 0 8px;
+    padding-bottom: 4px;
+    color: var(--pro-text-primary);
+    border-bottom: 1px solid var(--pro-border);
+}
+
+.pdt-agent-component {
+    border: 1px solid var(--pro-border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: var(--pro-bg-surface);
+}
+
+.pdt-agent-component-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.pdt-agent-component-name {
+    font-weight: 600;
+}
+
+.pdt-agent-component-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.pdt-agent-component-toggle {
+    font-size: 12px;
+    padding: 5px 14px;
+}
+
+.pdt-agent-model {
+    margin: 0 0 10px;
+    color: var(--pro-text-primary);
+}
+
+.pdt-agent-component-desc {
+    margin: 0 0 8px;
+    color: var(--pro-text-primary);
+}
+
+.pdt-agent-activity-list {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 12px;
+}
+
+.pdt-agent-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--pro-border);
+}
+
+.pdt-agent-activity-name {
+    font-weight: 600;
+}
+
+.pdt-agent-activity-when {
+    margin-left: auto;
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.pdt-agent-component-body {
+    padding: 0 12px 12px;
+}
+
+.pdt-agent-edit {
+    margin: 8px 0;
+}
+
+.pdt-agent-edit-textarea {
+    width: 100%;
+    min-height: 220px;
+    max-height: 50vh;
+    resize: vertical;
+    overflow: auto;
+    white-space: pre;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Prose editors (instructions, expected output) wrap instead of scrolling horizontally. */
+.pdt-agent-edit-textarea--wrap {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-x: hidden;
+}
+
+.pdt-agent-edit-textarea,
+.pdt-review-text,
+.pdt-generator-custom-role {
+    cursor: text;
+}
+
+.pdt-agent-edit-textarea::-webkit-scrollbar,
+.pdt-agent-edit-textarea::-webkit-scrollbar-thumb,
+.pdt-agent-edit-textarea::-webkit-scrollbar-track,
+.pdt-review-text::-webkit-scrollbar,
+.pdt-review-text::-webkit-scrollbar-thumb,
+.pdt-review-text::-webkit-scrollbar-track,
+.pdt-generator-custom-role::-webkit-scrollbar,
+.pdt-generator-custom-role::-webkit-scrollbar-thumb,
+.pdt-generator-custom-role::-webkit-scrollbar-track {
+    cursor: default;
+}
+
+.pdt-agent-edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.pdt-agent-footer-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.pdt-agent-raw-config > summary {
+    margin-top: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-agent-config {
+    border-bottom: 1px solid var(--pro-border);
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+}
+
+.pdt-agent-config:last-child {
+    border-bottom: none;
+}
+
+.pdt-agent-config.is-active {
+    border-left: 3px solid var(--pro-accent);
+    padding-left: 10px;
+}
+
+.pdt-agent-config-heading {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+summary.pdt-agent-config-heading {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* When a version is expanded, separate its heading (version + date + badges) from the body that
+   follows; collapsed history rows keep no gap so the list stays tight. */
+.pdt-agent-config[open] > summary.pdt-agent-config-heading {
+    margin-bottom: 10px;
+}
+
+.pdt-agent-config-heading-inner {
+    align-items: center;
+    display: inline-flex;
+    gap: 8px;
+    justify-content: space-between;
+    width: calc(100% - 16px);
+}
+
+/* Version leads (bold) with the last-run date stacked beneath it; badges trail on the right. */
+.pdt-agent-config-lead {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pdt-agent-config-version {
+    font-weight: 600;
+}
+
+.pdt-agent-config-date {
+    color: var(--pro-text-secondary);
+    font-size: 0.85em;
+    font-weight: 400;
+}
+
+.pdt-agent-config-badges {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.pdt-agent-config-error {
+    margin: 8px 0;
+}
+
+.pdt-agent-config-error-inner {
+    font-size: 0.9em;
+    margin-top: 4px;
+    opacity: 0.85;
+}
+
+.pdt-agent-config-warning {
+    color: var(--pro-warn);
+    padding: 4px 0;
+    text-align: left;
+}
+
+/* ── PROMPT DIALOG — redesigned Prompt / Settings / Test tabs ── */
+.pdt-prompt-statusbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.pdt-prompt-statusbar .pdt-agent-config-heading-inner {
+    flex: 1 1 auto;
+    width: auto;
+}
+
+.pdt-prompt-card {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+
+.pdt-prompt-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    margin-bottom: 10px;
+}
+
+.pdt-prompt-card-title {
+    color: var(--pro-text-primary);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.pdt-prompt-card-hint {
+    color: var(--pro-text-secondary);
+    font-size: 0.85em;
+}
+
+.pdt-agent-prompt-textarea {
+    background: var(--pro-bg-dark);
+    border: 1px solid var(--pro-border);
+    border-radius: 8px;
+    color: var(--pro-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 130px;
+    padding: 12px 14px;
+    resize: vertical;
+    white-space: pre-wrap;
+    width: 100%;
+}
+
+.pdt-agent-prompt-textarea:focus {
+    border-color: var(--pro-accent);
+    outline: none;
+}
+
+.pdt-prompt-token-hint {
+    color: var(--pro-text-secondary);
+    font-size: 0.8em;
+    margin: 8px 0 0;
+}
+
+.pdt-prompt-advanced {
+    margin-top: 14px;
+}
+
+.pdt-prompt-advanced > summary {
+    color: var(--pro-text-secondary);
+    font-size: 0.9em;
+}
+
+/* Trained-model version blocks ("Published version" / "Last trained version") — an accented section
+   header that separates each version, matching the maker portal's version split. */
+.pdt-agent-version-heading {
+    border-bottom: 2px solid var(--pro-accent);
+    padding-bottom: 6px;
+}
+
+.pdt-agent-version-heading:not(:first-child) {
+    margin-top: 22px;
+}
+
+.pdt-agent-version-history {
+    border-top: 1px solid var(--pro-border);
+    margin-top: 20px;
+    padding-top: 12px;
+}
+
+.pdt-agent-version-history > summary {
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.pdt-agent-history-count {
+    background: var(--pro-bg-surface);
+    border-radius: 10px;
+    color: var(--pro-text-secondary);
+    font-size: 0.8em;
+    margin-left: 6px;
+    padding: 1px 8px;
+}
+
+.pdt-agent-version-history > .pdt-agent-config {
+    margin-top: 12px;
+}
+
+.pdt-prompt-tab-intro {
+    color: var(--pro-text-secondary);
+    font-size: 0.9em;
+    margin: 0 0 16px;
+}
+
+.pdt-agent-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.pdt-setting-group {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 10px;
+    padding: 6px 16px;
+}
+
+.pdt-setting-group-title {
+    color: var(--pro-accent);
+    font-size: 0.75em;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    padding: 10px 0 4px;
+    text-transform: uppercase;
+}
+
+.pdt-setting-row {
+    align-items: center;
+    border-top: 1px solid var(--pro-border);
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    padding: 12px 0;
+}
+
+.pdt-setting-group-title + .pdt-setting-row {
+    border-top: none;
+}
+
+.pdt-setting-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pdt-setting-label label {
+    color: var(--pro-text-primary);
+    font-weight: 600;
+}
+
+.pdt-setting-hint {
+    color: var(--pro-text-secondary);
+    font-size: 0.8em;
+}
+
+.pdt-setting-row select {
+    flex: 0 0 auto;
+    max-width: 160px;
+}
+
+.pdt-prompt-test-hero {
+    align-items: center;
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding: 14px 16px;
+}
+
+.pdt-prompt-test-hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pdt-prompt-test-actions {
+    margin: 0;
+}
+
+.pdt-prompt-test-empty,
+.pdt-prompt-test-running {
+    border: 1px dashed var(--pro-border);
+    border-radius: 10px;
+    color: var(--pro-text-secondary);
+    padding: 28px 20px;
+    text-align: center;
+}
+
+/* While a test runs, the note takes the accent and gently pulses so the results area reads as busy. */
+.pdt-prompt-test-running {
+    border-color: var(--pro-accent);
+    color: var(--pro-text-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .pdt-prompt-test-running {
+        animation: pdt-test-running-pulse 1.2s ease-in-out infinite;
+    }
+}
+
+@keyframes pdt-test-running-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+.pdt-prompt-test-inputs {
+    margin-bottom: 14px;
+}
+
+.pdt-prompt-test-input-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pdt-prompt-test-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pdt-prompt-test-input-label {
+    color: var(--pro-text-secondary);
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.pdt-prompt-test-input-field {
+    width: 100%;
+}
+
+/* Overrides the column direction of .pdt-file-upload-container, so it must stay after it. */
+.pdt-prompt-test-file {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.pdt-prompt-test-file .pdt-file-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.pdt-prompt-test-file-remove {
+    flex: 0 0 auto;
+    line-height: 1;
+    padding: 6px 10px;
+}
+
+.pdt-agent-train-status {
+    color: var(--pro-text-secondary);
+    flex: 1;
+    font-style: italic;
+}
+
+.pdt-agent-test-runs {
+    margin-top: 12px;
+}
+
+.pdt-dialog-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pdt-dialog-prompt label {
+    color: var(--pro-text-secondary);
+    font-weight: 600;
+}
+
+/* AI Builder runs + evaluations (model dialog) */
+.pdt-agent-runs-list,
+.pdt-agent-eval-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.pdt-agent-run-row,
+.pdt-agent-eval-row {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 6px;
+}
+
+.pdt-agent-run-row > summary,
+.pdt-agent-eval-row > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.pdt-agent-run-row > summary::-webkit-details-marker,
+.pdt-agent-eval-row > summary::-webkit-details-marker {
+    display: none;
+}
+
+.pdt-agent-run-when,
+.pdt-agent-eval-when {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* The timestamp anchors the left; its right auto-margin pushes the badge(s), status and feature
+   into a right-aligned group — matching how badges sit on the right everywhere else. The date leads
+   in bold at the row's base size, matching the evaluation Run-history date (.pdt-agent-eval-name). */
+.pdt-agent-run-when {
+    margin-right: auto;
+    color: var(--pro-text-primary);
+    font-size: inherit;
+    font-weight: 600;
+}
+
+.pdt-agent-eval-when {
+    margin-left: auto;
+}
+
+.pdt-agent-run-status,
+.pdt-agent-run-feature {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+}
+
+.pdt-agent-eval-name {
+    font-weight: 600;
+}
+
+.pdt-agent-run-body,
+.pdt-agent-eval-body {
+    padding: 0 12px 12px;
+}
+
+.pdt-agent-run-output-label {
+    margin: 8px 0 4px;
+    font-weight: 600;
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+}
+
+.pdt-agent-runs-summary {
+    padding: 10px 14px;
+    margin-bottom: 10px;
+}
+
+.pdt-agent-runs-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.pdt-agent-runs-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.pdt-agent-runs-stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--pro-accent);
+}
+
+.pdt-agent-runs-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-agent-runs-summary-meta {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--pro-text-secondary);
+}
+
+/* Model performance — friendly metrics panel for trained models (reuses the stat tiles, info-grid
+   and eval-score chips). The section leads visible with the headline score chipped on its summary. */
+.pdt-model-perf-section > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--pro-text-primary);
+}
+
+.pdt-model-perf-summary-chip {
+    margin-left: auto;
+}
+
+.pdt-model-perf {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: 10px 0 4px;
+}
+
+/* "Download detailed metrics" sits top-right of the performance panel. */
+.pdt-model-perf-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Headline row: the accuracy gauge beside the remaining score tiles. */
+.pdt-model-perf-headline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 24px;
+}
+
+.pdt-perf-gauge-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.pdt-perf-gauge {
+    width: 92px;
+    height: 92px;
+}
+
+.pdt-perf-gauge-track {
+    stroke: var(--pro-border);
+    stroke-width: 9;
+}
+
+.pdt-perf-gauge-arc {
+    stroke-width: 9;
+    transition: stroke-dashoffset 0.5s ease;
+}
+
+.pdt-perf-gauge-arc-high {
+    stroke: var(--pro-success);
+}
+
+.pdt-perf-gauge-arc-mid {
+    stroke: var(--pro-warn);
+}
+
+.pdt-perf-gauge-arc-low {
+    stroke: var(--pro-error);
+}
+
+.pdt-perf-gauge-value {
+    fill: var(--pro-text-primary);
+    font-size: 30px;
+    font-weight: 700;
+}
+
+.pdt-perf-gauge-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-perf-value-high {
+    color: var(--pro-success);
+}
+
+.pdt-perf-value-mid {
+    color: var(--pro-warn);
+}
+
+.pdt-perf-value-low {
+    color: var(--pro-error);
+}
+
+.pdt-model-perf-category {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pdt-model-perf-coverage {
+    margin: 0;
+    font-size: 12px;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-model-perf-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.pdt-model-perf-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pdt-model-perf-metric-label {
+    font-size: 12px;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-model-perf-cat-heading {
+    margin-top: 2px;
+}
+
+/* The model-role qualifier beside a bound column (e.g. content "(text)"). */
+.pdt-binding-role {
+    color: var(--pro-text-secondary);
+    font-size: 0.9em;
+}
+
+/* Version action row + inline classifier Quick test. */
+.pdt-model-version-actions {
+    margin: 8px 0 4px;
+}
+
+/* Laid out like the prompt Test panel: hero header, input card, results list. */
+.pdt-model-quicktest {
+    margin-top: 10px;
+}
+
+/* Hidden until the user opens Quick test (a class `display` would otherwise beat the UA [hidden]). */
+.pdt-model-quicktest[hidden] {
+    display: none;
+}
+
+.pdt-model-quicktest-input {
+    margin-bottom: 14px;
+}
+
+.pdt-model-quicktest-text {
+    min-height: 96px;
+}
+
+.pdt-model-quicktest-result {
+    margin: 0;
+}
+
+.pdt-model-tag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pdt-model-tag {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--pro-bg-overlay);
+    border-radius: 6px;
+}
+
+.pdt-model-tag-name {
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.pdt-model-quicktest-credits {
+    margin: 8px 0 0;
+    text-align: left;
+}
+
+/* An "armed" destructive button (the Unpublish confirm step). */
+.pdt-button-danger {
+    border-color: var(--pro-error);
+    color: var(--pro-error);
+}
+
+/* Agent session analytics (Activity tab) */
+.pdt-agent-usage {
+    margin-bottom: 12px;
+}
+
+.pdt-agent-usage-spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 48px;
+    margin: 12px 0 8px;
+}
+
+.pdt-agent-usage-spark-bar {
+    flex: 1;
+    min-height: 2px;
+    background: var(--pro-accent);
+    border-radius: 2px 2px 0 0;
+    opacity: 0.85;
+}
+
+.pdt-agent-usage-channels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.pdt-agent-runs-trends {
+    margin-bottom: 10px;
+}
+
+.pdt-agent-runs-trend-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--pro-text-secondary);
+    margin-bottom: 2px;
+}
+
+/* Cross-agent search */
+.pdt-agents-search-results {
+    overflow: auto;
+    flex: 1;
+}
+
+.pdt-agents-search-group {
+    padding: 10px 14px;
+    margin-bottom: 10px;
+}
+
+.pdt-agents-search-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.pdt-agents-search-group-header .modern-button {
+    margin-left: auto;
+}
+
+.pdt-agents-search-matches {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pdt-agents-search-match {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pdt-agents-search-match-name {
+    font-weight: 600;
+}
+
+.pdt-agents-search-snippet {
+    flex-basis: 100%;
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+}
+
+/* ── AI Builder Test hub (Evaluations tab) ── */
+.pdt-eval-summary-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.pdt-eval-summary-title {
+    font-weight: 600;
+}
+
+.pdt-eval-summary .pdt-agent-eval-when {
+    margin-left: auto;
+}
+
+.pdt-eval-summary-error {
+    margin-top: 10px;
+}
+
+.pdt-eval-score {
+    display: inline-block;
+    min-width: 26px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdt-eval-score-high {
+    background: rgba(34, 197, 94, 0.16);
+    color: var(--pro-success);
+}
+
+.pdt-eval-score-mid {
+    background: rgba(255, 167, 38, 0.18);
+    color: var(--pro-warn);
+}
+
+.pdt-eval-score-low {
+    background: rgba(239, 68, 68, 0.16);
+    color: var(--pro-error);
+}
+
+/* Status badges */
+.pdt-eval-badge-completed {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--pro-success, #22c55e);
+}
+
+.pdt-eval-badge-running {
+    background: rgba(var(--pro-accent-rgb), 0.15);
+    color: var(--pro-accent);
+}
+
+.pdt-eval-badge-failed {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--pro-error, #ef4444);
+}
+
+/* Test case expected-output preview + inputs */
+.pdt-eval-expected-preview {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdt-eval-inputs-slot {
+    margin-top: 8px;
+}
+
+.pdt-eval-input-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pdt-eval-input-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.pdt-eval-input-name {
+    font-weight: 600;
+    color: var(--pro-text-secondary);
+    white-space: nowrap;
+}
+
+.pdt-eval-input-value {
+    color: var(--pro-text-primary);
+    word-break: break-word;
+}
+
+/* Batch body: per-run cards (the collapsed row's inline stats are the batch summary). */
+.pdt-eval-run-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pdt-eval-run-item {
+    padding: 10px 12px;
+}
+
+.pdt-eval-run-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.pdt-eval-run-name {
+    font-weight: 600;
+}
+
+.pdt-eval-run-tokens {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    margin-left: auto;
+}
+
+/* Expected vs actual, side by side (stacks on narrow dialogs) */
+.pdt-eval-io {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.pdt-eval-io-empty {
+    padding: 8px;
+    text-align: left;
+}
+
+/* Pass/Fail badges (computed against the criteria's passing score) */
+.pdt-eval-badge-pass {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--pro-success);
+}
+
+.pdt-eval-badge-fail {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--pro-error);
+}
+
+/* Collapsed batch-row: the run time leads (bold), its right auto-margin anchoring it left and pushing
+   the at-a-glance stats and the status badge into a right-aligned group — so the badge trails on the
+   right like the Runs tab, even when the stats are absent (only the latest batch pre-loads them). */
+.pdt-eval-batch-name {
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-right: auto;
+}
+
+.pdt-eval-batch-inline {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* Evaluation criteria bar */
+.pdt-eval-criteria-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+}
+
+.pdt-eval-criteria-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pdt-eval-criteria-checks {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+}
+
+.pdt-eval-criteria-bar .modern-button {
+    flex-shrink: 0;
+}
+
+/* Evaluation criteria editor */
+.pdt-eval-criteria-form .pdt-setting-group {
+    margin-bottom: 16px;
+}
+
+.pdt-eval-score-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.pdt-eval-score-out {
+    color: var(--pro-accent);
+}
+
+.pdt-eval-score-range {
+    width: 100%;
+    accent-color: var(--pro-accent);
+}
+
+.pdt-eval-check,
+.pdt-eval-radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+.pdt-eval-subradios {
+    padding-left: 26px;
+}
+
+/* Test cases toolbar + selection */
+.pdt-eval-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 12px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--pro-border);
+}
+
+/* Inline run status: spaced only while it holds the running note (empty the rest of the time). */
+.pdt-eval-run-status:not(:empty) {
+    margin: 10px 0;
+}
+
+.pdt-eval-toolbar-heading {
+    font-weight: 600;
+    margin-right: auto;
+}
+
+.pdt-eval-select-all,
+.pdt-eval-select {
+    accent-color: var(--pro-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.pdt-eval-tc-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.pdt-eval-tc-row > .pdt-eval-select {
+    margin-top: 13px;
+}
+
+.pdt-eval-tc-row > .pdt-agent-eval-row {
+    flex: 1;
+    min-width: 0;
+}
+
+/* The whole header is the expand/collapse control — there is no footer button. */
+.pdt-template-header {
+    cursor: pointer;
+}
+
+.pdt-template-header:hover {
+    background: var(--pro-hover, var(--pro-bg-overlay));
+}
+
+.pdt-template-header:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: -2px;
+}
+
+.pdt-template-card--open .pdt-template-header {
+    background: var(--pro-hover, var(--pro-bg-overlay));
+}
+
+.pdt-template-head {
+    align-items: flex-start;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.pdt-template-head-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pdt-template-head .pdt-agent-badges {
+    flex-shrink: 0;
+}
+
+.pdt-template-desc {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    font-style: normal;
+    line-height: 1.4;
+    margin: 0;
+    text-align: left;
+}
+
+.pdt-template-card .pdt-card-body {
+    padding: 0;
+}
+
+.pdt-template-expand {
+    border-top: 1px solid var(--pro-border);
+    padding: 12px 15px;
+}
+
+.pdt-template-preview .copyable-code-block {
+    margin: 0;
+}
+
+/* Templates workbench (Library | Generator | Review) */
+.pdt-templates-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Workbench header: the segment pills and the shared agent-type select share one row. */
+.pdt-templates-header {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: space-between;
+    margin: 0 0 8px;
+}
+
+.pdt-templates-kind {
+    flex: 0 0 auto;
+    max-width: 220px;
+}
+
+.pdt-templates-mode {
+    border-bottom: none;
+    gap: 6px;
+    margin: 0;
+}
+
+.pdt-templates-mode .pdt-sub-tab {
+    border: 1px solid var(--pro-border);
+    border-radius: 14px;
+    padding: 4px 14px;
+}
+
+.pdt-templates-mode .pdt-sub-tab.active {
+    background: rgba(var(--pro-accent-rgb, 59, 130, 246), 0.12);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+}
+
+.pdt-template-subcat-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 8px;
+}
+
+.pdt-template-subcat-chip {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 12px;
+    color: var(--pro-text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 10px;
+}
+
+.pdt-template-subcat-chip:hover {
+    background: var(--pro-hover);
+    color: var(--pro-text-primary);
+}
+
+.pdt-template-subcat-chip.active {
+    background: rgba(var(--pro-accent-rgb, 59, 130, 246), 0.12);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+}
+
+.pdt-template-badge-subcat {
+    background: var(--pro-bg-overlay);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-template-customize-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+    margin-bottom: 10px;
+}
+
+.pdt-template-customize-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.pdt-template-customize-field > span {
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdt-generator-grid {
+    align-items: start;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+@media (max-width: 900px) {
+    .pdt-generator-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.pdt-generator-section {
+    margin-bottom: 12px;
+}
+
+.pdt-generator-section-title {
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+
+.pdt-generator-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Multi-select dropdown (details/summary with a checkbox list) */
+.pdt-generator-multi-summary {
+    cursor: pointer;
+    display: block;
+    list-style: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.pdt-generator-multi-summary::-webkit-details-marker {
+    display: none;
+}
+
+.pdt-generator-multi-summary::after {
+    color: var(--pro-text-secondary);
+    content: ' ▾';
+    float: right;
+}
+
+.pdt-generator-multi[open] .pdt-generator-multi-summary::after {
+    content: ' ▴';
+}
+
+.pdt-generator-multi-panel {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 4px;
+    margin-top: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 8px 10px;
+}
+
+.pdt-generator-check-label {
+    align-items: center;
+    color: var(--pro-text-primary);
+    cursor: pointer;
+    display: flex;
+    font-size: 12px;
+    gap: 7px;
+}
+
+.pdt-generator-custom-role {
+    margin-bottom: 12px;
+    resize: vertical;
+}
+
+.pdt-generator-output {
+    position: sticky;
+    top: 0;
+}
+
+.pdt-generator-output-pre {
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 4px;
+    color: var(--pro-text-primary);
+    font-size: 12px;
+    margin: 0 0 6px;
+    max-height: 55vh;
+    overflow: auto;
+    padding: 10px;
+    white-space: pre-wrap;
+}
+
+.pdt-generator-length {
+    margin: 0 0 8px;
+}
+
+.pdt-generator-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Review (instruction checker) */
+.pdt-review-text {
+    flex-shrink: 0;
+    font-family: monospace;
+    font-size: 13px;
+    margin-bottom: 10px;
+    min-height: 170px;
+    resize: vertical;
+}
+
+.pdt-review-findings {
+    flex-shrink: 0;
+}
+
+.pdt-review-finding {
+    align-items: flex-start;
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-left-width: 3px;
+    border-radius: 4px;
+    display: flex;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+}
+
+.pdt-review-finding-severity {
+    border-radius: 4px;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 2px 8px;
+    text-transform: uppercase;
+}
+
+.pdt-review-finding--error {
+    border-left-color: var(--pro-error);
+}
+
+.pdt-review-finding--error .pdt-review-finding-severity {
+    background: rgba(var(--pro-error-rgb, 244, 67, 54), 0.12);
+    color: var(--pro-error);
+}
+
+.pdt-review-finding--warn {
+    border-left-color: var(--pro-warning, #f59e0b);
+}
+
+.pdt-review-finding--warn .pdt-review-finding-severity {
+    background: rgba(var(--pro-warning-rgb, 245, 158, 11), 0.12);
+    color: var(--pro-warning, #f59e0b);
+}
+
+.pdt-review-finding--info {
+    border-left-color: var(--pro-accent);
+}
+
+.pdt-review-finding--info .pdt-review-finding-severity {
+    background: rgba(var(--pro-accent-rgb, 59, 130, 246), 0.12);
+    color: var(--pro-accent);
+}
+
+.pdt-review-finding-message {
+    color: var(--pro-text-primary);
+    font-size: 13px;
+}
+
+.pdt-review-finding-reason {
+    color: var(--pro-text-secondary);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+/* Scope badge + Learn link under a finding. */
+.pdt-review-finding-meta {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+/* "Classic only" / "Modern only" — the same meaning on a template card and on a review finding. */
+.pdt-scope-badge {
+    background: var(--pro-bg-overlay);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-scope-badge.modern {
+    background: rgba(var(--pro-accent-rgb, 59, 130, 246), 0.12);
+    color: var(--pro-accent);
+}
+
+/* Once an agent type is chosen, the badge would only repeat the selection. */
+.pdt-hide-scope-badges .pdt-scope-badge {
+    display: none;
+}
+
+.pdt-review-finding-doc {
+    color: var(--pro-accent);
+    font-size: 11px;
+    text-decoration: none;
+}
+
+.pdt-review-finding-doc:hover {
+    text-decoration: underline;
+}
+
+/* Agent map (definition dialog) */
+.pdt-agent-map {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pdt-agent-map-node {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--pro-bg-surface);
+    border: 2px solid var(--pro-accent);
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.pdt-agent-map-icon {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    color: var(--pro-accent);
+}
+
+.pdt-agent-map-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.pdt-agent-map-branches {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-left: 16px;
+    padding-left: 16px;
+    border-left: 2px solid var(--pro-border);
+}
+
+.pdt-agent-map-branch {
+    position: relative;
+}
+
+.pdt-agent-map-branch::before {
+    content: '';
+    position: absolute;
+    left: -18px;
+    top: 11px;
+    width: 14px;
+    height: 2px;
+    background: var(--pro-border);
+}
+
+.pdt-agent-map-branch-label {
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: var(--pro-text-secondary);
+}
+
+.pdt-agent-map-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.pdt-agent-map-chip {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--pro-bg-surface);
+    border: 1px solid var(--pro-border);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--pro-text-primary);
+}
+
+button.pdt-agent-map-chip--link {
+    cursor: pointer;
+    color: var(--pro-accent);
+    border-color: var(--pro-accent);
+    font-weight: 600;
+}
+
+.pdt-agent-map-chip--unresolved {
+    border-style: dashed;
+    color: var(--pro-text-secondary);
+    cursor: help;
+    opacity: 0.75;
+}
+
+button.pdt-agent-map-chip--link::after {
+    content: ' →';
+}
+
+button.pdt-agent-map-chip--link:hover {
+    background: var(--pro-hover, var(--pro-bg-overlay));
+}
+
+.pdt-agent-map-subagent {
+    margin: 4px 0;
+}
+
+.pdt-agent-map-subagent-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pdt-agent-map-expand {
+    background: transparent;
+    border: 1px solid var(--pro-accent);
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--pro-accent);
+}
+
+.pdt-agent-map-open {
+    font-size: 11px;
+    padding: 2px 8px;
+}
+
+.pdt-agent-map-children {
+    margin: 6px 0 6px 16px;
+    padding-left: 16px;
+    border-left: 2px dashed var(--pro-border);
 }
 
 /* Expandable param/prop sections */
@@ -5221,7 +7574,7 @@ details[open] > .pdt-flow-scope-summary::before {
 }
 
 /* Delete button red hover */
-.pdt-capi-delete-hover:hover {
+.pdt-capi-delete-hover:not(:disabled):hover {
     background-color: var(--pro-error) !important;
     border-color: var(--pro-error) !important;
     color: white !important;
@@ -5528,4 +7881,62 @@ details[open] > .pdt-flow-scope-summary::before {
     font-style: italic;
     grid-column: 1 / -1;
     padding: 8px 0;
+}
+
+/* What a template is for: a maker checklist or a definition, rather than instruction text. */
+.pdt-use-badge {
+    background: var(--pro-bg-overlay);
+    color: var(--pro-text-secondary);
+}
+
+.pdt-use-badge.guidance {
+    background: rgba(var(--pro-warning-rgb, 245, 158, 11), 0.12);
+    color: var(--pro-warning, #f59e0b);
+}
+
+/* Grouped routing targets in the generator's component picker. */
+.pdt-generator-check-group {
+    color: var(--pro-text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin: 8px 0 2px;
+    text-transform: uppercase;
+}
+
+.pdt-generator-check-group:first-child {
+    margin-top: 0;
+}
+
+.pdt-generator-check-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+/* The description is what the orchestrator routes on, so it sits under the name. */
+.pdt-generator-check-hint {
+    color: var(--pro-text-secondary);
+    display: -webkit-box;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow: hidden;
+    /* Descriptions can run long; two lines is enough to tell two components apart. */
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.pdt-generator-check-warning {
+    color: var(--pro-warning, #f59e0b);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* Field-level hint inside a generator section — lighter than the panel's single .pdt-note. */
+.pdt-generator-section-hint {
+    color: var(--pro-text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+    margin: 0 0 6px;
 }

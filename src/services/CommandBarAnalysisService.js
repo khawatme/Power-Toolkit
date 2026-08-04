@@ -12,7 +12,6 @@ import { MetadataService } from './MetadataService.js';
 import { PowerAppsApiService } from './PowerAppsApiService.js';
 import { SecurityAnalysisService } from './SecurityAnalysisService.js';
 import { NotificationService } from './NotificationService.js';
-import { Config } from '../constants/index.js';
 
 /**
  * @typedef {Object} RibbonDiff
@@ -703,7 +702,7 @@ export const CommandBarAnalysisService = {
      */
     async retrieveEntityRibbon(entityLogicalName, locationFilter = 'All', _getEntitySetName = MetadataService.getEntitySetName, skipCache = false) {
         if (!entityLogicalName) {
-            NotificationService.show('Entity name required for ribbon retrieval', 'warning');
+            NotificationService.show('Entity name required for ribbon retrieval', 'warn');
             return null;
         }
 
@@ -724,9 +723,11 @@ export const CommandBarAnalysisService = {
             const baseUrl = `${globalContext.getClientUrl()}/api/data/v9.2`;
             const url = `${baseUrl}/RetrieveEntityRibbon(EntityName='${entityLogicalName}',RibbonLocationFilter=Microsoft.Dynamics.CRM.RibbonLocationFilters'${locationFilter}')`;
 
+            // Ribbon definitions are customization metadata, identical for every user, so this one
+            // stays deliberately un-impersonated — see the comment on _fetchComparisonData.
             const resp = await fetch(url, {
                 method: 'GET',
-                headers: Config.WEB_API_HEADERS.STANDARD
+                headers: WebApiService.buildHeaders()
             });
 
             if (!resp.ok) {
@@ -1307,7 +1308,7 @@ export const CommandBarAnalysisService = {
 
             return response?.value || [];
         } catch (_error) {
-            NotificationService.show('Modern commands not available (appaction table may not exist in this environment)', 'warning');
+            NotificationService.show('Modern commands not available (appaction table may not exist in this environment)', 'warn');
             return [];
         }
     },
@@ -1492,7 +1493,7 @@ export const CommandBarAnalysisService = {
                 IsValidForAdvancedFind: response?.IsValidForAdvancedFind ?? true
             };
         } catch (error) {
-            NotificationService.show(`Failed to get entity metadata: ${error.message}`, 'warning');
+            NotificationService.show(`Failed to get entity metadata: ${error.message}`, 'warn');
             return {};
         }
     },
@@ -1570,7 +1571,7 @@ export const CommandBarAnalysisService = {
                 name: r.name
             }));
         } catch (error) {
-            NotificationService.show(`Failed to get user roles: ${error.message}`, 'warning');
+            NotificationService.show(`Failed to get user roles: ${error.message}`, 'warn');
             return [];
         }
     },
@@ -1606,7 +1607,7 @@ export const CommandBarAnalysisService = {
                 name: t.name
             }));
         } catch (error) {
-            NotificationService.show(`Failed to get user teams: ${error.message}`, 'warning');
+            NotificationService.show(`Failed to get user teams: ${error.message}`, 'warn');
             return [];
         }
     },
@@ -2021,6 +2022,10 @@ export const CommandBarAnalysisService = {
             difference = 'only-target';
         } else if (hasCustomRules && !securityComparison.securityContextMatch) {
             difference = 'potential-difference';
+        } else if (hasCustomRules) {
+            // Matching roles is not evidence that a custom rule behaves the same for both users —
+            // the rule was never evaluated. Reporting "same" here overstates what we measured.
+            difference = 'undetermined';
         }
 
         return { evaluationMethod, difference };
@@ -2245,6 +2250,10 @@ export const CommandBarAnalysisService = {
             if (visibilityRules.hasVisibilityRules && !securityComparison.securityContextMatch) {
                 difference = 'potential-difference';
                 this._applySecurityContextBlocking(securityComparison, currentUserBlocked, targetUserBlocked);
+            } else if (visibilityRules.hasVisibilityRules) {
+                // A Power Fx visibility formula or classic rule set was never evaluated for either
+                // user; identical roles do not make its outcome identical.
+                difference = 'undetermined';
             }
 
             commandComparisons.push(
@@ -2293,7 +2302,10 @@ export const CommandBarAnalysisService = {
             potentialDifferences: potentialDiffs,
             onlyCurrentUser: commandComparisons.filter(c => c.difference === 'only-current').length,
             onlyTargetUser: commandComparisons.filter(c => c.difference === 'only-target').length,
+            // "Same" now means measured-and-equal; commands gated by a rule we could not evaluate
+            // are counted separately rather than assumed identical.
             sameVisibility: commandComparisons.filter(c => c.difference === 'same').length,
+            undetermined: commandComparisons.filter(c => c.difference === 'undetermined').length,
             hiddenCommands: hiddenCommandIds.size,
             context,
             entity: entityLogicalName || 'Global',
@@ -2388,8 +2400,8 @@ export const CommandBarAnalysisService = {
 
             // Sort by difference priority
             commandComparisons.sort((a, b) => {
-                const order = { 'only-current': 0, 'only-target': 1, 'potential-difference': 2, 'same': 3 };
-                const orderDiff = (order[a.difference] ?? 3) - (order[b.difference] ?? 3);
+                const order = { 'only-current': 0, 'only-target': 1, 'potential-difference': 2, 'undetermined': 3, 'same': 4 };
+                const orderDiff = (order[a.difference] ?? 4) - (order[b.difference] ?? 4);
                 if (orderDiff !== 0) {
                     return orderDiff;
                 }

@@ -39,6 +39,29 @@ function _normalizeObjectKeys(obj) {
 }
 
 /**
+ * Maps an `AttributeTypeName.Value` to the derived type it must be cast to, plus the
+ * expand clause for that type's extra data. Lookup-family types are absent on purpose:
+ * `getAttributeDefinitions` already merges their `Targets` in.
+ * @private
+ * @type {Object<string, {cast: string, expand: string}>}
+ */
+const _ATTRIBUTE_DETAIL_CASTS = {
+    PicklistType: { cast: 'PicklistAttributeMetadata', expand: '?$expand=OptionSet($select=Options),GlobalOptionSet($select=Options)' },
+    MultiSelectPicklistType: { cast: 'MultiSelectPicklistAttributeMetadata', expand: '?$expand=OptionSet($select=Options),GlobalOptionSet($select=Options)' },
+    StateType: { cast: 'StateAttributeMetadata', expand: '?$expand=OptionSet($select=Options)' },
+    StatusType: { cast: 'StatusAttributeMetadata', expand: '?$expand=OptionSet($select=Options)' },
+    BooleanType: { cast: 'BooleanAttributeMetadata', expand: '?$expand=OptionSet' },
+    StringType: { cast: 'StringAttributeMetadata', expand: '' },
+    MemoType: { cast: 'MemoAttributeMetadata', expand: '' },
+    IntegerType: { cast: 'IntegerAttributeMetadata', expand: '' },
+    BigIntType: { cast: 'BigIntAttributeMetadata', expand: '' },
+    DecimalType: { cast: 'DecimalAttributeMetadata', expand: '' },
+    DoubleType: { cast: 'DoubleAttributeMetadata', expand: '' },
+    MoneyType: { cast: 'MoneyAttributeMetadata', expand: '' },
+    DateTimeType: { cast: 'DateTimeAttributeMetadata', expand: '' }
+};
+
+/**
  * Generic cached fetch helper for metadata operations.
  * @private
  * @param {string} key - Cache key
@@ -186,7 +209,38 @@ export const MetadataService = {
     },
 
     /**
-     * Fetch attribute definitions for a specific entity.
+     * Fetch the lookup targets for every lookup-family attribute on an entity.
+     *
+     * The uncast `/Attributes` collection returns base `AttributeMetadata` properties only,
+     * so `Targets` is absent from it. One cast to `LookupAttributeMetadata` covers Lookup,
+     * Customer, Owner and PartyList attributes.
+     * @private
+     * @param {Function} webApiFetch - Web API fetch function from DataService
+     * @param {string} entityLogicalName - Entity logical name
+     * @returns {Promise<Map<string, string[]>>} Map of attribute logical name → target table names
+     */
+    async _fetchLookupTargets(webApiFetch, entityLogicalName) {
+        const map = new Map();
+        try {
+            const response = await webApiFetch(
+                'GET',
+                `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes/Microsoft.Dynamics.CRM.LookupAttributeMetadata`,
+                '?$select=LogicalName,Targets'
+            );
+            for (const raw of response?.value || []) {
+                const attr = _normalizeObjectKeys(raw);
+                if (attr.LogicalName && Array.isArray(attr.Targets)) {
+                    map.set(attr.LogicalName, attr.Targets);
+                }
+            }
+        } catch (_e) {
+            // Targets are enrichment only - a restricted user must still get the column list.
+        }
+        return map;
+    },
+
+    /**
+     * Fetch attribute definitions for a specific entity, enriched with lookup targets.
      * @param {Function} webApiFetch - Web API fetch function from DataService
      * @param {string} entityLogicalName - Entity logical name
      * @param {boolean} bypassCache - Force refresh
@@ -196,8 +250,19 @@ export const MetadataService = {
     async getAttributeDefinitions(webApiFetch, entityLogicalName, bypassCache = false) {
         const key = `attrs_${entityLogicalName}`;
         return _fetch(key, async () => {
-            const response = await webApiFetch('GET', `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes`);
-            return response?.value?.map(_normalizeObjectKeys) || [];
+            const [response, targetMap] = await Promise.all([
+                webApiFetch('GET', `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes`),
+                this._fetchLookupTargets(webApiFetch, entityLogicalName)
+            ]);
+
+            const attributes = response?.value?.map(_normalizeObjectKeys) || [];
+            attributes.forEach(attr => {
+                const targets = targetMap.get(attr.LogicalName);
+                if (targets) {
+                    attr.Targets = targets;
+                }
+            });
+            return attributes;
         }, bypassCache);
     },
 
@@ -315,6 +380,10 @@ export const MetadataService = {
                 map.set(ln, { type: 'date' });
             } else if (t.includes('integer') || t.includes('decimal') || t.includes('double') || t.includes('money')) {
                 map.set(ln, { type: 'number' });
+            } else if (t.includes('uniqueidentifier')) {
+                // Primary keys and other raw GUID columns. Typed separately from 'string' because
+                // an Edm.Guid compared against a quoted literal is rejected outright by Dataverse.
+                map.set(ln, { type: 'guid' });
             } else {
                 map.set(ln, { type: 'string' });
             }
@@ -494,6 +563,60 @@ export const MetadataService = {
             } catch (_e) {
                 // Return default labels on failure
                 return { trueLabel: 'True', falseLabel: 'False' };
+            }
+        }, bypassCache);
+    },
+
+    /**
+     * Get the type-specific metadata for a single attribute (options, limits, ranges).
+     *
+     * Callers that already hold the attribute definition should pass its
+     * `AttributeTypeName.Value` so the correct derived type can be cast to without the
+     * extra discovery round-trip that `getPicklistOptions` has to make.
+     * @async
+     * @param {Function} webApiFetch - Web API fetch function
+     * @param {string} entityLogicalName - Entity logical name
+     * @param {string} attributeLogicalName - Attribute logical name
+     * @param {string} attributeTypeName - The attribute's `AttributeTypeName.Value` (e.g. 'PicklistType')
+     * @param {boolean} bypassCache - Force refresh
+     * @returns {Promise<object|null>} Derived-type metadata, with `Options` parsed when present. Null when the type needs no extra fetch or the request fails.
+     */
+    // eslint-disable-next-line require-await
+    async getAttributeDetail(webApiFetch, entityLogicalName, attributeLogicalName, attributeTypeName, bypassCache = false) {
+        const mapping = _ATTRIBUTE_DETAIL_CASTS[attributeTypeName];
+        if (!mapping) {
+            // Lookup-family and unmapped types carry everything they need on the base record.
+            return null;
+        }
+
+        const key = `attrDetail_${entityLogicalName}_${attributeLogicalName}`;
+        return _fetch(key, async () => {
+            try {
+                const response = await webApiFetch(
+                    'GET',
+                    `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')/Microsoft.Dynamics.CRM.${mapping.cast}`,
+                    mapping.expand
+                );
+                if (!response) {
+                    return null;
+                }
+
+                // Parsed options are surfaced alongside the raw metadata so callers need
+                // not know whether they came from OptionSet or GlobalOptionSet.
+                let options = this._parseOptionSetData(response);
+
+                // Boolean option sets expose TrueOption/FalseOption instead of Options.
+                const optionSet = response.OptionSet || response.GlobalOptionSet;
+                if (!options.length && optionSet?.TrueOption && optionSet?.FalseOption) {
+                    options = [optionSet.FalseOption, optionSet.TrueOption].map(opt => ({
+                        value: opt.Value,
+                        label: this._extractOptionLabel(opt)
+                    }));
+                }
+
+                return { ...response, Options: options };
+            } catch (_e) {
+                return null;
             }
         }, bypassCache);
     },

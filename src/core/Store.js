@@ -6,6 +6,9 @@
  */
 
 import { Config } from '../constants/index.js';
+// Imported from the module rather than the helpers barrel: the barrel pulls in the service layer,
+// which would make the store depend on it.
+import { normalizeHexColor } from '../helpers/color.helpers.js';
 
 /**
  * Represents the configuration for a single feature tab.
@@ -13,6 +16,7 @@ import { Config } from '../constants/index.js';
  * @property {string} id - The unique identifier for the tab component.
  * @property {boolean} visible - Whether the tab is currently visible in the UI.
  * @property {boolean} formOnly - Whether the tab should only be enabled on a record form.
+ * @property {string|null} [color] - Optional `#rrggbb` accent for the tab, or null for none.
  */
 
 /**
@@ -80,6 +84,7 @@ function getDefaultTabSettings() {
         { id: 'performance', visible: true, formOnly: true },
         { id: 'automation', visible: true, formOnly: true },
         { id: 'powerAutomateFlows', visible: true, formOnly: false },
+        { id: 'agents', visible: true, formOnly: false },
         { id: 'impersonate', visible: true, formOnly: false },
         { id: 'metadataBrowser', visible: true, formOnly: false },
         { id: 'solutionLayers', visible: true, formOnly: false },
@@ -98,10 +103,36 @@ function getDefaultTabSettings() {
 }
 
 /**
+ * Returns tab settings with every color normalized to `#rrggbb` or null.
+ *
+ * Tab settings arrive from localStorage and from imported settings files, so the color has to be
+ * validated before it can reach a stylesheet — an arbitrary string would otherwise be written
+ * straight into a CSS custom property.
+ * @param {Array<TabSetting>} settings - Raw tab settings.
+ * @returns {Array<TabSetting>} Settings with sanitized colors.
+ */
+function sanitizeTabColors(settings) {
+    if (!Array.isArray(settings)) {
+        return [];
+    }
+    return settings.map(setting => ({ ...setting, color: normalizeHexColor(setting?.color) }));
+}
+
+/**
  * Manages the application's state.
  * @namespace
  */
 export const Store = {
+    /**
+     * Normalizes the colors on a set of tab settings.
+     * Exposed so callers handling untrusted settings (an imported file) can sanitize before saving.
+     * @param {Array<TabSetting>} settings - Raw tab settings.
+     * @returns {Array<TabSetting>} Settings with sanitized colors.
+     */
+    sanitizeTabColors(settings) {
+        return sanitizeTabColors(settings);
+    },
+
     /**
      * Gets the current state.
      * @returns {AppState} The current state object.
@@ -127,6 +158,7 @@ export const Store = {
                 // Settings parse error is handled gracefully by falling back to defaults
             }
         }
+        finalSettings = sanitizeTabColors(finalSettings);
 
         // Load header button settings
         const defaultHeaderSettings = getDefaultHeaderButtonSettings();
@@ -179,29 +211,35 @@ export const Store = {
      */
     setState(newState) {
         const oldState = { ..._state };
-        _state = { ..._state, ...newState };
+        // Every path that changes tab settings funnels through here — imports, the settings tab,
+        // drag-and-drop — so sanitizing colors once at this choke point means no caller can put an
+        // unvalidated value into the state or into localStorage.
+        const nextState = newState.tabSettings !== undefined
+            ? { ...newState, tabSettings: sanitizeTabColors(newState.tabSettings) }
+            : newState;
+        _state = { ..._state, ...nextState };
 
         // Persist specific state changes to localStorage using explicit, correct keys.
-        if (newState.theme !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.theme, newState.theme);
+        if (nextState.theme !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.theme, nextState.theme);
         }
-        if (newState.tabSettings !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.tabSettings, JSON.stringify(newState.tabSettings));
+        if (nextState.tabSettings !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.tabSettings, JSON.stringify(nextState.tabSettings));
         }
-        if (newState.headerButtonSettings !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.headerButtonSettings, JSON.stringify(newState.headerButtonSettings));
+        if (nextState.headerButtonSettings !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.headerButtonSettings, JSON.stringify(nextState.headerButtonSettings));
         }
-        if (newState.dimensions !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.dimensions, JSON.stringify(newState.dimensions));
+        if (nextState.dimensions !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.dimensions, JSON.stringify(nextState.dimensions));
         }
-        if (newState.isMinimized !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.isMinimized, JSON.stringify(newState.isMinimized));
+        if (nextState.isMinimized !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.isMinimized, JSON.stringify(nextState.isMinimized));
         }
-        if (newState.preMinimizedDimensions !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.preMinimizedDimensions, JSON.stringify(newState.preMinimizedDimensions));
+        if (nextState.preMinimizedDimensions !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.preMinimizedDimensions, JSON.stringify(nextState.preMinimizedDimensions));
         }
-        if (newState.minimizedBannerWidth !== undefined) {
-            localStorage.setItem(Config.STORAGE_KEYS.minimizedBannerWidth, newState.minimizedBannerWidth);
+        if (nextState.minimizedBannerWidth !== undefined) {
+            localStorage.setItem(Config.STORAGE_KEYS.minimizedBannerWidth, nextState.minimizedBannerWidth);
         }
 
         _listeners.forEach(listener => listener(_state, oldState));

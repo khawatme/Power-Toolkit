@@ -1,15 +1,23 @@
 /**
  * @file Form Performance analysis component.
  * @module components/PerformanceTab
- * @description Displays key form load performance metrics, including total load time,
- * detailed breakdown (server, network, client), form composition counts,
- * and intelligent insights based on configurable thresholds.
+ * @description Displays key form load performance metrics — total load time, the server / network /
+ * client breakdown, and form composition counts — then reviews the form against Microsoft's
+ * documented performance guidance, linking every finding to the page it comes from.
  */
 
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { Config } from '../constants/index.js';
+// Imported from the rule module rather than the barrel: test files mock constants/index.js
+// partially, which would leave these undefined.
+import {
+    reviewFormPerformance,
+    countFormPerformanceRules,
+    toScannedScript
+} from '../constants/formPerformanceRules.js';
 import { DataService } from '../services/DataService.js';
+import { PowerAppsApiService } from '../services/PowerAppsApiService.js';
 import { clearContainer, escapeHtml, formatMilliseconds, calculatePercentages, safeNumber } from '../helpers/index.js';
 
 /**
@@ -60,15 +68,21 @@ export class PerformanceTab extends BaseComponent {
         /** @type {PerformanceMetrics|null} */
         this.latestMetrics = null;
 
-        /** @type {{totalMsWarn:number, totalMsBad:number, controlsWarn:number, onChangeWarn:number, tabsWarn:number, sectionsWarn:number}} */
-        this.thresholds = {
-            totalMsWarn: 2000,
-            totalMsBad: 4000,
-            controlsWarn: 200,
-            onChangeWarn: 25,
-            tabsWarn: 8,
-            sectionsWarn: 30
-        };
+        /**
+         * Scanned form libraries, or null while they have not been read. Null disables the script
+         * rules rather than passing them, so an unscanned form never claims a clean bill of health.
+         * @type {Array<{name: string, code: string}>|null}
+         */
+        this.scannedScripts = null;
+
+        /** @type {{state: 'idle'|'busy'|'done'|'error', message: string}} */
+        this.scanStatus = { state: 'idle', message: '' };
+
+        // Handler references for cleanup
+        /** @private {Function|null} */ this._scanHandler = null;
+        /** @private {HTMLElement|null} */ this._scanBtn = null;
+        /** @private {Function|null} */ this._refreshHandler = null;
+        /** @private {HTMLElement|null} */ this._refreshBtn = null;
     }
 
     /**
@@ -108,6 +122,11 @@ export class PerformanceTab extends BaseComponent {
      * @private
      */
     async _loadAndRenderMetrics() {
+        // A reload is a clean slate. The component is a registry singleton, so without this the
+        // previous scan's findings would survive a Refresh and be reported against fresh metrics.
+        this.scannedScripts = null;
+        this.scanStatus = { state: 'idle', message: '' };
+
         this._setLoading(true);
         try {
             const rawMetrics = await DataService.getPerformanceDetails();
@@ -131,7 +150,20 @@ export class PerformanceTab extends BaseComponent {
 
         host.appendChild(this._buildLoadTimeSection(metrics));
         host.appendChild(this._buildCompositionSection(metrics));
-        host.appendChild(this._buildInsightsSection(metrics));
+        host.appendChild(this._buildReviewSection(metrics));
+    }
+
+    /**
+     * Re-renders only the review section, so a script scan doesn't rebuild the timing chart.
+     * @private
+     */
+    _refreshReview() {
+        const host = this.ui.content;
+        const existing = host?.querySelector('.pdt-perf-review');
+        if (!existing || !this.latestMetrics) {
+            return;
+        }
+        existing.replaceWith(this._buildReviewSection(this.latestMetrics));
     }
 
     /**
@@ -290,38 +322,192 @@ export class PerformanceTab extends BaseComponent {
     }
 
     /**
-     * Builds the "Insights & Recommendations" section.
+     * Builds the "Performance Review" section: the form checked against Microsoft's documented
+     * guidance, with every finding linking to the page it comes from.
      * @param {PerformanceMetrics} metrics - Performance metrics.
      * @returns {HTMLElement} The section element.
      * @private
      */
-    _buildInsightsSection(metrics) {
-        const insights = this._computeInsights(metrics);
+    _buildReviewSection(metrics) {
+        const M = Config.MESSAGES.PERFORMANCE;
+        const withScripts = Array.isArray(this.scannedScripts);
+        const findings = reviewFormPerformance({ ...metrics, scripts: this.scannedScripts ?? undefined });
+
         const section = document.createElement('section');
-        section.className = 'pdt-perf-section';
+        section.className = 'pdt-perf-section pdt-perf-review';
 
         const header = document.createElement('div');
         header.className = 'section-title';
-        header.textContent = 'Insights & Recommendations';
+        header.textContent = M.reviewTitle;
 
-        if (!insights.length) {
-            const note = document.createElement('p');
-            note.className = 'pdt-note';
-            note.textContent = Config.MESSAGES.PERFORMANCE.noIssues;
-            section.append(header, note);
+        const counts = findings.reduce((acc, f) => {
+            acc[f.severity] = (acc[f.severity] || 0) + 1;
+            return acc;
+        }, {});
+        const summaryText = M.reviewSummary(counts.error || 0, counts.warn || 0, counts.info || 0);
+        if (summaryText) {
+            const summary = document.createElement('span');
+            summary.className = 'pdt-badge-small pdt-perf-review-summary';
+            summary.textContent = summaryText;
+            header.appendChild(summary);
+        }
+
+        const intro = document.createElement('p');
+        intro.className = 'pdt-note pdt-perf-review-intro';
+        intro.textContent = M.reviewIntro;
+
+        section.append(header, intro, this._buildScanControl());
+
+        if (!findings.length) {
+            const clean = document.createElement('p');
+            clean.className = 'pdt-note';
+            clean.textContent = M.reviewClean(countFormPerformanceRules(withScripts));
+            section.appendChild(clean);
             return section;
         }
 
-        const list = document.createElement('ul');
-        list.className = 'pdt-note';
-        insights.forEach(msg => {
-            const li = document.createElement('li');
-            li.textContent = msg;
-            list.appendChild(li);
-        });
+        const list = document.createElement('div');
+        list.className = 'pdt-review-findings';
+        findings.forEach(finding => list.appendChild(this._buildFindingRow(finding)));
+        section.appendChild(list);
 
-        section.append(header, list);
         return section;
+    }
+
+    /**
+     * Builds one finding row: severity, what was found, why, and the Learn page behind it.
+     * @param {import('../constants/formPerformanceRules.js').PerformanceFinding} finding - A finding.
+     * @returns {HTMLElement} The row element.
+     * @private
+     */
+    _buildFindingRow(finding) {
+        const M = Config.MESSAGES.PERFORMANCE;
+        const row = document.createElement('div');
+        row.className = `pdt-review-finding pdt-review-finding--${finding.severity}`;
+
+        const severity = document.createElement('span');
+        severity.className = 'pdt-review-finding-severity';
+        severity.textContent = M.severityLabel[finding.severity] || finding.severity;
+
+        const details = document.createElement('div');
+        details.className = 'pdt-review-finding-text';
+
+        const message = document.createElement('div');
+        message.className = 'pdt-review-finding-message';
+        message.textContent = finding.message;
+
+        const reason = document.createElement('div');
+        reason.className = 'pdt-review-finding-reason';
+        reason.textContent = finding.reason;
+
+        details.append(message, reason);
+
+        if (finding.docUrl) {
+            const meta = document.createElement('div');
+            meta.className = 'pdt-review-finding-meta';
+            const link = document.createElement('a');
+            link.className = 'pdt-external-link pdt-review-finding-doc';
+            link.href = finding.docUrl;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = M.docLink;
+            link.title = M.docLinkTitle(finding.id);
+            meta.appendChild(link);
+            details.appendChild(meta);
+        }
+
+        row.append(severity, details);
+        return row;
+    }
+
+    /**
+     * Builds the script-scan control and its status line. The scan is a separate action because it
+     * reads every form library over the network — the composition rules shouldn't wait for it.
+     * @returns {HTMLElement} The toolbar element.
+     * @private
+     */
+    _buildScanControl() {
+        const M = Config.MESSAGES.PERFORMANCE;
+        const isBusy = this.scanStatus.state === 'busy';
+
+        const bar = document.createElement('div');
+        bar.className = 'pdt-toolbar pdt-toolbar-end pdt-perf-scan-bar';
+
+        // Status sits first so the buttons stay flush right, as everywhere else in the tool.
+        if (this.scanStatus.message) {
+            const status = document.createElement('span');
+            status.className = 'pdt-perf-scan-status';
+            status.setAttribute('role', 'status');
+            if (this.scanStatus.state === 'error') {
+                status.classList.add('is-error');
+            }
+            status.textContent = this.scanStatus.message;
+            bar.appendChild(status);
+        }
+
+        const scanBtn = document.createElement('button');
+        scanBtn.id = 'perf-scan-scripts';
+        scanBtn.className = 'modern-button secondary';
+        scanBtn.type = 'button';
+        scanBtn.textContent = M.scanButton;
+        scanBtn.title = M.scanButtonTitle;
+        scanBtn.disabled = isBusy;
+        this._scanBtn = scanBtn;
+        this._scanHandler = () => this._handleScanScripts();
+        scanBtn.addEventListener('click', this._scanHandler);
+
+        const refreshBtn = document.createElement('button');
+        refreshBtn.id = 'perf-refresh';
+        refreshBtn.className = 'modern-button secondary';
+        refreshBtn.type = 'button';
+        refreshBtn.textContent = M.refreshButton;
+        refreshBtn.title = M.refreshButtonTitle;
+        refreshBtn.disabled = isBusy;
+        this._refreshBtn = refreshBtn;
+        this._refreshHandler = () => this._loadAndRenderMetrics();
+        refreshBtn.addEventListener('click', this._refreshHandler);
+
+        bar.append(scanBtn, refreshBtn);
+        return bar;
+    }
+
+    /**
+     * Reads this table's form libraries and re-runs the review with the script rules enabled.
+     * @private
+     */
+    async _handleScanScripts() {
+        const M = Config.MESSAGES.PERFORMANCE;
+        const entityName = PowerAppsApiService.getEntityName();
+
+        if (!entityName) {
+            this.scanStatus = { state: 'error', message: M.scanUnavailable };
+            this._refreshReview();
+            return;
+        }
+
+        this.scanStatus = { state: 'busy', message: M.scanning };
+        this._refreshReview();
+
+        try {
+            const { scripts, skipped, system = 0 } = await DataService.getFormScriptSources(entityName);
+            // An empty array still enables the script rules — "no libraries" is a real result, and
+            // the rules correctly find nothing.
+            this.scannedScripts = scripts.map(s => toScannedScript(s.name, s.source));
+
+            const notes = [scripts.length ? M.scanned(scripts.length) : M.scanNoScripts];
+            if (system) {
+                notes.push(M.scanSystemSkipped(system));
+            }
+            if (skipped.length) {
+                notes.push(M.scanSkipped(skipped.join(', ')));
+            }
+            this.scanStatus = { state: 'done', message: notes.join(' ') };
+        } catch (error) {
+            this.scannedScripts = null;
+            this.scanStatus = { state: 'error', message: M.scanFailed(error.message) };
+        }
+
+        this._refreshReview();
     }
 
     /**
@@ -334,62 +520,46 @@ export class PerformanceTab extends BaseComponent {
         return {
             totalLoadTime: safeNumber(raw?.totalLoadTime) || raw?.totalLoadTime || 0,
             isApiAvailable: !!raw?.isApiAvailable,
-            breakdown: {
-                network: safeNumber(raw?.breakdown?.network),
-                server: safeNumber(raw?.breakdown?.server),
-                client: safeNumber(raw?.breakdown?.client)
-            },
-            uiCounts: {
-                tabs: safeNumber(raw?.uiCounts?.tabs),
-                sections: safeNumber(raw?.uiCounts?.sections),
-                controls: safeNumber(raw?.uiCounts?.controls),
-                onChange: safeNumber(raw?.uiCounts?.onChange)
-            }
+            breakdown: this._normalizeBreakdown(raw?.breakdown),
+            uiCounts: this._normalizeCounts(raw?.uiCounts),
+            // Composition detail the review rules read. Passed through rather than normalized: they
+            // are already plain tallies, and rebuilding them here would mean this component has to
+            // know every control type the service tallies.
+            controlTypes: raw?.controlTypes || {},
+            defaultTab: raw?.defaultTab || null
         };
     }
 
     /**
-     * Generates contextual recommendations based on metric thresholds.
-     * @param {PerformanceMetrics} m - Metrics.
-     * @returns {string[]} Recommendations.
+     * Normalizes the load-time split to safe numbers.
+     * @param {any} breakdown - Raw breakdown.
+     * @returns {PerformanceBreakdown} Normalized breakdown.
      * @private
      */
-    _computeInsights(m) {
-        const tips = [];
-        const t = this.thresholds;
-        const total = Number(m.totalLoadTime) || 0;
+    _normalizeBreakdown(breakdown) {
+        return {
+            network: safeNumber(breakdown?.network),
+            server: safeNumber(breakdown?.server),
+            client: safeNumber(breakdown?.client)
+        };
+    }
 
-        if (total >= t.totalMsBad) {
-            tips.push(`Total load time (${total} ms) is critical. Optimize scripts, plugins, and minimize synchronous logic.`);
-        } else if (total >= t.totalMsWarn) {
-            tips.push(`Total load time (${total} ms) could be improved. Consider deferring non-essential initialization.`);
-        }
-
-        if (m.uiCounts.controls >= t.controlsWarn) {
-            tips.push(`Form has ${m.uiCounts.controls} controls — consider splitting across tabs or forms.`);
-        }
-        if (m.uiCounts.onChange >= t.onChangeWarn) {
-            tips.push(`Detected ${m.uiCounts.onChange} OnChange handlers — consolidate logic and avoid redundancy.`);
-        }
-        if (m.uiCounts.tabs >= t.tabsWarn) {
-            tips.push(`Form has ${m.uiCounts.tabs} tabs — excessive tab count impacts load and usability.`);
-        }
-        if (m.uiCounts.sections >= t.sectionsWarn) {
-            tips.push(`Form has ${m.uiCounts.sections} sections — consider grouping or removing non-critical layouts.`);
-        }
-
-        const { server, network, client } = m.breakdown || {};
-        if (m.isApiAvailable && server > client && server > network) {
-            tips.push('Server-side processing dominates — review plugins and workflows triggered on load.');
-        }
-        if (m.isApiAvailable && client > server && client > network) {
-            tips.push('Client rendering dominates — optimize scripts and avoid heavy loops on onLoad.');
-        }
-        if (m.isApiAvailable && network > Math.max(server, client)) {
-            tips.push('Network time dominates — minimize initial fetch size and enable column reduction.');
-        }
-
-        return tips;
+    /**
+     * Normalizes the form composition counts to safe numbers.
+     * @param {any} counts - Raw counts.
+     * @returns {UiCounts} Normalized counts.
+     * @private
+     */
+    _normalizeCounts(counts) {
+        return {
+            tabs: safeNumber(counts?.tabs),
+            sections: safeNumber(counts?.sections),
+            controls: safeNumber(counts?.controls),
+            // Columns are counted separately from controls because the documented mobile limit is
+            // stated in columns. Dropping this silently disabled the mobile-columns rule.
+            columns: safeNumber(counts?.columns),
+            onChange: safeNumber(counts?.onChange)
+        };
     }
 
     /**
@@ -404,5 +574,21 @@ export class PerformanceTab extends BaseComponent {
         if (isLoading) {
             this.ui.content.innerHTML = `<p class="pdt-note">${Config.MESSAGES.PERFORMANCE.loading}</p>`;
         }
+    }
+
+    /**
+     * Lifecycle hook for cleaning up event listeners to prevent memory leaks.
+     */
+    destroy() {
+        if (this._scanBtn && this._scanHandler) {
+            this._scanBtn.removeEventListener('click', this._scanHandler);
+        }
+        if (this._refreshBtn && this._refreshHandler) {
+            this._refreshBtn.removeEventListener('click', this._refreshHandler);
+        }
+        this._scanBtn = null;
+        this._scanHandler = null;
+        this._refreshBtn = null;
+        this._refreshHandler = null;
     }
 }

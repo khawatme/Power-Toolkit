@@ -252,7 +252,8 @@ describe('MetadataService', () => {
             await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
             await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
 
-            expect(mockWebApiFetch).toHaveBeenCalledTimes(1);
+            // One uncast fetch plus one LookupAttributeMetadata cast, then served from cache.
+            expect(mockWebApiFetch).toHaveBeenCalledTimes(2);
         });
 
         it('should return empty array when no value in response', async () => {
@@ -261,6 +262,151 @@ describe('MetadataService', () => {
             const result = await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
 
             expect(result).toEqual([]);
+        });
+
+        it('should merge lookup targets onto matching attributes', async () => {
+            mockWebApiFetch.mockImplementation((method, path) => {
+                if (path.includes('LookupAttributeMetadata')) {
+                    return Promise.resolve({
+                        value: [
+                            { LogicalName: 'customerid', Targets: ['account', 'contact'] },
+                            { LogicalName: 'ownerid', Targets: ['systemuser', 'team'] }
+                        ]
+                    });
+                }
+                return Promise.resolve({
+                    value: [
+                        { LogicalName: 'name', AttributeType: 'String' },
+                        { LogicalName: 'customerid', AttributeType: 'Customer' },
+                        { LogicalName: 'ownerid', AttributeType: 'Owner' }
+                    ]
+                });
+            });
+
+            const result = await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
+
+            expect(result.find(a => a.LogicalName === 'customerid').Targets).toEqual(['account', 'contact']);
+            expect(result.find(a => a.LogicalName === 'ownerid').Targets).toEqual(['systemuser', 'team']);
+            expect(result.find(a => a.LogicalName === 'name').Targets).toBeUndefined();
+        });
+
+        it('should request lookup targets with a LookupAttributeMetadata cast', async () => {
+            mockWebApiFetch.mockResolvedValue({ value: [] });
+
+            await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
+
+            expect(mockWebApiFetch).toHaveBeenCalledWith(
+                'GET',
+                "EntityDefinitions(LogicalName='account')/Attributes/Microsoft.Dynamics.CRM.LookupAttributeMetadata",
+                '?$select=LogicalName,Targets'
+            );
+        });
+
+        it('should still return the column list when the targets cast fails', async () => {
+            mockWebApiFetch.mockImplementation((method, path) => {
+                if (path.includes('LookupAttributeMetadata')) {
+                    return Promise.reject(new Error('Status 403: prvReadEntity'));
+                }
+                return Promise.resolve({ value: [{ LogicalName: 'name', AttributeType: 'String' }] });
+            });
+
+            const result = await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
+
+            expect(result).toHaveLength(1);
+            expect(result[0].LogicalName).toBe('name');
+        });
+    });
+
+    describe('getAttributeDetail', () => {
+        it('should cast to PicklistAttributeMetadata and parse options', async () => {
+            mockWebApiFetch.mockResolvedValue({
+                LogicalName: 'industrycode',
+                OptionSet: {
+                    Options: [
+                        { Value: 1, Label: { UserLocalizedLabel: { Label: 'Accounting' } } },
+                        { Value: 2, Label: { UserLocalizedLabel: { Label: 'Agriculture' } } }
+                    ]
+                }
+            });
+
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'industrycode', 'PicklistType');
+
+            expect(result.Options).toEqual([
+                { value: 1, label: 'Accounting' },
+                { value: 2, label: 'Agriculture' }
+            ]);
+            expect(mockWebApiFetch).toHaveBeenCalledWith(
+                'GET',
+                "EntityDefinitions(LogicalName='account')/Attributes(LogicalName='industrycode')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata",
+                '?$expand=OptionSet($select=Options),GlobalOptionSet($select=Options)'
+            );
+        });
+
+        it('should cast statuscode to StatusAttributeMetadata', async () => {
+            mockWebApiFetch.mockResolvedValue({ OptionSet: { Options: [] } });
+
+            await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'statuscode', 'StatusType');
+
+            expect(mockWebApiFetch).toHaveBeenCalledWith(
+                'GET',
+                expect.stringContaining('Microsoft.Dynamics.CRM.StatusAttributeMetadata'),
+                '?$expand=OptionSet($select=Options)'
+            );
+        });
+
+        it('should build options from TrueOption/FalseOption for booleans', async () => {
+            mockWebApiFetch.mockResolvedValue({
+                OptionSet: {
+                    TrueOption: { Value: 1, Label: { UserLocalizedLabel: { Label: 'Yes' } } },
+                    FalseOption: { Value: 0, Label: { UserLocalizedLabel: { Label: 'No' } } }
+                }
+            });
+
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'donotemail', 'BooleanType');
+
+            expect(result.Options).toEqual([
+                { value: 0, label: 'No' },
+                { value: 1, label: 'Yes' }
+            ]);
+        });
+
+        it('should return MaxLength for string columns', async () => {
+            mockWebApiFetch.mockResolvedValue({ LogicalName: 'name', MaxLength: 160 });
+
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'name', 'StringType');
+
+            expect(result.MaxLength).toBe(160);
+        });
+
+        it('should not issue a request for lookup types', async () => {
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'customerid', 'CustomerType');
+
+            expect(result).toBeNull();
+            expect(mockWebApiFetch).not.toHaveBeenCalled();
+        });
+
+        it('should not issue a request for unmapped types', async () => {
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'accountid', 'UniqueidentifierType');
+
+            expect(result).toBeNull();
+            expect(mockWebApiFetch).not.toHaveBeenCalled();
+        });
+
+        it('should cache by entity and attribute', async () => {
+            mockWebApiFetch.mockResolvedValue({ MaxLength: 100 });
+
+            await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'name', 'StringType');
+            await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'name', 'StringType');
+
+            expect(mockWebApiFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('should return null when the request fails', async () => {
+            mockWebApiFetch.mockRejectedValue(new Error('Status 403'));
+
+            const result = await MetadataService.getAttributeDetail(mockWebApiFetch, 'account', 'industrycode', 'PicklistType');
+
+            expect(result).toBeNull();
         });
     });
 
@@ -1173,8 +1319,8 @@ describe('MetadataService', () => {
             await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'account');
             await MetadataService.getAttributeDefinitions(mockWebApiFetch, 'contact');
 
-            // Should be called twice - different entities
-            expect(mockWebApiFetch).toHaveBeenCalledTimes(2);
+            // Two entities, each costing an uncast fetch plus a lookup-targets cast.
+            expect(mockWebApiFetch).toHaveBeenCalledTimes(4);
         });
     });
 
@@ -1201,6 +1347,20 @@ describe('MetadataService', () => {
             const map = await MetadataService.getAttributeMap(mockWebApiFetch, 'account');
 
             expect(map.get('count')).toEqual({ type: 'number' });
+        });
+
+        // Typed apart from 'string' so the query builder emits a bare Edm.Guid literal; a quoted
+        // one is rejected by the service as a type mismatch.
+        it('should type a primary key as guid, not string', async () => {
+            mockWebApiFetch.mockResolvedValue({
+                value: [
+                    { LogicalName: 'accountid', AttributeTypeName: { Value: 'UniqueidentifierType' } }
+                ]
+            });
+
+            const map = await MetadataService.getAttributeMap(mockWebApiFetch, 'account');
+
+            expect(map.get('accountid')).toEqual({ type: 'guid' });
         });
 
         it('should handle decimal type', async () => {

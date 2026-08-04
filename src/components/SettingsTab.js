@@ -10,7 +10,7 @@ import { Store } from '../core/Store.js';
 import { ComponentRegistry } from '../core/ComponentRegistry.js';
 import { Config } from '../constants/index.js';
 import { NotificationService } from '../services/NotificationService.js';
-import { throttle, clearContainer, downloadJson, createFileInputElement, readJsonFile, showConfirmDialog } from '../helpers/index.js';
+import { throttle, clearContainer, downloadJson, createFileInputElement, readJsonFile, showConfirmDialog, escapeHtml, escapeXml, normalizeHexColor } from '../helpers/index.js';
 
 /**
  * A component for configuring the toolkit's UI and behavior. It allows users to
@@ -42,6 +42,8 @@ export class SettingsTab extends BaseComponent {
 
         // Event handler references for cleanup
         /** @private {Function|null} */ this._handleVisibilityChangeBound = null;
+        /** @private {Function|null} */ this._handleColorChangeBound = null;
+        /** @private {Function|null} */ this._handleColorClearBound = null;
         /** @private {Function|null} */ this._handleDragStartBound = null;
         /** @private {Function|null} */ this._handleDragEndBound = null;
         /** @private {Function|null} */ this._handleHeaderVisibilityChangeBound = null;
@@ -70,7 +72,7 @@ export class SettingsTab extends BaseComponent {
             <p class="pdt-note">${Config.MESSAGES.SETTINGS.headerButtonsDescription}</p>
             <ul id="header-button-settings-list"></ul>
             <div class="section-title">Tab Configuration</div>
-            <p class="pdt-note">Drag to reorder tabs. Use the toggle to show or hide them.</p>
+            <p class="pdt-note">${Config.MESSAGES.SETTINGS.tabConfigurationDescription}</p>
             <ul id="tab-settings-list"></ul>`;
 
         this._renderList(container.querySelector('#tab-settings-list'));
@@ -91,6 +93,8 @@ export class SettingsTab extends BaseComponent {
 
         // Store bound event handlers for cleanup
         this._handleVisibilityChangeBound = (e) => this._handleVisibilityChange(e);
+        this._handleColorChangeBound = (e) => this._handleColorChange(e);
+        this._handleColorClearBound = (e) => this._handleColorClear(e);
         this._handleDragStartBound = (e) => this._handleDragStart(e);
         this._handleDragEndBound = (e) => this._handleDragEnd(e);
         this._handleHeaderVisibilityChangeBound = (e) => this._handleHeaderVisibilityChange(e);
@@ -102,6 +106,8 @@ export class SettingsTab extends BaseComponent {
 
         // Tab settings list events
         this._listElement.addEventListener('change', this._handleVisibilityChangeBound);
+        this._listElement.addEventListener('change', this._handleColorChangeBound);
+        this._listElement.addEventListener('click', this._handleColorClearBound);
         this._listElement.addEventListener('dragstart', this._handleDragStartBound);
         this._listElement.addEventListener('dragend', this._handleDragEndBound);
         this._listElement.addEventListener('dragover', this.throttledDragOver);
@@ -123,6 +129,8 @@ export class SettingsTab extends BaseComponent {
     destroy() {
         if (this._listElement) {
             this._listElement.removeEventListener('change', this._handleVisibilityChangeBound);
+            this._listElement.removeEventListener('change', this._handleColorChangeBound);
+            this._listElement.removeEventListener('click', this._handleColorClearBound);
             this._listElement.removeEventListener('dragstart', this._handleDragStartBound);
             this._listElement.removeEventListener('dragend', this._handleDragEndBound);
             this._listElement.removeEventListener('dragover', this.throttledDragOver);
@@ -277,11 +285,12 @@ export class SettingsTab extends BaseComponent {
 
                 li.innerHTML = `
                     <span class="drag-handle" style="cursor:${isUnconfigurable ? 'not-allowed' : 'grab'};">☰</span>
-                    <span>${component.label} ${formOnlyBadge}</span>
-                    <label class="pdt-toggle-label ml-auto">
+                    <span>${escapeHtml(component.label)} ${formOnlyBadge}</span>
+                    ${this._buildColorControl(component, setting)}
+                    <label class="pdt-toggle-label">
                         <span class="pdt-toggle-switch">
-                            <input type="checkbox" class="tab-visibility-toggle" 
-                                ${setting.visible ? 'checked' : ''} 
+                            <input type="checkbox" class="tab-visibility-toggle"
+                                ${setting.visible ? 'checked' : ''}
                                 ${isUnconfigurable ? 'disabled' : ''}>
                             <span class="pdt-toggle-slider"></span>
                         </span>
@@ -289,6 +298,80 @@ export class SettingsTab extends BaseComponent {
                 listElement.appendChild(li);
             }
         });
+    }
+
+    /**
+     * Builds the color swatch (and its clear button) for one tab row.
+     *
+     * The native picker has no "unset" value, so an uncolored tab shows a muted swatch and hides
+     * the clear button — that way the row states are "no color" and "this color", never a colour
+     * the tab isn't actually using.
+     * @param {object} component - The tab component being configured.
+     * @param {import('../core/Store.js').TabSetting} setting - The tab's current settings.
+     * @returns {string} The control's HTML.
+     * @private
+     */
+    _buildColorControl(component, setting) {
+        const M = Config.MESSAGES.SETTINGS;
+        const color = normalizeHexColor(setting.color);
+        const label = escapeXml(component.label);
+
+        return `
+            <span class="pdt-tab-color ml-auto" draggable="false">
+                <input type="color"
+                       class="tab-color-input${color ? '' : ' is-unset'}"
+                       value="${color || Config.DEFAULT_TAB_COLOR}"
+                       title="${M.tabColorTitle(label)}"
+                       aria-label="${M.tabColorTitle(label)}">
+                <button type="button"
+                        class="tab-color-clear"
+                        title="${M.tabColorClearTitle(label)}"
+                        aria-label="${M.tabColorClearTitle(label)}"
+                        ${color ? '' : 'hidden'}>×</button>
+            </span>`;
+    }
+
+    /**
+     * Applies a color picked for a tab.
+     * @param {Event} e - The change event from the color input.
+     * @private
+     */
+    _handleColorChange(e) {
+        if (!e.target.classList.contains('tab-color-input')) {
+            return;
+        }
+        this._setTabColor(e.target.closest('li').dataset.tabId, e.target.value);
+    }
+
+    /**
+     * Removes the color from a tab.
+     * @param {Event} e - The click event from the clear button.
+     * @private
+     */
+    _handleColorClear(e) {
+        const clearBtn = e.target.closest('.tab-color-clear');
+        if (!clearBtn) {
+            return;
+        }
+        this._setTabColor(clearBtn.closest('li').dataset.tabId, null);
+    }
+
+    /**
+     * Writes a tab's color to the store and repaints the list.
+     *
+     * The value is normalized here as well as in the store: this is what decides whether the row
+     * shows its clear button, so it has to agree with what was actually saved.
+     * @param {string} tabId - The tab being recolored.
+     * @param {string|null} color - A hex color, or null to clear.
+     * @private
+     */
+    _setTabColor(tabId, color) {
+        const normalized = normalizeHexColor(color);
+        const newSettings = Store.getState().tabSettings.map(setting =>
+            setting.id === tabId ? { ...setting, color: normalized } : setting
+        );
+        Store.setState({ tabSettings: newSettings });
+        this._renderList(this._listElement);
     }
 
     /**

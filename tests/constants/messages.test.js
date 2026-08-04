@@ -531,11 +531,17 @@ describe('WEB_API messages', () => {
         });
 
         it('should format bulkDeleteConfirm with singular', () => {
-            expect(WEB_API.bulkDeleteConfirm(1)).toBe('Delete 1 record matching the filter conditions? This action cannot be undone.');
+            // The warning is appended separately as emphasised text, so it is not repeated here.
+            expect(WEB_API.bulkDeleteConfirm(1)).toBe('Delete 1 record matching the filter conditions?');
         });
 
         it('should format bulkDeleteConfirm with plural', () => {
-            expect(WEB_API.bulkDeleteConfirm(10)).toBe('Delete 10 records matching the filter conditions? This action cannot be undone.');
+            expect(WEB_API.bulkDeleteConfirm(10)).toBe('Delete 10 records matching the filter conditions?');
+        });
+
+        it('should expose the undo warning separately so it is not duplicated', () => {
+            expect(WEB_API.cannotBeUndone).toBe('This action cannot be undone.');
+            expect(WEB_API.bulkDeleteConfirm(1)).not.toContain('cannot be undone');
         });
 
         it('should format bulkTouchConfirm with singular', () => {
@@ -969,8 +975,35 @@ describe('PERFORMANCE messages', () => {
             expect(PERFORMANCE.loading).toBe('Loading performance metrics...');
         });
 
-        it('should have noIssues message', () => {
-            expect(PERFORMANCE.noIssues).toBe('No significant issues detected for this form.');
+        it('should have review section messages', () => {
+            expect(PERFORMANCE.reviewTitle).toBe('Performance Review');
+            expect(PERFORMANCE.reviewIntro).toContain('Microsoft');
+            expect(PERFORMANCE.scanButton).toBe('Scan form scripts');
+        });
+
+        it('should label every severity the rules can return', () => {
+            expect(PERFORMANCE.severityLabel).toEqual({ error: 'High', warn: 'Medium', info: 'Low' });
+        });
+    });
+
+    describe('review dynamic messages', () => {
+        it('should pluralize the rule count', () => {
+            expect(PERFORMANCE.reviewClean(1)).toContain('1 rule checked');
+            expect(PERFORMANCE.reviewClean(12)).toContain('12 rules checked');
+        });
+
+        it('should list only the severities that occurred', () => {
+            expect(PERFORMANCE.reviewSummary(2, 0, 1)).toBe('2 high · 1 low');
+            expect(PERFORMANCE.reviewSummary(0, 0, 0)).toBe('');
+        });
+
+        it('should pluralize the scanned library count', () => {
+            expect(PERFORMANCE.scanned(1)).toBe('1 library scanned.');
+            expect(PERFORMANCE.scanned(3)).toBe('3 libraries scanned.');
+        });
+
+        it('should name what it could not read', () => {
+            expect(PERFORMANCE.scanSkipped('a.js, b.js')).toContain('a.js, b.js');
         });
     });
 

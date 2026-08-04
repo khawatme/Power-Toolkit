@@ -62,6 +62,25 @@ export const FileHelpers = {
     },
 
     /**
+     * Triggers a browser download for a plain-text file (e.g. generated markdown).
+     * @param {string} text - The text content to download.
+     * @param {string} filename - The desired filename for the downloaded file.
+     * @param {string} [mimeType='text/markdown'] - The MIME type of the file.
+     * @returns {void}
+     */
+    downloadText(text, filename, mimeType = 'text/markdown') {
+        const blob = new Blob([String(text ?? '')], { type: `${mimeType};charset=utf-8;` });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    /**
      * Triggers a browser download for a given array of objects by converting it to a CSV file.
      * @param {Array<Object>} data - The array of objects to download.
      * @param {string} filename - The desired filename for the downloaded file.
@@ -180,6 +199,31 @@ export const FileHelpers = {
             };
             reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
+        });
+    },
+
+    /**
+     * Reads a file as base64, without the `data:<mime>;base64,` prefix.
+     *
+     * The prefix is stripped because the APIs this feeds expect the encoded bytes on their own; a
+     * data URL sent verbatim is decoded as if the prefix were part of the file.
+     * @param {File} file - The file object to read.
+     * @returns {Promise<string>} Promise that resolves with the base64-encoded contents.
+     */
+    readBase64File(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                reject(new Error('No file provided'));
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const result = String(event.target.result || '');
+                resolve(result.slice(result.indexOf(',') + 1));
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
         });
     }
 };

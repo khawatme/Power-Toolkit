@@ -313,6 +313,97 @@ describe('SecurityAnalysisService', () => {
             expect(result[0].name).toBe('Apple Role');
             expect(result[1].name).toBe('Zebra Role');
         });
+
+        it('should keep the assigned role record alongside the root role', async () => {
+            WebApiService.webApiFetch
+                .mockResolvedValueOnce({
+                    value: [{ roleid: 'role-bu-copy', name: 'System Administrator', _parentrootroleid_value: 'role-root' }]
+                })
+                .mockResolvedValueOnce({ value: [] });
+
+            const result = await SecurityAnalysisService.getUserRoles('user-123');
+
+            expect(result[0].roleid).toBe('role-root');
+            expect(result[0].sourceRoleIds).toEqual(['role-bu-copy']);
+        });
+
+        it('should collect every business-unit copy behind one root role', async () => {
+            WebApiService.webApiFetch
+                .mockResolvedValueOnce({ value: [] })
+                .mockResolvedValueOnce({ value: [{ teamid: 'team-1', name: 'Team One' }, { teamid: 'team-2', name: 'Team Two' }] })
+                .mockResolvedValueOnce({ value: [{ roleid: 'copy-a', name: 'Shared Role', _parentrootroleid_value: 'role-root' }] })
+                .mockResolvedValueOnce({ value: [{ roleid: 'copy-b', name: 'Shared Role', _parentrootroleid_value: 'role-root' }] });
+
+            const result = await SecurityAnalysisService.getUserRoles('user-123');
+
+            expect(result).toHaveLength(1);
+            expect(result[0].sourceRoleIds).toEqual(['copy-a', 'copy-b']);
+        });
+    });
+
+    describe('_attachFieldPermissions', () => {
+        it('should fetch every profile in parallel rather than one after another', async () => {
+            // A user can hold many field security profiles; the sequential version made one round
+            // trip per profile per user, on a path the preview overlay hits on every toggle.
+            let inFlight = 0;
+            let peak = 0;
+            WebApiService.webApiFetch.mockImplementation(() => {
+                inFlight++;
+                peak = Math.max(peak, inFlight);
+                return Promise.resolve({ value: [] }).finally(() => { inFlight--; });
+            });
+
+            const profiles = [
+                { fieldsecurityprofileid: 'p1', name: 'A' },
+                { fieldsecurityprofileid: 'p2', name: 'B' },
+                { fieldsecurityprofileid: 'p3', name: 'C' }
+            ];
+
+            await SecurityAnalysisService._attachFieldPermissions(profiles, 'account', vi.fn());
+
+            expect(peak).toBe(3);
+            expect(profiles.every(p => Array.isArray(p.permissions))).toBe(true);
+        });
+
+        it('should do nothing without an entity name', async () => {
+            const profiles = [{ fieldsecurityprofileid: 'p1', name: 'A' }];
+
+            await SecurityAnalysisService._attachFieldPermissions(profiles, null, vi.fn());
+
+            expect(WebApiService.webApiFetch).not.toHaveBeenCalled();
+            expect(profiles[0].permissions).toBeUndefined();
+        });
+
+        it('should tolerate an empty or missing profile list', async () => {
+            await expect(SecurityAnalysisService._attachFieldPermissions([], 'account', vi.fn())).resolves.toBeUndefined();
+            await expect(SecurityAnalysisService._attachFieldPermissions(undefined, 'account', vi.fn())).resolves.toBeUndefined();
+        });
+    });
+
+    describe('hasAnySecurityRole', () => {
+        it('should be true when the user holds a direct role', async () => {
+            WebApiService.webApiFetch
+                .mockResolvedValueOnce({ value: [{ roleid: 'role-1', name: 'Sales Rep' }] })
+                .mockResolvedValueOnce({ value: [] });
+
+            await expect(SecurityAnalysisService.hasAnySecurityRole('user-123')).resolves.toBe(true);
+        });
+
+        it('should be false when the user holds none', async () => {
+            WebApiService.webApiFetch
+                .mockResolvedValueOnce({ value: [] })
+                .mockResolvedValueOnce({ value: [] });
+
+            await expect(SecurityAnalysisService.hasAnySecurityRole('user-123')).resolves.toBe(false);
+        });
+
+        it('should throw rather than report "no roles" when the lookup fails', async () => {
+            // getUserRoles swallows errors into an empty array; a warning built on that would fire
+            // on every outage.
+            WebApiService.webApiFetch.mockRejectedValue(new Error('HTTP 403 Forbidden'));
+
+            await expect(SecurityAnalysisService.hasAnySecurityRole('user-123')).rejects.toThrow('403');
+        });
     });
 
     describe('getUserFieldSecurityProfiles', () => {
@@ -371,56 +462,166 @@ describe('SecurityAnalysisService', () => {
     describe('getUserEntityPrivileges', () => {
         const privilegeTypes = ['read', 'create', 'write', 'delete', 'append', 'appendto', 'assign', 'share'];
 
-        it('should return privilege objects for an entity using roleprivileges navigation property', async () => {
-            const mockUserId = 'user-123';
-            const entityName = 'account';
+        // Table metadata is the authority on which privilege guards which verb, so these ids are
+        // arbitrary — only PrivilegeType decides the mapping.
+        const accountMetadata = {
+            LogicalName: 'account',
+            Privileges: [
+                { PrivilegeId: 'priv-read', Name: 'prvReadAccount', PrivilegeType: 'Read' },
+                { PrivilegeId: 'priv-create', Name: 'prvCreateAccount', PrivilegeType: 'Create' },
+                { PrivilegeId: 'priv-write', Name: 'prvWriteAccount', PrivilegeType: 'Write' },
+                { PrivilegeId: 'priv-delete', Name: 'prvDeleteAccount', PrivilegeType: 'Delete' }
+            ]
+        };
 
-            // Mock entity metadata lookup (ObjectTypeCode)
-            const mockEntityDef = { ObjectTypeCode: 1, LogicalName: 'account' };
+        /**
+         * Routes webApiFetch by URL rather than call order, so a change in request sequence surfaces
+         * as a real failure instead of a silently mismatched mock.
+         * @param {Array<[string, object|Function]>} handlers - [url fragment, response or thrower]
+         */
+        function route(handlers) {
+            WebApiService.webApiFetch.mockImplementation((method, path, query = '') => {
+                const url = `${path}${query}`;
+                for (const [fragment, response] of handlers) {
+                    if (url.includes(fragment)) {
+                        return typeof response === 'function' ? response(url) : Promise.resolve(response);
+                    }
+                }
+                return Promise.resolve({ value: [] });
+            });
+        }
 
-            // Mock all privileges query
-            const mockAllPrivileges = {
-                value: [
-                    { privilegeid: 'priv-read', name: 'prvReadaccount' },
-                    { privilegeid: 'priv-write', name: 'prvWriteaccount' },
-                    { privilegeid: 'priv-create', name: 'prvCreateaccount' }
-                ]
-            };
+        it('should report the depth the platform returns for each held privilege', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [
+                        { PrivilegeId: 'priv-read', Depth: 'Global', PrivilegeName: 'prvReadAccount' },
+                        { PrivilegeId: 'priv-write', Depth: 'Local', PrivilegeName: 'prvWriteAccount' },
+                        { PrivilegeId: 'priv-delete', Depth: 'Basic', PrivilegeName: 'prvDeleteAccount' }
+                    ]
+                }]
+            ]);
 
-            // Mock user roles
-            const mockDirectRoles = { value: [{ roleid: 'role-1', name: 'Sales Rep' }] };
-            const mockTeams = { value: [] };
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
 
-            // Mock role privileges (roleprivilegescollection entity returns privilegeid and privilegedepthmask)
-            // privilegedepthmask is an integer bit mask: Basic=1, Local=2, Deep=4, Global=8
-            const mockRolePrivs = {
-                value: [
-                    { privilegeid: 'priv-read', privilegedepthmask: 8 }, // Global
-                    { privilegeid: 'priv-write', privilegedepthmask: 2 } // Local
-                ]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef) // EntityDefinitions
-                .mockResolvedValueOnce(mockAllPrivileges) // All privileges
-                .mockResolvedValueOnce(mockDirectRoles) // User roles - direct
-                .mockResolvedValueOnce(mockTeams) // User roles - teams
-                .mockResolvedValueOnce(mockRolePrivs); // Role privileges
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges(mockUserId, entityName);
-
-            // Should return an object structure for each privilege
-            expect(result).toHaveProperty('read');
             expect(result.read).toMatchObject({ hasPrivilege: true, depth: 'Global (Org)' });
             expect(result.write).toMatchObject({ hasPrivilege: true, depth: 'Local (BU)' });
+            expect(result.delete).toMatchObject({ hasPrivilege: true, depth: 'Basic (User)' });
             expect(result.create).toMatchObject({ hasPrivilege: false, depth: null });
         });
 
-        it('should return objects with hasPrivilege:false when no privileges found', async () => {
-            // Mock empty privilege response
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce({ ObjectTypeCode: 1 })
-                .mockResolvedValueOnce({ value: [] }); // No matching privileges
+        it('should map Deep depth to its label', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Deep' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read.depth).toBe('Deep (BU + Child)');
+        });
+
+        it('should resolve verbs whose privilege name does not contain the table name', async () => {
+            // The reported bug: systemuser is guarded by prvReadUser, so any name-suffix match
+            // reported "No Access" for an administrator.
+            route([
+                ['EntityDefinitions', {
+                    LogicalName: 'systemuser',
+                    Privileges: [
+                        { PrivilegeId: 'priv-read-user', Name: 'prvReadUser', PrivilegeType: 'Read' },
+                        { PrivilegeId: 'priv-write-user', Name: 'prvWriteUser', PrivilegeType: 'Write' }
+                    ]
+                }],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read-user', Depth: 'Global' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'systemuser');
+
+            expect(result.read).toMatchObject({ hasPrivilege: true, depth: 'Global (Org)' });
+            expect(result.write.hasPrivilege).toBe(false);
+        });
+
+        it('should not enumerate the whole privileges table', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', { RolePrivileges: [] }]
+            ]);
+
+            await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            const paths = WebApiService.webApiFetch.mock.calls.map(call => `${call[1]}${call[2] || ''}`);
+            expect(paths.some(p => p.startsWith('privileges?'))).toBe(false);
+        });
+
+        it('should ask only about the privileges that guard the table', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', { RolePrivileges: [] }]
+            ]);
+
+            await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            const call = WebApiService.webApiFetch.mock.calls
+                .find(c => String(c[1]).includes('RetrieveUserSetOfPrivilegesByIds'));
+            expect(call[1]).toContain('systemusers(user-123)');
+            expect(decodeURIComponent(call[2])).toBe('?@p1=["priv-read","priv-create","priv-write","priv-delete"]');
+        });
+
+        it('should keep the strongest depth when a privilege is granted more than once', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [
+                        { PrivilegeId: 'priv-read', Depth: 'Basic' },
+                        { PrivilegeId: 'priv-read', Depth: 'Deep' },
+                        { PrivilegeId: 'priv-read', Depth: 'Local' }
+                    ]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read.depth).toBe('Deep (BU + Child)');
+        });
+
+        it('should accept an ordinal Depth as well as the enum name', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 3 }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read).toMatchObject({ hasPrivilege: true, depth: 'Global (Org)' });
+        });
+
+        it('should ignore an unrecognized Depth rather than invent a level', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Sideways' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read).toMatchObject({ hasPrivilege: false, depth: null });
+        });
+
+        it('should ignore privileges that belong to another table', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read-contact', Depth: 'Global' }]
+                }]
+            ]);
 
             const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
 
@@ -429,222 +630,146 @@ describe('SecurityAnalysisService', () => {
             });
         });
 
-        it('should use current user when null userId provided', async () => {
-            // Mock PowerAppsApiService to return current user
+        it('should match privilege ids regardless of GUID casing', async () => {
+            route([
+                ['EntityDefinitions', {
+                    LogicalName: 'account',
+                    Privileges: [{ PrivilegeId: 'A1B2C3D4-0000-0000-0000-000000000001', Name: 'prvReadAccount', PrivilegeType: 'Read' }]
+                }],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'a1b2c3d4-0000-0000-0000-000000000001', Depth: 'Global' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read.hasPrivilege).toBe(true);
+        });
+
+        it('should fall back to RetrieveUserPrivileges when the set-based call is rejected', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', () => Promise.reject(new Error('HTTP 400 Bad Request'))],
+                ['RetrieveUserPrivileges', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Global' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read).toMatchObject({ hasPrivilege: true, depth: 'Global (Org)' });
+        });
+
+        it('should flag the result as unavailable when table metadata cannot be read', async () => {
+            route([
+                ['EntityDefinitions', () => Promise.reject(new Error('HTTP 403 Forbidden'))]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.unavailable).toContain('403');
+            privilegeTypes.forEach(type => {
+                expect(result[type]).toMatchObject({ hasPrivilege: false, depth: null });
+            });
+        });
+
+        it('should flag the result as unavailable when both privilege lookups fail', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', () => Promise.reject(new Error('HTTP 400 Bad Request'))],
+                ['RetrieveUserPrivileges', () => Promise.reject(new Error('HTTP 403 Forbidden'))]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.unavailable).toContain('403');
+        });
+
+        it('should not flag unavailable when the table simply exposes no privileges', async () => {
+            route([
+                ['EntityDefinitions', { LogicalName: 'account', Privileges: [] }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.unavailable).toBeUndefined();
+            privilegeTypes.forEach(type => {
+                expect(result[type]).toMatchObject({ hasPrivilege: false, depth: null });
+            });
+        });
+
+        it('should name the roles that grant each held privilege', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Global' }]
+                }],
+                ['systemuserroles_association', { value: [{ roleid: 'role-1', name: 'System Administrator' }] }],
+                ['teammembership_association', { value: [] }],
+                ['roleprivilegescollection', {
+                    value: [{ roleid: 'role-1', privilegeid: 'priv-read' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read.roles).toEqual(['System Administrator']);
+        });
+
+        it('should look up granting roles by the assigned role record, not only the root role', async () => {
+            // A user in a child business unit is assigned a copy of the role; roleprivilegescollection
+            // is keyed by that copy, not by the root role the comparison view uses.
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Global' }]
+                }],
+                ['systemuserroles_association', {
+                    value: [{ roleid: 'role-bu-copy', name: 'System Administrator', _parentrootroleid_value: 'role-root' }]
+                }],
+                ['teammembership_association', { value: [] }],
+                ['roleprivilegescollection', {
+                    value: [{ roleid: 'role-bu-copy', privilegeid: 'priv-read' }]
+                }]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read.roles).toEqual(['System Administrator']);
+        });
+
+        it('should still report privileges when role attribution fails', async () => {
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', {
+                    RolePrivileges: [{ PrivilegeId: 'priv-read', Depth: 'Global' }]
+                }],
+                ['systemuserroles_association', { value: [{ roleid: 'role-1', name: 'System Administrator' }] }],
+                ['teammembership_association', { value: [] }],
+                ['roleprivilegescollection', () => Promise.reject(new Error('HTTP 403 Forbidden'))]
+            ]);
+
+            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
+
+            expect(result.read).toMatchObject({ hasPrivilege: true, depth: 'Global (Org)' });
+            expect(result.read.roles).toEqual([]);
+            expect(result.unavailable).toBeUndefined();
+        });
+
+        it('should use the current user when no userId is provided', async () => {
             PowerAppsApiService.getGlobalContext.mockReturnValue({
                 userSettings: { userId: '{current-user-id}' }
             });
+            route([
+                ['EntityDefinitions', accountMetadata],
+                ['RetrieveUserSetOfPrivilegesByIds', { RolePrivileges: [] }]
+            ]);
 
-            // Mock successful responses for current user
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce({ value: [{ privilegeid: 'priv-1', name: 'prvReadAccount' }] }) // Privileges
-                .mockResolvedValueOnce({ value: [{ roleid: 'role-1', name: 'Role 1' }] }) // Direct roles
-                .mockResolvedValueOnce({ value: [] }); // Team membership
+            await SecurityAnalysisService.getUserEntityPrivileges(null, 'account');
 
-            const result = await SecurityAnalysisService.getUserEntityPrivileges(null, 'account');
-
-            expect(result).toHaveProperty('read');
-            // Verify it called webApiFetch with current user ID
-            expect(WebApiService.webApiFetch).toHaveBeenCalled();
-        });
-
-        it('should handle API errors gracefully', async () => {
-            // API call fails
-            WebApiService.webApiFetch.mockRejectedValueOnce(new Error('API error'));
-
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should return false for all privileges on error
-            privilegeTypes.forEach(type => {
-                expect(result[type]).toMatchObject({ hasPrivilege: false, depth: null });
-            });
-
-            consoleSpy.mockRestore();
-        });
-
-        it('should map privilege depth strings correctly', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'p1', name: 'prvReadaccount' },
-                    { privilegeid: 'p2', name: 'prvCreateaccount' },
-                    { privilegeid: 'p3', name: 'prvWriteaccount' },
-                    { privilegeid: 'p4', name: 'prvDeleteaccount' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Role' }] };
-            const mockTeams = { value: [] };
-            // roleprivilegescollection entity returns privilegedepthmask as integer bit mask
-            // Bit masks: Basic=1, Local=2, Deep=4, Global=8
-            const mockRolePrivs = {
-                value: [
-                    { privilegeid: 'p1', privilegedepthmask: 1 }, // Basic
-                    { privilegeid: 'p2', privilegedepthmask: 2 }, // Local
-                    { privilegeid: 'p3', privilegedepthmask: 4 }, // Deep
-                    { privilegeid: 'p4', privilegedepthmask: 8 }  // Global
-                ]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.depth).toBe('Basic (User)');
-            expect(result.create.depth).toBe('Local (BU)');
-            expect(result.write.depth).toBe('Deep (BU + Child)');
-            expect(result.delete.depth).toBe('Global (Org)');
-        });
-
-        it('should keep best (deepest) privilege when multiple roles provide access', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role 1' },
-                    { roleid: 'role-2', name: 'Role 2' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // First role gives Local (2), second gives Global (8) - should keep Global
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 2 }] }; // Local
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] }; // Global
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.depth).toBe('Global (Org)');
-        });
-
-        it('should handle paginated privileges response', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            // First page of privileges with @odata.nextLink
-            const mockPrivilegesPage1 = {
-                value: [
-                    { privilegeid: 'p1', name: 'prvReadaccount' }
-                ],
-                '@odata.nextLink': 'https://org.crm.dynamics.com/api/data/v9.2/privileges?$select=privilegeid,name&$skiptoken=page2'
-            };
-            // Second page without nextLink (last page)
-            const mockPrivilegesPage2 = {
-                value: [
-                    { privilegeid: 'p2', name: 'prvWriteaccount' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Role' }] };
-            const mockTeams = { value: [] };
-            // roleprivilegescollection returns privilegedepthmask as integer bit mask
-            const mockRolePrivs = {
-                value: [
-                    { privilegeid: 'p1', privilegedepthmask: 8 }, // Global
-                    { privilegeid: 'p2', privilegedepthmask: 4 }  // Deep
-                ]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivilegesPage1)
-                .mockResolvedValueOnce(mockPrivilegesPage2)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Both privileges from both pages should be found
-            expect(result.read.hasPrivilege).toBe(true);
-            expect(result.read.depth).toBe('Global (Org)');
-            expect(result.write.hasPrivilege).toBe(true);
-            expect(result.write.depth).toBe('Deep (BU + Child)');
-        });
-
-        it('should handle paginated role privileges when role has >5000 privileges', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'custom-priv-1', name: 'prvReadpt_customentity' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'System Administrator' }] };
-            const mockTeams = { value: [] };
-            // First page of role privileges with @odata.nextLink
-            const mockRolePrivsPage1 = {
-                value: [
-                    { privilegeid: 'other-priv-1', privilegedepthmask: 8 },
-                    { privilegeid: 'other-priv-2', privilegedepthmask: 8 }
-                ],
-                '@odata.nextLink': 'https://org.crm.dynamics.com/api/data/v9.2/roleprivilegescollection?$skiptoken=page2'
-            };
-            // Second page contains the custom entity privilege
-            const mockRolePrivsPage2 = {
-                value: [
-                    { privilegeid: 'custom-priv-1', privilegedepthmask: 8 } // The privilege we're looking for
-                ]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivsPage1)
-                .mockResolvedValueOnce(mockRolePrivsPage2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'pt_customentity');
-
-            // Custom entity privilege should be found from second page
-            expect(result.read.hasPrivilege).toBe(true);
-            expect(result.read.depth).toBe('Global (Org)');
-        });
-
-        it('should match privileges for custom entities with mixed case names', async () => {
-            const mockEntityDef = { ObjectTypeCode: 10001 };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'priv-create', name: 'prvCreatept_VehicleModel' },
-                    { privilegeid: 'priv-read', name: 'prvReadpt_VehicleModel' },
-                    { privilegeid: 'priv-write', name: 'prvWritept_VehicleModel' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Sales Rep' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = {
-                value: [
-                    { privilegeid: 'priv-create', privilegedepthmask: 4 },
-                    { privilegeid: 'priv-read', privilegedepthmask: 8 }
-                ]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            // Entity logical name is lowercase, privilege names have mixed case
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'pt_vehiclemodel');
-
-            expect(result.create.hasPrivilege).toBe(true);
-            expect(result.create.depth).toBe('Deep (BU + Child)');
-            expect(result.read.hasPrivilege).toBe(true);
-            expect(result.read.depth).toBe('Global (Org)');
-            expect(result.write.hasPrivilege).toBe(false);
+            const call = WebApiService.webApiFetch.mock.calls
+                .find(c => String(c[1]).includes('RetrieveUserSetOfPrivilegesByIds'));
+            expect(call[1]).toContain('systemusers(current-user-id)');
         });
     });
 
@@ -1226,474 +1351,6 @@ describe('SecurityAnalysisService', () => {
             const result = await SecurityAnalysisService.getUserEntityPrivileges(null, 'account');
 
             expect(result.read).toMatchObject({ hasPrivilege: false, depth: null });
-        });
-    });
-
-    describe('_getDepthName - all cases', () => {
-        it('should handle Not Allowed case for unknown depth mask', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Role' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = {
-                value: [{ privilegeid: 'p1', privilegedepthmask: 0 }] // Unknown depth mask
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.depth).toBe('Not Allowed');
-        });
-    });
-
-    describe('_checkRolePrivileges - edge cases', () => {
-        it('should handle role objects with object-type roleid', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            // Role with object-type roleid
-            const mockRoles = { value: [{ roleid: { guid: 'role-guid-123' }, name: 'Role' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = {
-                value: [{ privilegeid: 'p1', privilegedepthmask: 8 }]
-            };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.hasPrivilege).toBe(true);
-        });
-
-        it('should skip roles with empty roleid', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            // Role with empty roleid
-            const mockRoles = { value: [{ roleid: '', name: 'Role' }] };
-            const mockTeams = { value: [] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should not have called role privileges API since roleid is empty
-            expect(result.read.hasPrivilege).toBe(false);
-        });
-    });
-
-    describe('_updatePrivilegeIfBetter - same depth tracking', () => {
-        it('should track multiple roles providing same depth privilege', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // Both roles give same depth
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] };
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should track both roles
-            expect(result.read.roles).toContain('Role A');
-            expect(result.read.roles).toContain('Role B');
-        });
-    });
-
-    describe('_getEntityPrivilegesFromMetadata - error handling', () => {
-        it('should return empty array when ObjectTypeCode is missing', async () => {
-            const mockEntityDef = {}; // No ObjectTypeCode
-
-            WebApiService.webApiFetch.mockResolvedValueOnce(mockEntityDef);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.hasPrivilege).toBe(false);
-        });
-    });
-
-    describe('_getEntityPrivilegesFromMetadata - activity entity handling via IsActivity metadata', () => {
-        it('should use Activity privileges for email entity when IsActivity is true from metadata', async () => {
-            // First call: EntityDefinitions for email returns IsActivity: true
-            const mockEmailEntityDef = { ObjectTypeCode: 4202, LogicalName: 'email', IsActivity: true };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'p1', name: 'prvReadActivity' },
-                    { privilegeid: 'p2', name: 'prvCreateActivity' },
-                    { privilegeid: 'p3', name: 'prvWriteActivity' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Basic User' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEmailEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'email');
-
-            // Should query email's EntityDefinitions (to check IsActivity)
-            expect(WebApiService.webApiFetch).toHaveBeenCalledWith(
-                'GET',
-                expect.stringContaining("EntityDefinitions(LogicalName='email')"),
-                '',
-                null,
-                {},
-                expect.any(Function)
-            );
-            // Should find Activity privileges (not email-specific privileges)
-            expect(result.read.hasPrivilege).toBe(true);
-        });
-
-        it('should use Activity privileges for task entity when IsActivity is true from metadata', async () => {
-            const mockTaskEntityDef = { ObjectTypeCode: 4212, LogicalName: 'task', IsActivity: true };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'p1', name: 'prvReadActivity' },
-                    { privilegeid: 'p2', name: 'prvCreateActivity' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Basic User' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockTaskEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'task');
-
-            // Should query task's EntityDefinitions
-            expect(WebApiService.webApiFetch).toHaveBeenCalledWith(
-                'GET',
-                expect.stringContaining("EntityDefinitions(LogicalName='task')"),
-                '',
-                null,
-                {},
-                expect.any(Function)
-            );
-            expect(result.read.hasPrivilege).toBe(true);
-        });
-
-        it('should use Activity privileges for phonecall entity when IsActivity is true', async () => {
-            const mockPhonecallEntityDef = { ObjectTypeCode: 4210, LogicalName: 'phonecall', IsActivity: true };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadActivity' }]
-            };
-            const mockRoles = { value: [] };
-            const mockTeams = { value: [] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockPhonecallEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams);
-
-            await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'phonecall');
-
-            // Should query phonecall's EntityDefinitions
-            expect(WebApiService.webApiFetch).toHaveBeenCalledWith(
-                'GET',
-                expect.stringContaining("EntityDefinitions(LogicalName='phonecall')"),
-                '',
-                null,
-                {},
-                expect.any(Function)
-            );
-        });
-
-        it('should use Activity privileges for custom activity entity when IsActivity is true', async () => {
-            // Custom activity entity (e.g., contoso_customactivity)
-            const mockCustomActivityDef = { ObjectTypeCode: 10500, LogicalName: 'contoso_customactivity', IsActivity: true };
-            const mockPrivileges = {
-                value: [
-                    { privilegeid: 'p1', name: 'prvReadActivity' },
-                    { privilegeid: 'p2', name: 'prvCreateActivity' }
-                ]
-            };
-            const mockRoles = { value: [{ roleid: 'role-1', name: 'Basic User' }] };
-            const mockTeams = { value: [] };
-            const mockRolePrivs = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockCustomActivityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'contoso_customactivity');
-
-            // Should find Activity privileges for custom activity
-            expect(result.read.hasPrivilege).toBe(true);
-        });
-
-        it('should NOT use Activity privileges for account entity when IsActivity is false', async () => {
-            const mockAccountEntityDef = { ObjectTypeCode: 1, LogicalName: 'account', IsActivity: false };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = { value: [] };
-            const mockTeams = { value: [] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockAccountEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams);
-
-            await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should query account directly
-            expect(WebApiService.webApiFetch).toHaveBeenCalledWith(
-                'GET',
-                expect.stringContaining("EntityDefinitions(LogicalName='account')"),
-                '',
-                null,
-                {},
-                expect.any(Function)
-            );
-        });
-
-        it('should NOT use Activity privileges for contact entity when IsActivity is false', async () => {
-            const mockContactEntityDef = { ObjectTypeCode: 2, LogicalName: 'contact', IsActivity: false };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadcontact' }]
-            };
-            const mockRoles = { value: [] };
-            const mockTeams = { value: [] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockContactEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams);
-
-            await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'contact');
-
-            // Should query contact directly
-            expect(WebApiService.webApiFetch).toHaveBeenCalledWith(
-                'GET',
-                expect.stringContaining("EntityDefinitions(LogicalName='contact')"),
-                '',
-                null,
-                {},
-                expect.any(Function)
-            );
-        });
-    });
-
-    describe('_fetchAllPrivileges - error handling', () => {
-        it('should return empty array on fetch error', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockRejectedValueOnce(new Error('Privileges fetch failed'));
-
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.hasPrivilege).toBe(false);
-
-            consoleSpy.mockRestore();
-        });
-    });
-
-    describe('_compareDepth - various depth comparisons', () => {
-        it('should compare string depth values correctly', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // First role gives Local (2), second gives Basic (1) - should keep Local
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 2 }] };
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 1 }] };
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should keep Local as it's better than Basic
-            expect(result.read.depth).toBe('Local (BU)');
-        });
-
-        it('should handle basic or user string depth values', async () => {
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // Basic (1) is depth 0 in comparison, Local (2) is depth 1
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 1 }] }; // Basic
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 2 }] }; // Local
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should upgrade from Basic to Local since Local is better
-            expect(result.read.depth).toBe('Local (BU)');
-        });
-
-        it('should handle deep or parent string depth comparison', async () => {
-            // Test _compareDepth with Deep privilege being upgraded
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // First role gives Deep (4), second gives Global (8) - should upgrade to Global
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 4 }] }; // Deep
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 8 }] }; // Global
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            expect(result.read.depth).toBe('Global (Org)');
-        });
-
-        it('should handle unexpected numeric depth mask values (line 760)', async () => {
-            // Test _compareDepth handles non-standard depth mask like 3 or 5
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // Use unusual depth mask values to hit line 760 (return d as-is)
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 3 }] }; // Not 1,2,4,8 - passes through
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 5 }] }; // Not 1,2,4,8 - passes through
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should still work - _getDepthName(3) returns 'Not Allowed', _getDepthName(5) also returns 'Not Allowed'
-            expect(result.read.hasPrivilege).toBe(true);
-        });
-
-        it('should compare Deep depth mask as second role (line 749)', async () => {
-            // Test that Deep (4) as second role triggers comparison with existing privilege
-            const mockEntityDef = { ObjectTypeCode: 1 };
-            const mockPrivileges = {
-                value: [{ privilegeid: 'p1', name: 'prvReadaccount' }]
-            };
-            const mockRoles = {
-                value: [
-                    { roleid: 'role-1', name: 'Role A' },
-                    { roleid: 'role-2', name: 'Role B' }
-                ]
-            };
-            const mockTeams = { value: [] };
-            // First role sets Local (2), second role tries Deep (4) - should upgrade
-            // This ensures _compareDepth is called with (4, "Local (BU)"), hitting line 749
-            const mockRolePrivs1 = { value: [{ privilegeid: 'p1', privilegedepthmask: 2 }] }; // Local
-            const mockRolePrivs2 = { value: [{ privilegeid: 'p1', privilegedepthmask: 4 }] }; // Deep
-
-            WebApiService.webApiFetch
-                .mockResolvedValueOnce(mockEntityDef)
-                .mockResolvedValueOnce(mockPrivileges)
-                .mockResolvedValueOnce(mockRoles)
-                .mockResolvedValueOnce(mockTeams)
-                .mockResolvedValueOnce(mockRolePrivs1)
-                .mockResolvedValueOnce(mockRolePrivs2);
-
-            const result = await SecurityAnalysisService.getUserEntityPrivileges('user-123', 'account');
-
-            // Should upgrade from Local to Deep
-            expect(result.read.depth).toBe('Deep (BU + Child)');
         });
     });
 

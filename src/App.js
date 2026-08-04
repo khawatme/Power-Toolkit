@@ -33,6 +33,7 @@ import { MetadataBrowserTab } from './components/MetadataBrowserTab.js';
 import { SolutionLayersTab } from './components/SolutionLayersTab.js';
 import { PowerAutomateFlowsTab } from './components/PowerAutomateFlowsTab.js';
 import { CustomApiTab } from './components/CustomApiTab.js';
+import { AgentsTab } from './components/AgentsTab.js';
 
 /**
  * The main application object.
@@ -93,6 +94,7 @@ export const App = {
         // Global Components
         ComponentRegistry.register(new AutomationTab());
         ComponentRegistry.register(new PowerAutomateFlowsTab());
+        ComponentRegistry.register(new AgentsTab());
         ComponentRegistry.register(new ImpersonateTab());
         ComponentRegistry.register(new MetadataBrowserTab());
         ComponentRegistry.register(new SolutionLayersTab());

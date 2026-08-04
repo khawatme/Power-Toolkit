@@ -10,7 +10,7 @@ import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
 import { Config } from '../constants/index.js';
-import { escapeHtml } from '../helpers/index.js';
+import { escapeHtml, escapeXml } from '../helpers/index.js';
 import { FileHelpers } from '../helpers/file.helpers.js';
 import { DialogService } from '../services/DialogService.js';
 import { UIFactory } from '../ui/UIFactory.js';
@@ -494,22 +494,32 @@ export class AutomationTab extends BaseComponent {
                 const enabledClass = h.enabled ? 'enabled' : 'disabled-in-form';
 
                 // Field badge for OnChange handlers
-                const fieldBadge = h.field ? `<span class="pdt-field-badge" title="Field: ${field}">${field}</span>` : '';
+                const fieldBadge = h.field ? `<span class="pdt-field-badge" title="Field: ${escapeXml(h.field)}">${field}</span>` : '';
 
                 // Event type badge for non-standard events
-                const eventTypeBadge = h.eventType ? `<span class="pdt-field-badge" title="Event: ${escapeHtml(h.eventType)}">${escapeHtml(h.eventType)}</span>` : '';
+                const eventTypeBadge = h.eventType ? `<span class="pdt-field-badge" title="Event: ${escapeXml(h.eventType)}">${escapeHtml(h.eventType)}</span>` : '';
 
-                // Edit button for web resources
+                // Which form(s) this registration came from — the list spans every form of the table.
+                const formBadge = this._buildFormBadge(h.forms);
+
+                // Edit button for web resources. Attribute context, so quotes have to be escaped
+                // too — escapeHtml leaves them alone. The parser decodes the entities back, so
+                // `dataset.library` still hands the lookup the original name.
                 const editButton = `
-                    <button class="pdt-handler-edit-btn" 
+                    <button class="pdt-handler-edit-btn"
                             data-action="edit-webresource"
-                            data-library="${escapeHtml(lib)}"
+                            data-library="${escapeXml(h.library ?? '')}"
                             title="${Config.MESSAGES.AUTOMATION.editWebResource}">
                         ${ICONS.settings}
                     </button>`;
 
                 const statusBadge = !h.enabled ? '<span class="pdt-status-badge inactive" title="Disabled in form definition">Off</span>' : '';
-                const managedBadge = h.managed ? '<span class="pdt-status-badge managed" title="Managed (system)">Managed</span>' : '<span class="pdt-status-badge customizable" title="Customizable (unmanaged)">Custom</span>';
+                // Internal handlers are registered by the platform, not on the form. This says
+                // nothing about managed vs unmanaged solutions — the form definition doesn't carry
+                // solution layering, so the badge must not claim it does.
+                const originBadge = h.internal
+                    ? '<span class="pdt-status-badge system" title="Registered by the platform (InternalHandlers)">System</span>'
+                    : '<span class="pdt-status-badge form" title="Registered on the form">Form</span>';
 
                 return `
                     <li class="pdt-handler-item ${enabledClass}">
@@ -518,9 +528,10 @@ export class AutomationTab extends BaseComponent {
                                 <strong class="pdt-handler-function">${fn}</strong>
                                 ${fieldBadge}
                                 ${eventTypeBadge}
+                                ${formBadge}
                                 <span class="pdt-handler-library code-like">${lib}</span>
                             </div>
-                            ${managedBadge}
+                            ${originBadge}
                             ${statusBadge}
                         </div>
                         <div class="pdt-handler-actions">
@@ -540,6 +551,9 @@ export class AutomationTab extends BaseComponent {
             ? `<p class="pdt-note mt-15">⚠️ ${Config.MESSAGES.AUTOMATION.noHandlersHelpInfo}</p>`
             : '<p class="pdt-note mt-15">💡 Click the edit button to view or modify web resource code.</p>';
 
+        const scannedNote = this._buildScannedNote(events.forms);
+        const librariesSection = this._buildLibrariesSection(events.Libraries);
+
         // Render Other events section (non-standard events like setadditionalparams)
         const otherSection = (events.Other && events.Other.length > 0)
             ? `<h4 class="pdt-section-header mt-15">Other Events</h4>${renderHandlers(events.Other, 'other')}`
@@ -552,9 +566,77 @@ export class AutomationTab extends BaseComponent {
             ${renderHandlers(events.OnSave, 'onsave')}
             <h4 class="pdt-section-header mt-15">OnChange</h4>
             ${renderHandlers(events.OnChange, 'onchange')}
-            ${otherSection}`;
+            ${otherSection}
+            ${librariesSection}`;
 
-        container.innerHTML = `<div class="section-title">Form Event Handlers</div>${helpNote}${content}`;
+        container.innerHTML = `<div class="section-title">Form Event Handlers</div>${scannedNote}${helpNote}${content}`;
+    }
+
+    /**
+     * Builds the badge naming the form(s) a handler is registered on.
+     * @param {string[]|undefined} forms - Form names carrying this registration.
+     * @returns {string} Badge HTML, or '' when there is nothing to attribute.
+     * @private
+     */
+    _buildFormBadge(forms) {
+        if (!Array.isArray(forms) || forms.length === 0) {
+            return '';
+        }
+        // Form names are free text a maker typed, and these land in a quoted attribute — which
+        // needs escapeXml, since escapeHtml leaves quotes intact and they would end the attribute.
+        if (forms.length === 1) {
+            return `<span class="pdt-field-badge pdt-form-badge" title="Form: ${escapeXml(forms[0])}">${escapeHtml(forms[0])}</span>`;
+        }
+        const title = escapeXml(Config.MESSAGES.AUTOMATION.handlerOnForms(forms));
+        return `<span class="pdt-field-badge pdt-form-badge" title="${title}">${forms.length} forms</span>`;
+    }
+
+    /**
+     * Builds the note stating which forms were read — the aggregate list spans every form of the
+     * table, so without this the reader can't tell what "no handlers" was actually checked against.
+     * @param {Array<{name: string, typeLabel: string}>|undefined} forms - Scanned form summaries.
+     * @returns {string} Note HTML, or '' when the caller supplied no summary.
+     * @private
+     */
+    _buildScannedNote(forms) {
+        if (!Array.isArray(forms) || forms.length === 0) {
+            return '';
+        }
+        const kinds = [...new Set(forms.map(f => f.typeLabel))].join(', ');
+        const names = forms.map(f => `${f.name} (${f.typeLabel})`).join(', ');
+        return `<p class="pdt-note" title="${escapeXml(names)}">${escapeHtml(Config.MESSAGES.AUTOMATION.formsScanned(forms.length, kinds))}</p>`;
+    }
+
+    /**
+     * Builds the script-library list for the scanned forms.
+     * @param {string[]|undefined} libraries - Web resource names.
+     * @returns {string} Section HTML, or '' when none were found.
+     * @private
+     */
+    _buildLibrariesSection(libraries) {
+        if (!Array.isArray(libraries) || libraries.length === 0) {
+            return '';
+        }
+        const items = libraries.map(lib => {
+            const name = escapeHtml(lib);
+            return `
+                <li class="pdt-handler-item">
+                    <div class="pdt-handler-info">
+                        <span class="pdt-handler-library code-like">${name}</span>
+                    </div>
+                    <div class="pdt-handler-actions">
+                        <button class="pdt-handler-edit-btn"
+                                data-action="edit-webresource"
+                                data-library="${escapeXml(lib)}"
+                                title="${Config.MESSAGES.AUTOMATION.editWebResource}">
+                            ${ICONS.settings}
+                        </button>
+                    </div>
+                </li>`;
+        }).join('');
+
+        return `<h4 class="pdt-section-header mt-15">${Config.MESSAGES.AUTOMATION.librariesTitle}</h4>
+            <ul class="pdt-handler-list">${items}</ul>`;
     }
 
     /**

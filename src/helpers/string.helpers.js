@@ -23,6 +23,22 @@ export const StringHelpers = {
     },
 
     /**
+     * Escapes the five XML predefined entities so a value is safe inside an element or a
+     * quoted attribute. Unlike `escapeHtml` this also escapes quotes, which XML requires -
+     * an unescaped `&` or `<` makes the document unparseable rather than merely unsafe.
+     * @param {string} str - The value to escape.
+     * @returns {string} The escaped XML string.
+     */
+    escapeXml(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    },
+
+    /**
      * Applies basic, regex-based syntax highlighting to a code string.
      * This implementation is lightweight and dependency-free.
      * @param {string|object} codeString - The code string or JSON object to highlight.

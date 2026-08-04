@@ -55,6 +55,11 @@ const mockTracesWithNextLink = {
 vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
         getPluginTraceLogs: vi.fn(() => Promise.resolve({ entities: [], nextLink: null })),
+        getOrganizationDiagnostics: vi.fn(() => Promise.resolve({
+            organizationId: 'org-1', pluginTraceLogSetting: null, transcriptRecordingBlocked: false,
+            transcriptAccessBlocked: false, flowRunRetentionSeconds: null
+        })),
+        setPluginTraceLogSetting: vi.fn(() => Promise.resolve()),
         executeFetchXml: vi.fn(() => Promise.resolve({ entities: [] })),
         retrieveMultipleRecords: vi.fn(() => Promise.resolve({ entities: [] }))
     }
@@ -184,7 +189,7 @@ describe('PluginTraceLogTab', () => {
         });
 
         it('should initialize filters with empty values', () => {
-            expect(component.filters).toEqual({ typeName: '', messageContent: '', dateFrom: '', dateTo: '' });
+            expect(component.filters).toEqual({ typeName: '', messageContent: '', dateFrom: '', dateTo: '', status: '' });
         });
 
         it('should initialize isLoading to false', () => {
@@ -350,6 +355,9 @@ describe('PluginTraceLogTab', () => {
             expect(component._handleLastPage).toBeDefined();
         });
     });
+
+    // Banner coverage lives in the "Logging level banner" suite at the end of this file, which asserts
+    // the note text and the level dropdown together.
 
     describe('_fetchAllTraces', () => {
         beforeEach(async () => {
@@ -594,6 +602,36 @@ describe('PluginTraceLogTab', () => {
             expect(component.filters.messageContent).toBe('error');
             expect(component.filters.dateFrom).toBe('2024-01-01T00:00');
             expect(component.filters.dateTo).toBe('2024-12-31T23:59');
+        });
+
+        it('should read the status (outcome) filter from the dropdown', async () => {
+            component.ui.statusFilter.value = 'error';
+            DataService.getPluginTraceLogs.mockResolvedValue(mockEmptyResult);
+
+            component._applyServerFilters();
+            await vi.runAllTimersAsync();
+
+            expect(component.filters.status).toBe('error');
+        });
+
+        it('should build an "errors only" OData clause (non-empty exceptiondetails) when status is "error"', () => {
+            component.filters.status = 'error';
+            const filter = component._buildODataFilter();
+            // Successful traces store an empty string, so the split must be by '', not null alone.
+            expect(filter).toContain("exceptiondetails ne ''");
+            expect(filter).toContain('exceptiondetails ne null');
+        });
+
+        it('should build a "success only" OData clause (empty exceptiondetails) when status is "success"', () => {
+            component.filters.status = 'success';
+            const filter = component._buildODataFilter();
+            expect(filter).toContain("exceptiondetails eq ''");
+            expect(filter).toContain('exceptiondetails eq null');
+        });
+
+        it('should not add an exception clause when status is empty (All)', () => {
+            component.filters.status = '';
+            expect(component._buildODataFilter()).not.toContain('exceptiondetails');
         });
     });
 
@@ -1607,7 +1645,7 @@ describe('PluginTraceLogTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     'Page size must be between 1 and 1000',
-                    'warning'
+                    'warn'
                 );
             });
         });
@@ -1625,6 +1663,174 @@ describe('PluginTraceLogTab', () => {
 
             it('should remove event listener on destroy', () => {
                 const removeSpy = vi.spyOn(component.ui.pageSizeSelect, 'removeEventListener');
+                component.destroy();
+
+                expect(removeSpy).toHaveBeenCalledWith('change', expect.any(Function));
+            });
+        });
+    });
+
+    describe('Logging level banner', () => {
+        const diagnostics = (pluginTraceLogSetting) => ({
+            organizationId: 'org-1',
+            pluginTraceLogSetting,
+            transcriptRecordingBlocked: false,
+            transcriptAccessBlocked: false,
+            flowRunRetentionSeconds: null
+        });
+
+        /**
+         * Renders the tab with the org reporting the given logging level.
+         * @param {number|null} level - plugintracelogsetting value, or null when unreadable.
+         */
+        const mount = async (level) => {
+            DataService.getOrganizationDiagnostics.mockResolvedValue(diagnostics(level));
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await vi.runAllTimersAsync();
+            return element;
+        };
+
+        describe('rendering', () => {
+            it('should stay hidden until the level is known', async () => {
+                const element = await component.render();
+                expect(element.querySelector('#trace-logging-banner').hidden).toBe(true);
+            });
+
+            it('should warn and show the dropdown on Off', async () => {
+                await mount(0);
+
+                expect(component.ui.loggingBanner.hidden).toBe(false);
+                expect(component.ui.loggingBanner.className).toContain('pdt-diagnostic-banner--warn');
+                expect(component.ui.loggingText.textContent).toContain('Off');
+                expect(component.ui.loggingLevelSelect.value).toBe('0');
+            });
+
+            it('should show an info note on Exception', async () => {
+                await mount(1);
+
+                expect(component.ui.loggingBanner.hidden).toBe(false);
+                expect(component.ui.loggingBanner.className).toContain('pdt-diagnostic-banner--info');
+                expect(component.ui.loggingLevelSelect.value).toBe('1');
+            });
+
+            it('should show an info note on All', async () => {
+                await mount(2);
+
+                expect(component.ui.loggingBanner.className).toContain('pdt-diagnostic-banner--info');
+                expect(component.ui.loggingLevelSelect.value).toBe('2');
+            });
+
+            it('should keep the banner hidden when the setting is unreadable', async () => {
+                await mount(null);
+
+                expect(component.ui.loggingBanner.hidden).toBe(true);
+                expect(component.loggingLevel).toBeNull();
+            });
+
+            it('should keep the banner hidden when the org query fails', async () => {
+                DataService.getOrganizationDiagnostics.mockRejectedValue(new Error('403'));
+                const element = await component.render();
+                document.body.appendChild(element);
+                component.postRender(element);
+                await vi.runAllTimersAsync();
+
+                expect(component.ui.loggingBanner.hidden).toBe(true);
+            });
+
+            it('should offer exactly the three platform levels', async () => {
+                await mount(1);
+                const values = [...component.ui.loggingLevelSelect.options].map(o => o.value);
+
+                expect(values).toEqual(['0', '1', '2']);
+            });
+        });
+
+        describe('changing the level', () => {
+            beforeEach(async () => {
+                await mount(0);
+                vi.clearAllMocks();
+            });
+
+            it('should write the picked level to the environment', async () => {
+                component.ui.loggingLevelSelect.value = '2';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(DataService.setPluginTraceLogSetting).toHaveBeenCalledWith(2);
+            });
+
+            it('should repaint the banner for the new level', async () => {
+                component.ui.loggingLevelSelect.value = '2';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(component.loggingLevel).toBe(2);
+                expect(component.ui.loggingBanner.className).toContain('pdt-diagnostic-banner--info');
+                expect(component.ui.loggingBanner.className).not.toContain('--warn');
+            });
+
+            it('should confirm the change with a success notification', async () => {
+                component.ui.loggingLevelSelect.value = '1';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(NotificationService.show).toHaveBeenCalledWith(
+                    expect.stringContaining('Exception'),
+                    'success'
+                );
+            });
+
+            it('should turn logging off when Off is picked', async () => {
+                component.loggingLevel = 2;
+                component.ui.loggingLevelSelect.value = '0';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(DataService.setPluginTraceLogSetting).toHaveBeenCalledWith(0);
+            });
+
+            it('should not write when the level did not actually change', async () => {
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(DataService.setPluginTraceLogSetting).not.toHaveBeenCalled();
+            });
+
+            it('should revert the dropdown and report the error when the write is rejected', async () => {
+                DataService.setPluginTraceLogSetting.mockRejectedValueOnce(new Error('No privilege'));
+
+                component.ui.loggingLevelSelect.value = '2';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(component.ui.loggingLevelSelect.value).toBe('0');
+                expect(component.loggingLevel).toBe(0);
+                expect(component.ui.loggingText.textContent).toContain('Off');
+                expect(NotificationService.show).toHaveBeenCalledWith(
+                    expect.stringContaining('No privilege'),
+                    'error'
+                );
+            });
+
+            it('should re-enable the dropdown after a failed write', async () => {
+                DataService.setPluginTraceLogSetting.mockRejectedValueOnce(new Error('No privilege'));
+
+                component.ui.loggingLevelSelect.value = '2';
+                component.ui.loggingLevelSelect.dispatchEvent(new Event('change'));
+                await vi.runAllTimersAsync();
+
+                expect(component.ui.loggingLevelSelect.disabled).toBe(false);
+            });
+
+            it('should clear the handler reference on destroy', () => {
+                component.destroy();
+                expect(component._handleLoggingLevel).toBeNull();
+            });
+
+            it('should remove the change listener on destroy', () => {
+                const removeSpy = vi.spyOn(component.ui.loggingLevelSelect, 'removeEventListener');
                 component.destroy();
 
                 expect(removeSpy).toHaveBeenCalledWith('change', expect.any(Function));

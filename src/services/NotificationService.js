@@ -143,6 +143,9 @@ export const NotificationService = {
             pointerEvents: 'auto',
             cursor: isError ? 'pointer' : 'default',
             maxWidth: hasLineBreaks ? '600px' : '400px',
+            // A long server error must never grow tall enough to cover the tool behind it.
+            maxHeight: '40vh',
+            overflowY: 'auto',
             textAlign: 'left',
             whiteSpace: 'normal',
             wordBreak: 'break-word'

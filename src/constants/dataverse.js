@@ -10,8 +10,10 @@
  */
 export const DATAVERSE_SPECIAL_ENDPOINTS = [
     'RetrieveUserPrivileges',
+    'RetrieveCurrentOrganization',
     'AddSolutionComponent',
     'RemoveSolutionComponent',
+    'AIModelPublish',
     'PublishAll',
     'PublishXml',
     'CloneSolution',
@@ -24,7 +26,14 @@ export const DATAVERSE_SPECIAL_ENDPOINTS = [
     'ribbondiffs',
     'systemusers',
     'roles',
-    'systemuserroles_association'
+    'systemuserroles_association',
+    // An unlisted set name whose path does not end in "s" gets one appended — including any query
+    // string tacked onto it. `appactions?$select=…,ismanaged` was being sent as `…,ismanageds`.
+    'appactions',
+    'appmodules',
+    'savedqueries',
+    'systemforms',
+    'organizations'
 ];
 
 /**
@@ -135,8 +144,11 @@ export const FIELD_TYPES = {
  * @type {Object.<string, string[]>}
  */
 export const AGGREGATE_TYPE_COMPAT = {
-    count:       ['number', 'currency', 'date', 'optionset', 'lookup', 'text', 'boolean'],
-    countcolumn: ['number', 'currency', 'date', 'optionset', 'lookup', 'text', 'boolean'],
+    // 'currency' is excluded from the counting functions on purpose: they return an Int32,
+    // and Dataverse types the result using the source column, so a Money column fails with
+    // 0x80060888 ("expected was of type Microsoft.Xrm.Sdk.Money").
+    count:       ['number', 'date', 'optionset', 'lookup', 'text', 'boolean'],
+    countcolumn: ['number', 'date', 'optionset', 'lookup', 'text', 'boolean'],
     sum:         ['number', 'currency'],
     avg:         ['number', 'currency'],
     min:         ['number', 'currency', 'date', 'optionset'],
@@ -184,6 +196,31 @@ export const FORM_TYPES = {
     DISABLED: 4,
     QUICK_CREATE: 5,
     BULK_EDIT: 6
+};
+
+/**
+ * `systemform.type` values — the kind of form a row describes. Distinct from {@link FORM_TYPES},
+ * which is the client API's *state* of an open form (Create/Update/Read-only).
+ * Only the kinds that can carry event handlers are listed.
+ * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/entities/systemform
+ * @type {Object.<string, number>}
+ */
+export const SYSTEM_FORM_TYPES = {
+    MAIN: 2,
+    QUICK_VIEW: 6,
+    QUICK_CREATE: 7,
+    CARD: 11
+};
+
+/**
+ * Display labels for {@link SYSTEM_FORM_TYPES}.
+ * @type {Object.<number, string>}
+ */
+export const SYSTEM_FORM_TYPE_LABELS = {
+    2: 'Main',
+    6: 'Quick View',
+    7: 'Quick Create',
+    11: 'Card'
 };
 
 /**

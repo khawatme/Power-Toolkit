@@ -272,7 +272,7 @@ describe('HelpTab', () => {
             searchInput.value = 'inspector';
 
             // Trigger keyup event
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             const visibleCards = Array.from(element.querySelectorAll('.help-card'))
                 .filter(card => card.style.display !== 'none');
@@ -286,7 +286,7 @@ describe('HelpTab', () => {
 
             const searchInput = element.querySelector('#help-search');
             searchInput.value = '';
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             const allCards = element.querySelectorAll('.help-card');
             const visibleCards = Array.from(allCards)
@@ -302,7 +302,7 @@ describe('HelpTab', () => {
             const searchInput = element.querySelector('#help-search');
             // Use a very specific term that won't match most cards
             searchInput.value = 'xyznonexistentterm';
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             const visibleCards = Array.from(element.querySelectorAll('.help-card'))
                 .filter(card => card.style.display !== 'none');
@@ -316,7 +316,7 @@ describe('HelpTab', () => {
 
             const searchInput = element.querySelector('#help-search');
             searchInput.value = 'INSPECTOR';
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             const visibleCards = Array.from(element.querySelectorAll('.help-card'))
                 .filter(card => card.style.display !== 'none');
@@ -330,7 +330,7 @@ describe('HelpTab', () => {
 
             const searchInput = element.querySelector('#help-search');
             searchInput.value = '  inspector  ';
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             const visibleCards = Array.from(element.querySelectorAll('.help-card'))
                 .filter(card => card.style.display !== 'none');
@@ -468,7 +468,7 @@ describe('HelpTab', () => {
             expect(() => component.destroy()).not.toThrow();
         });
 
-        it('should remove keyup listener from search input', async () => {
+        it('should remove input listener from search input', async () => {
             const element = await component.render();
             document.body.appendChild(element);
             component.postRender(element);
@@ -476,7 +476,7 @@ describe('HelpTab', () => {
             const removeListenerSpy = vi.spyOn(component._searchInput, 'removeEventListener');
             component.destroy();
 
-            expect(removeListenerSpy).toHaveBeenCalledWith('keyup', component._searchHandler);
+            expect(removeListenerSpy).toHaveBeenCalledWith('input', component._searchHandler);
         });
 
         it('should remove click listener from card container', async () => {
@@ -520,6 +520,58 @@ describe('HelpTab', () => {
             // Remove cancel method
             delete component._searchHandler.cancel;
             expect(() => component.destroy()).not.toThrow();
+        });
+    });
+
+    describe('help topic titles match the tab they document', () => {
+        // The guide is keyed to the navigation: a user searching the tab name they
+        // can see must land on its card. Titles drifting from the tab labels in
+        // src/components/*Tab.js has happened before, so it is asserted here.
+        const TAB_TITLES = {
+            inspector: 'Inspector',
+            formColumns: 'Form Columns',
+            eventMonitor: 'Event Monitor',
+            pluginContext: 'Plugin Context',
+            performance: 'Performance',
+            automation: 'Form Automation',
+            powerAutomateFlows: 'Power Automate',
+            agents: 'AI Workbench',
+            impersonate: 'Impersonate',
+            metadataBrowser: 'Metadata Browser',
+            solutionLayers: 'Solution Layers',
+            apiExplorer: 'WebAPI Explorer',
+            fetchXmlTester: 'FetchXML Tester',
+            customApi: 'Custom APIs',
+            envVars: 'Env Variables',
+            traces: 'Plugin Traces',
+            userContext: 'User Context',
+            codeHub: 'Code Hub',
+            settings: 'Settings',
+            about: 'About'
+        };
+
+        it.each(Object.entries(TAB_TITLES))('should title the %s topic "%s"', (key, title) => {
+            expect(component._getHelpContent()[key]?.title).toBe(title);
+        });
+
+        it('should give every topic a title, summary and content', () => {
+            const content = component._getHelpContent();
+            expect(Object.keys(content).length).toBeGreaterThan(0);
+
+            for (const [key, topic] of Object.entries(content)) {
+                expect(topic.title, `${key}.title`).toBeTruthy();
+                expect(topic.summary, `${key}.summary`).toBeTruthy();
+                expect(topic.content, `${key}.content`).toBeTruthy();
+            }
+        });
+
+        it('should explain which tabs need a form context', () => {
+            const content = component._getHelpContent();
+            expect(content.gettingStarted).toBeDefined();
+            // The five form-only tabs (BaseComponent isFormOnly = true).
+            for (const tab of ['Inspector', 'Form Columns', 'Event Monitor', 'Plugin Context', 'Performance']) {
+                expect(content.gettingStarted.content).toContain(tab);
+            }
         });
     });
 
@@ -627,7 +679,7 @@ describe('HelpTab', () => {
     });
 
     describe('event handler binding', () => {
-        it('should respond to keyup events on search input', async () => {
+        it('should respond to input events on search input', async () => {
             const element = await component.render();
             document.body.appendChild(element);
             component.postRender(element);
@@ -638,8 +690,8 @@ describe('HelpTab', () => {
             component._searchHandler = handlerSpy;
 
             // Re-bind the handler
-            searchInput.addEventListener('keyup', handlerSpy);
-            searchInput.dispatchEvent(new KeyboardEvent('keyup'));
+            searchInput.addEventListener('input', handlerSpy);
+            searchInput.dispatchEvent(new Event('input'));
 
             expect(handlerSpy).toHaveBeenCalled();
 
@@ -681,7 +733,7 @@ describe('HelpTab', () => {
             const searchInput = element.querySelector('#help-search');
             searchInput.value = '<script>alert("xss")</script>';
 
-            expect(() => searchInput.dispatchEvent(new KeyboardEvent('keyup'))).not.toThrow();
+            expect(() => searchInput.dispatchEvent(new Event('input'))).not.toThrow();
         });
 
         it('should handle very long search terms', async () => {
@@ -692,7 +744,7 @@ describe('HelpTab', () => {
             const searchInput = element.querySelector('#help-search');
             searchInput.value = 'a'.repeat(1000);
 
-            expect(() => searchInput.dispatchEvent(new KeyboardEvent('keyup'))).not.toThrow();
+            expect(() => searchInput.dispatchEvent(new Event('input'))).not.toThrow();
         });
 
         it('should handle click outside of any card', async () => {

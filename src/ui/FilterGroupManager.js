@@ -5,8 +5,41 @@
  */
 
 import { ICONS } from '../assets/Icons.js';
-import { FILTER_OPERATORS, shouldShowOperatorValue } from '../helpers/index.js';
+import { filterOperatorsFor, findFilterOperator, shouldShowOperatorValue } from '../helpers/index.js';
 import { MetadataHelpers } from '../helpers/metadata.helpers.js';
+
+/**
+ * The default, type-agnostic value editor. Shared by initial render and by the reset applied
+ * when an attribute is cleared, so the two cannot drift apart.
+ * @private @type {string}
+ */
+const PLAIN_VALUE_INPUT_HTML =
+    '<input type="text" class="pdt-input" data-prop="value" placeholder="Value" style="width: 100%;">';
+
+/**
+ * Editor for operators whose argument is a count rather than a column value, such as
+ * "Last X Days". The column may be a date, but the value is a number, so the column's own
+ * date picker would be the wrong control.
+ * @private @type {string}
+ */
+const NUMERIC_VALUE_INPUT_HTML =
+    '<input type="number" min="1" step="1" class="pdt-input" data-prop="value" placeholder="Number" style="width: 100%;">';
+
+/**
+ * Editors for operators that dictate their own argument type, keyed by the operator's `arg`.
+ *
+ * These override the column's editor. "Last X Days" needs a count even on a date column, and the
+ * whole-day functions need a date without a time — asking for a time the function ignores just
+ * invites the question of which time to enter.
+ * @private @type {Object<string, {type: string, html: string}>}
+ */
+const OPERATOR_ARG_INPUTS = {
+    number: { type: 'number', html: NUMERIC_VALUE_INPUT_HTML },
+    date: {
+        type: 'date',
+        html: '<input type="date" class="pdt-input" data-prop="value" style="width: 100%;">'
+    }
+};
 
 /**
  * Manages filter groups and conditions for query builders.
@@ -185,10 +218,9 @@ export class FilterGroupManager {
         const conditionGroup = document.createElement('div');
         conditionGroup.className = 'pdt-condition-grid';
 
-        const optionsHtml = FILTER_OPERATORS
-            .filter(op => op[this.operatorFilter])
-            .map(op => `<option value="${op[this.operatorFilter]}">${op.text}</option>`)
-            .join('');
+        // No column is known yet, so only type-agnostic operators are offered. Type-specific ones
+        // are added by _applyOperatorOptions once the column resolves.
+        const optionsHtml = this._buildOperatorOptions(null);
 
         conditionGroup.innerHTML = `
             <div class="pdt-input-with-button">
@@ -196,12 +228,109 @@ export class FilterGroupManager {
                 <button class="pdt-input-btn browse-condition-attr" title="Browse columns">${ICONS.inspector}</button>
             </div>
             <select class="pdt-select" data-prop="operator">${optionsHtml}</select>
-            <div class="pdt-value-container">
-                <input type="text" class="pdt-input" data-prop="value" placeholder="Value" style="width: 100%;">
-            </div>
+            <div class="pdt-value-container">${PLAIN_VALUE_INPUT_HTML}</div>
             <button class="modern-button danger secondary pdt-condition-remove">X</button>`;
 
         return conditionGroup;
+    }
+
+    /**
+     * Builds the operator `<option>` markup for a column type.
+     * @private
+     * @param {string|null} attrType - Resolved column category, or null when unknown
+     * @returns {string} Option markup
+     */
+    _buildOperatorOptions(attrType) {
+        return filterOperatorsFor(this.operatorFilter, attrType)
+            .map(op => `<option value="${op[this.operatorFilter]}">${op.text}</option>`)
+            .join('');
+    }
+
+    /**
+     * Narrows a column's metadata to the category used for operator filtering.
+     *
+     * Handles both shapes the callers supply: the compact attribute map (`{type: 'date'}`) and raw
+     * Dataverse metadata (`AttributeTypeName.Value === 'DateTimeType'`).
+     * @private
+     * @param {Object|null} attr - Column metadata
+     * @returns {string|null} Category, or null when it has no type-specific operators
+     */
+    _resolveOperatorCategory(attr) {
+        if (!attr) {
+            return null;
+        }
+        if (typeof attr.type === 'string') {
+            return attr.type;
+        }
+
+        const typeName = attr.AttributeTypeName?.Value || attr.AttributeType || '';
+        return /datetime/i.test(typeName) ? 'date' : null;
+    }
+
+    /**
+     * Rebuilds the operator list for the resolved column type.
+     *
+     * Keeps the current selection when it is still offered; otherwise falls back to the first
+     * option, so a date function can never be left selected on a column that has no such
+     * operator.
+     * @private
+     * @param {Object} elements - Condition elements
+     * @param {Object|null} attr - Column metadata, or null when the column is unknown
+     */
+    _applyOperatorOptions(elements, attr) {
+        const { operatorSelect } = elements;
+        if (!operatorSelect) {
+            return;
+        }
+
+        const previous = operatorSelect.value;
+        operatorSelect.innerHTML = this._buildOperatorOptions(this._resolveOperatorCategory(attr));
+
+        const stillOffered = [...operatorSelect.options].some(o => o.value === previous);
+        operatorSelect.value = stillOffered ? previous : (operatorSelect.options[0]?.value ?? '');
+
+        if (!stillOffered) {
+            // The operator changed underneath the user, so the value editor must follow it.
+            this._applyOperatorState(elements);
+        }
+    }
+
+    /**
+     * Replaces a type-specific editor with the plain one, leaving an already-plain editor alone.
+     *
+     * Detection re-runs on every keystroke, so an unconditional reset would wipe whatever the
+     * user is typing into the value box each time. Only the first pass, which discards the
+     * previous column's picker or dropdown, needs to touch it.
+     * @private
+     * @param {Object} elements - Condition elements
+     */
+    _resetTypeSpecificValueInput(elements) {
+        const current = elements.conditionGroup.querySelector('[data-prop="value"]');
+        const isPlainText = current?.tagName === 'INPUT'
+            && (current.type === 'text' || !current.type);
+
+        if (!isPlainText) {
+            this._resetValueInput(elements);
+        }
+    }
+
+    /**
+     * Restores the plain text value editor, discarding any type-specific input.
+     *
+     * Needed when the attribute is cleared: a picklist or lookup editor left behind would keep
+     * offering values from a column the condition no longer references.
+     * @private
+     * @param {Object} elements - Condition elements
+     */
+    _resetValueInput(elements) {
+        const { valueContainer } = elements;
+        if (!valueContainer) {
+            return;
+        }
+
+        valueContainer.innerHTML = PLAIN_VALUE_INPUT_HTML;
+        this._applyOperatorState(elements);
+        this.onUpdate();
     }
 
     /**
@@ -236,6 +365,8 @@ export class FilterGroupManager {
                 () => this.getEntityContext(),
                 async (attr) => {
                     attributeInput.value = attr.LogicalName;
+                    conditionGroup._attrMetadata = attr;
+                    this._applyOperatorOptions(elements, attr);
                     await this.renderValueInput(attr, conditionGroup, this.getEntityContext);
                     // Re-apply operator state to the new value input
                     this._applyOperatorState(elements);
@@ -268,23 +399,41 @@ export class FilterGroupManager {
         const detectAttributeType = async () => {
             const attrName = attributeInput.value.trim().toLowerCase();
 
-            if (attrName && attrName.length > 2 && this.getAttributeMetadata && !isLoadingMetadata) {
+            if (!attrName) {
+                this._resetValueInput(elements);
+                this._applyOperatorOptions(elements, null);
+            } else if (attrName.length > 2 && this.getAttributeMetadata && !isLoadingMetadata) {
                 isLoadingMetadata = true;
+                let resolved = null;
                 try {
                     const entityName = await this.getEntityContext();
                     if (entityName) {
-                        const attr = await this.getAttributeMetadata(attrName, entityName);
-                        if (attr) {
-                            await this.renderValueInput(attr, conditionGroup, this.getEntityContext);
-                            // Re-apply operator state to the new value input
-                            this._applyOperatorState(elements);
-                            this.onUpdate();
-                        }
+                        resolved = await this.getAttributeMetadata(attrName, entityName);
                     }
                 } catch (_error) {
                     // Silently fail - keep text input if metadata not available
                 } finally {
                     isLoadingMetadata = false;
+                }
+
+                // Applied even when the column did not resolve. Otherwise a name that matches
+                // nothing leaves the previous column's type-specific operators in the list.
+                this._applyOperatorOptions(elements, resolved);
+                conditionGroup._attrMetadata = resolved || null;
+
+                if (resolved) {
+                    try {
+                        await this.renderValueInput(resolved, conditionGroup, this.getEntityContext);
+                        // Re-apply operator state to the new value input
+                        this._applyOperatorState(elements);
+                        this.onUpdate();
+                    } catch (_error) {
+                        // Keep whatever editor is present if rendering fails
+                    }
+                } else {
+                    // The editor has to go with the operators: a date picker left behind belongs
+                    // to a column this condition no longer names.
+                    this._resetTypeSpecificValueInput(elements);
                 }
             }
 
@@ -364,32 +513,67 @@ export class FilterGroupManager {
      * @param {Object} elements - Condition elements
      */
     _setupOperatorChange(elements) {
-        const { conditionGroup, operatorSelect } = elements;
+        const { operatorSelect } = elements;
 
         const operatorChangeHandler = () => {
-            const shouldShow = shouldShowOperatorValue(operatorSelect.value);
-            const currentValueInput = conditionGroup.querySelector('[data-prop="value"]');
-
-            if (currentValueInput) {
-                currentValueInput.disabled = !shouldShow;
-                if (currentValueInput.tagName === 'INPUT') {
-                    const op = operatorSelect.value;
-                    if (op === 'in' || op === 'not-in') {
-                        currentValueInput.placeholder = 'val1,val2,val3';
-                    } else {
-                        currentValueInput.placeholder = shouldShow ? 'Value' : 'N/A';
-                    }
-                }
-                if (!shouldShow) {
-                    currentValueInput.value = '';
-                }
-            }
+            this._syncValueInputToOperator(elements);
+            // Shares _applyOperatorState rather than repeating the disabled/placeholder rules.
+            this._applyOperatorState(elements);
             this.onUpdate();
         };
 
         if (operatorSelect) {
             operatorSelect.addEventListener('change', operatorChangeHandler);
             this.handlers.set(operatorSelect, { event: 'change', handler: operatorChangeHandler });
+        }
+    }
+
+    /**
+     * Swaps the value editor when the operator expects a different kind of value than the column.
+     *
+     * "Last X Days" takes a count, so a date column's picker is wrong for it; switching back to a
+     * normal operator restores the column's own editor.
+     *
+     * Runs synchronously so the caller's disabled and placeholder handling is not delayed. When a
+     * column editor has to be rebuilt, a plain input goes in immediately and the metadata-driven
+     * control replaces it once ready.
+     * @private
+     * @param {Object} elements - Condition elements
+     */
+    _syncValueInputToOperator(elements) {
+        const { conditionGroup, valueContainer, operatorSelect } = elements;
+        if (!valueContainer) {
+            return;
+        }
+
+        const definition = findFilterOperator(operatorSelect?.value, this.operatorFilter);
+        const wanted = OPERATOR_ARG_INPUTS[definition?.arg];
+
+        const current = conditionGroup.querySelector('[data-prop="value"]');
+        const currentType = current?.tagName === 'INPUT' ? (current.type || 'text') : null;
+
+        if (wanted) {
+            // Switching between two operators with the same argument keeps the typed value.
+            if (currentType !== wanted.type) {
+                valueContainer.innerHTML = wanted.html;
+            }
+            return;
+        }
+
+        // The operator wants whatever the column itself uses, so only an editor this method
+        // forced earlier needs replacing.
+        const wasForced = Object.values(OPERATOR_ARG_INPUTS).some(i => i.type === currentType);
+        if (!wasForced) {
+            return;
+        }
+
+        valueContainer.innerHTML = PLAIN_VALUE_INPUT_HTML;
+
+        const attr = conditionGroup._attrMetadata;
+        if (attr && this.renderValueInput) {
+            Promise.resolve(this.renderValueInput(attr, conditionGroup, this.getEntityContext))
+                .then(() => this._applyOperatorState(elements))
+                .catch(() => { /* the plain editor above is already usable */ });
         }
     }
 

@@ -73,6 +73,71 @@ describe('AboutTab', () => {
         });
     });
 
+    describe('what\'s new', () => {
+        it('should group the current release by tab', async () => {
+            const element = await component.render();
+            const groups = [...element.querySelectorAll('.pdt-changelog-group')]
+                .map(g => g.textContent);
+
+            expect(groups.some(g => g.includes('AI Workbench'))).toBe(true);
+            expect(groups.some(g => g.includes('Metadata Browser'))).toBe(true);
+            expect(groups.some(g => g.includes('FetchXML Tester'))).toBe(true);
+            expect(groups.some(g => g.includes('WebAPI Explorer'))).toBe(true);
+        });
+
+        it('should mark the AI Workbench as a new tab', async () => {
+            const element = await component.render();
+            const workbench = [...element.querySelectorAll('.pdt-changelog-group')]
+                .find(g => g.textContent.includes('AI Workbench'));
+
+            expect(workbench.querySelector('.pdt-badge-small').textContent).toContain('New');
+        });
+
+        it('should not badge the AI Workbench as preview', async () => {
+            const element = await component.render();
+            const workbench = [...element.querySelectorAll('.pdt-changelog-group')]
+                .find(g => g.textContent.includes('AI Workbench'));
+
+            expect(workbench.textContent).not.toMatch(/preview/i);
+        });
+
+        it('should name a changed tab without an "enhanced" or "fixed" suffix', async () => {
+            const element = await component.render();
+            const metadata = [...element.querySelectorAll('.pdt-changelog-group')]
+                .find(g => g.textContent.includes('Metadata Browser'));
+
+            expect(metadata.textContent.trim()).toBe('Metadata Browser');
+            expect(metadata.querySelector('.pdt-badge-small')).toBeNull();
+        });
+
+        it('should name a group with no status suffix or badge', async () => {
+            const element = await component.render();
+            const groups = [...element.querySelectorAll('.pdt-changelog-group')];
+
+            groups.forEach(group => {
+                expect(group.textContent).not.toMatch(/—\s*(enhanced|fixed|new)/i);
+            });
+
+            // Only the new tab is badged; every other group is just the tab name.
+            const badged = groups.filter(g => g.querySelector('.pdt-badge-small'));
+            expect(badged).toHaveLength(1);
+            expect(badged[0].textContent).toContain('AI Workbench');
+        });
+
+        it('should list each tab once', async () => {
+            const element = await component.render();
+            const names = [...element.querySelectorAll('.pdt-changelog-group')]
+                .map(g => g.textContent.trim());
+
+            expect(new Set(names).size).toBe(names.length);
+        });
+
+        it('should still list the previous releases', async () => {
+            const element = await component.render();
+            expect(element.querySelector('.pdt-changelog-previous-releases')).toBeTruthy();
+        });
+    });
+
     describe('postRender', () => {
         it('should not throw when called', async () => {
             const element = await component.render();

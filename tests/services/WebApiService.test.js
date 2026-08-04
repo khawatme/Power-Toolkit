@@ -175,6 +175,29 @@ describe('WebApiService', () => {
             } catch (error) {
                 expect(error.status).toBe(404);
                 expect(error.response).toBeDefined();
+                // The Dataverse message is surfaced on error.message, not just the HTTP status.
+                expect(error.message).toContain('Resource not found');
+            }
+        });
+
+        it('should surface the full Dataverse message and code (e.g. dependency errors)', async () => {
+            const odataError = {
+                error: {
+                    code: '0x8004f01f',
+                    message: 'The bot(abc) component cannot be deleted because it is referenced by 6 other components.'
+                }
+            };
+            global.fetch.mockImplementationOnce(() => createFetchError(400, 'Bad Request', odataError));
+
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
+
+            try {
+                await WebApiService.webApiFetch('POST', 'bots(abc)/Microsoft.Dynamics.CRM.PvaDeleteBot', '', {}, {}, mockGetEntitySetName, mockGetLogicalName, null);
+                expect.fail('Should have thrown');
+            } catch (error) {
+                expect(error.message).toContain('HTTP 400 Bad Request');
+                expect(error.message).toContain('referenced by 6 other components');
+                expect(error.code).toBe('0x8004f01f');
             }
         });
 
@@ -188,6 +211,34 @@ describe('WebApiService', () => {
             const callArgs = global.fetch.mock.calls[0];
             expect(callArgs[0]).toContain('EntityDefinitions');
             expect(callArgs[0]).not.toContain('EntityDefinitionss');
+        });
+
+        it('should post unbound AI Builder actions without pluralizing them', async () => {
+            // AIModelPublish must be in DATAVERSE_SPECIAL_ENDPOINTS — otherwise the resolver turns
+            // it into "AIModelPublishs" and Dataverse answers 404 "Resource not found".
+            global.fetch.mockImplementationOnce(() => createFetchResponse({}));
+
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
+
+            await WebApiService.webApiFetch('POST', 'AIModelPublish', '', { ModelId: 'm-1' }, {}, mockGetEntitySetName, mockGetLogicalName, null);
+
+            const callArgs = global.fetch.mock.calls[0];
+            expect(callArgs[0]).toContain('AIModelPublish');
+            expect(callArgs[0]).not.toContain('AIModelPublishs');
+        });
+
+        it('should leave bound action paths untouched', async () => {
+            global.fetch.mockImplementationOnce(() => createFetchResponse({}));
+
+            const { mockGetEntitySetName, mockGetLogicalName } = createEntityMocks();
+
+            await WebApiService.webApiFetch(
+                'POST', 'msdyn_aiconfigurations(cfg-1)/Microsoft.Dynamics.CRM.QuickTest', '', {}, {},
+                mockGetEntitySetName, mockGetLogicalName, null
+            );
+
+            expect(global.fetch.mock.calls[0][0])
+                .toContain('msdyn_aiconfigurations(cfg-1)/Microsoft.Dynamics.CRM.QuickTest');
         });
 
         it('should handle queryString without leading ?', async () => {

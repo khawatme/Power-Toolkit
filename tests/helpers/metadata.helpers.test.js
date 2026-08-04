@@ -257,7 +257,7 @@ describe('Metadata Helpers', () => {
 
             await MetadataHelpers.showColumnBrowser(resolveEntityName, onSelect);
 
-            expect(NotificationService.show).toHaveBeenCalledWith('No entity selected', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('No entity selected', 'warn');
             expect(MetadataBrowserDialog.show).not.toHaveBeenCalled();
         });
 
@@ -267,7 +267,7 @@ describe('Metadata Helpers', () => {
 
             await MetadataHelpers.showColumnBrowser(resolveEntityName, onSelect);
 
-            expect(NotificationService.show).toHaveBeenCalledWith('Please enter a valid table name', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('Please enter a valid table name', 'warn');
         });
 
         it('should show notification with custom error message', async () => {
@@ -277,7 +277,7 @@ describe('Metadata Helpers', () => {
 
             await MetadataHelpers.showColumnBrowser(resolveEntityName, onSelect);
 
-            expect(NotificationService.show).toHaveBeenCalledWith('Custom validation error', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('Custom validation error', 'warn');
         });
 
         it('should not call onSelect when entity resolution fails', async () => {
@@ -295,7 +295,7 @@ describe('Metadata Helpers', () => {
 
             await MetadataHelpers.showColumnBrowser(resolveEntityName, onSelect);
 
-            expect(NotificationService.show).toHaveBeenCalledWith('Object error', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('Object error', 'warn');
         });
 
         it('should handle string thrown as error', async () => {
@@ -304,7 +304,7 @@ describe('Metadata Helpers', () => {
 
             await MetadataHelpers.showColumnBrowser(resolveEntityName, onSelect);
 
-            expect(NotificationService.show).toHaveBeenCalledWith('Please enter a valid table name', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('Please enter a valid table name', 'warn');
         });
 
         // Async behavior tests

@@ -111,6 +111,7 @@ vi.mock('../../src/helpers/file.helpers.js', () => {
     return {
         FileHelpers: {
             downloadJson: vi.fn(),
+            downloadText: vi.fn(),
             copyToClipboard: vi.fn(),
             createFileInputElement: vi.fn(),
             readJsonFile: vi.fn(() => Promise.resolve({}))
@@ -124,18 +125,29 @@ const mockFileInput = {
     addEventListener: vi.fn()
 };
 
-vi.mock('../../src/helpers/index.js', () => ({
-    throttle: vi.fn((fn) => {
-        const throttled = fn;
-        throttled.cancel = vi.fn();
-        return throttled;
-    }),
-    clearContainer: vi.fn((el) => { if (el) el.innerHTML = ''; }),
-    downloadJson: vi.fn(),
-    createFileInputElement: vi.fn(() => mockFileInput),
-    readJsonFile: vi.fn(() => Promise.resolve({})),
-    showConfirmDialog: vi.fn(() => Promise.resolve(true))
-}));
+// Escaping and color normalization use the real implementations — stubbing them would let a
+// double-escape or an unsanitized color pass unnoticed.
+vi.mock('../../src/helpers/index.js', async () => {
+    const { normalizeHexColor, isValidHexColor } = await vi.importActual('../../src/helpers/color.helpers.js');
+    const { StringHelpers } = await vi.importActual('../../src/helpers/string.helpers.js');
+
+    return {
+        throttle: vi.fn((fn) => {
+            const throttled = fn;
+            throttled.cancel = vi.fn();
+            return throttled;
+        }),
+        clearContainer: vi.fn((el) => { if (el) el.innerHTML = ''; }),
+        downloadJson: vi.fn(),
+        createFileInputElement: vi.fn(() => mockFileInput),
+        readJsonFile: vi.fn(() => Promise.resolve({})),
+        showConfirmDialog: vi.fn(() => Promise.resolve(true)),
+        escapeHtml: StringHelpers.escapeHtml.bind(StringHelpers),
+        escapeXml: StringHelpers.escapeXml.bind(StringHelpers),
+        normalizeHexColor,
+        isValidHexColor
+    };
+});
 
 import { SettingsTab } from '../../src/components/SettingsTab.js';
 import { Store } from '../../src/core/Store.js';
@@ -1247,6 +1259,13 @@ describe('SettingsTab', () => {
     });
 
     describe('_renderList edge cases', () => {
+        // This block replaces the registry implementation; without restoring it, every later test
+        // in the file silently renders one tab fewer.
+        afterEach(async () => {
+            const { ComponentRegistry } = await import('../../src/core/ComponentRegistry.js');
+            ComponentRegistry.get.mockImplementation((id) => ({ id, label: id }));
+        });
+
         it('should skip components not found in registry', async () => {
             const { ComponentRegistry } = await import('../../src/core/ComponentRegistry.js');
             ComponentRegistry.get.mockImplementation((id) => {
@@ -1933,6 +1952,126 @@ describe('SettingsTab', () => {
                 const badge = li.querySelector('.pdt-badge-small');
                 expect(badge).toBeFalsy();
             }
+        });
+    });
+
+    describe('tab colors', () => {
+        /**
+         * Renders the tab with the given tab settings in the store.
+         * @param {Array<object>} tabSettings - Settings to expose via the mocked store.
+         * @returns {Promise<HTMLElement>} The rendered root element.
+         */
+        const mount = async (tabSettings) => {
+            // Set the registry mapping explicitly so these cases don't inherit whatever a previous
+            // test left on the shared registry mock.
+            const { ComponentRegistry } = await import('../../src/core/ComponentRegistry.js');
+            ComponentRegistry.get.mockImplementation((id) => ({ id, label: id }));
+
+            Store.getState.mockReturnValue({
+                tabSettings,
+                headerButtonSettings: [],
+                preferences: {}
+            });
+            component = new SettingsTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            return element;
+        };
+
+        const row = (id) => component._listElement.querySelector(`li[data-tab-id="${id}"]`);
+
+        it('should render a color swatch for every tab', async () => {
+            await mount([...mockTabSettings]);
+
+            expect(component._listElement.querySelectorAll('.tab-color-input')).toHaveLength(mockTabSettings.length);
+        });
+
+        it('should mark an uncolored tab as unset and hide its clear button', async () => {
+            await mount([{ id: 'inspector', visible: true, color: null }]);
+
+            const input = row('inspector').querySelector('.tab-color-input');
+            expect(input.classList.contains('is-unset')).toBe(true);
+            expect(row('inspector').querySelector('.tab-color-clear').hidden).toBe(true);
+        });
+
+        it('should show a colored tab’s color and offer to clear it', async () => {
+            await mount([{ id: 'inspector', visible: true, color: '#1e90ff' }]);
+
+            const input = row('inspector').querySelector('.tab-color-input');
+            expect(input.value).toBe('#1e90ff');
+            expect(input.classList.contains('is-unset')).toBe(false);
+            expect(row('inspector').querySelector('.tab-color-clear').hidden).toBe(false);
+        });
+
+        it('should not show an invalid stored color as if it were applied', async () => {
+            await mount([{ id: 'inspector', visible: true, color: 'url(https://evil.test/x)' }]);
+
+            const input = row('inspector').querySelector('.tab-color-input');
+            expect(input.classList.contains('is-unset')).toBe(true);
+            expect(input.value).not.toContain('url');
+        });
+
+        it('should save a picked color to the store', async () => {
+            await mount([{ id: 'inspector', visible: true, color: null }]);
+
+            const input = row('inspector').querySelector('.tab-color-input');
+            input.value = '#ff0000';
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(Store.setState).toHaveBeenCalledWith({
+                tabSettings: [{ id: 'inspector', visible: true, color: '#ff0000' }]
+            });
+        });
+
+        it('should clear a color when the clear button is pressed', async () => {
+            await mount([{ id: 'inspector', visible: true, color: '#ff0000' }]);
+
+            row('inspector').querySelector('.tab-color-clear').click();
+
+            expect(Store.setState).toHaveBeenCalledWith({
+                tabSettings: [{ id: 'inspector', visible: true, color: null }]
+            });
+        });
+
+        it('should only recolor the tab that was changed', async () => {
+            await mount([
+                { id: 'inspector', visible: true, color: null },
+                { id: 'formColumns', visible: true, color: '#00ff00' }
+            ]);
+
+            const input = row('inspector').querySelector('.tab-color-input');
+            input.value = '#0000ff';
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(Store.setState).toHaveBeenCalledWith({
+                tabSettings: [
+                    { id: 'inspector', visible: true, color: '#0000ff' },
+                    { id: 'formColumns', visible: true, color: '#00ff00' }
+                ]
+            });
+        });
+
+        it('should not touch the store when a visibility toggle changes', async () => {
+            await mount([{ id: 'inspector', visible: true, color: '#ff0000' }]);
+            Store.setState.mockClear();
+
+            const toggle = row('inspector').querySelector('.tab-visibility-toggle');
+            toggle.checked = false;
+            toggle.dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(Store.setState).toHaveBeenCalledTimes(1);
+            expect(Store.setState.mock.calls[0][0].tabSettings[0].color).toBe('#ff0000');
+        });
+
+        it('should include tab colors in exported settings', async () => {
+            await mount([{ id: 'inspector', visible: true, color: '#ff0000' }]);
+
+            component._exportSettings();
+
+            const exported = FileHelpers.downloadJson.mock.calls[0]?.[0]
+                ?? (await import('../../src/helpers/index.js')).downloadJson.mock.calls[0][0];
+            expect(exported.tabSettings[0].color).toBe('#ff0000');
         });
     });
 });

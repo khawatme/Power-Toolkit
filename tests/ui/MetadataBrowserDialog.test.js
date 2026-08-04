@@ -293,7 +293,7 @@ describe('MetadataBrowserDialog', () => {
 
                 // Trigger search - note: search uses debounce so might need to simulate
                 searchInput.value = 'account';
-                searchInput.dispatchEvent(new Event('keyup'));
+                searchInput.dispatchEvent(new Event('input'));
 
                 // Wait for debounce (the actual filtering is async/debounced)
                 await new Promise(resolve => setTimeout(resolve, 250));
@@ -483,7 +483,7 @@ describe('MetadataBrowserDialog', () => {
                 const searchInput = dialogContent.querySelector('#pdt-metadata-search');
 
                 searchInput.value = '.*+?^${}()|[]\\';
-                searchInput.dispatchEvent(new Event('keyup'));
+                searchInput.dispatchEvent(new Event('input'));
 
                 // Should not throw error
             });
@@ -504,7 +504,7 @@ describe('MetadataBrowserDialog', () => {
                 // Rapid input changes
                 for (let i = 0; i < 10; i++) {
                     searchInput.value = 'a'.repeat(i);
-                    searchInput.dispatchEvent(new Event('keyup'));
+                    searchInput.dispatchEvent(new Event('input'));
                 }
 
                 // Should not throw and should debounce properly

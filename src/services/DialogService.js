@@ -31,6 +31,9 @@ export const DialogService = {
      * @param {object} [options] - Additional dialog options.
      * @param {string} [options.okText='OK'] - Custom text for the OK button.
      * @param {string} [options.cancelText='Close'] - Custom text for the Cancel button.
+     * @param {() => void} [options.onClose] - Called once when the dialog closes for any reason
+     * (Cancel, Close, backdrop, Esc, after OK, or a programmatic `close()`). Useful for reopening a
+     * parent dialog this one replaced, since the app shows one modal at a time.
      * @returns {{close: () => void}} An object with a `close` method to programmatically close the dialog.
      */
     show(title, contentHTML, callback = null, options = {}) {
@@ -72,10 +75,19 @@ export const DialogService = {
         const cancelButton = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.cancelBtn}`);
         const closeButton = dialogOverlay.querySelector(`.${Config.DIALOG_CLASSES.closeBtn}`);
 
+        const onClose = typeof options.onClose === 'function' ? options.onClose : null;
+        let closed = false;
         const close = () => {
+            if (closed) {
+                return;
+            }
+            closed = true;
             dialogOverlay.remove();
             // eslint-disable-next-line no-use-before-define
             document.removeEventListener('keydown', handleEscKey);
+            if (onClose) {
+                onClose();
+            }
         };
 
         const handleEscKey = (e) => {

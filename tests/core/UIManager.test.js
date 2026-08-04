@@ -330,6 +330,39 @@ describe('UIManager', () => {
             expect(() => UIManager.updateNavTabs()).toThrow();
         });
 
+        // Per-tab accent colors (Settings → Tab Configuration).
+        it('should paint a tab that has a color', () => {
+            Store.getState.mockReturnValueOnce({
+                theme: 'dark',
+                tabSettings: [{ id: 'inspector', visible: true, color: '#1e90ff' }],
+                headerButtonSettings: [],
+                dimensions: {},
+                isMinimized: false
+            });
+
+            UIManager.updateNavTabs();
+
+            const button = UIManager.dialog.querySelector('.pdt-nav-tab[data-tab-id="inspector"]');
+            expect(button.classList.contains('pdt-nav-tab--colored')).toBe(true);
+            expect(button.style.getPropertyValue('--pdt-tab-color')).toBe('#1e90ff');
+        });
+
+        it('should leave an uncolored tab unstyled', () => {
+            Store.getState.mockReturnValueOnce({
+                theme: 'dark',
+                tabSettings: [{ id: 'inspector', visible: true, color: null }],
+                headerButtonSettings: [],
+                dimensions: {},
+                isMinimized: false
+            });
+
+            UIManager.updateNavTabs();
+
+            const button = UIManager.dialog.querySelector('.pdt-nav-tab[data-tab-id="inspector"]');
+            expect(button.classList.contains('pdt-nav-tab--colored')).toBe(false);
+            expect(button.style.getPropertyValue('--pdt-tab-color')).toBe('');
+        });
+
         it('should not throw when navigation container is missing', () => {
             UIManager.dialog = document.createElement('div');
             expect(() => UIManager.updateNavTabs()).not.toThrow();
@@ -392,6 +425,21 @@ describe('UIManager', () => {
             // Tab should be removed from cache (then re-added by _showTab)
             // Just verify no error was thrown and activeTabId is still set
             expect(UIManager.activeTabId).toBe('inspector');
+        });
+
+        it('should re-evaluate the nav tabs against the current form context on refresh', () => {
+            // Refresh must rebuild the tab list so form-only tabs surface after a record opens.
+            UIManager.activeTabId = 'inspector';
+            const navSpy = vi.spyOn(UIManager, 'updateNavTabs');
+            const headerSpy = vi.spyOn(UIManager, '_updateHeaderButtons');
+
+            UIManager.refreshActiveTab(false);
+
+            expect(navSpy).toHaveBeenCalled();
+            expect(headerSpy).toHaveBeenCalled();
+
+            navSpy.mockRestore();
+            headerSpy.mockRestore();
         });
     });
 
@@ -1952,7 +2000,9 @@ describe('UIManager', () => {
         });
 
         it('should restore dimensions on dialog show', () => {
-            Store.getState.mockReturnValue({
+            // mockReturnValueOnce (not mockReturnValue) so this state — notably tabSettings: [] —
+            // does not leak into later tests, since the shared beforeEach only clears call history.
+            Store.getState.mockReturnValueOnce({
                 theme: 'dark',
                 tabSettings: [],
                 dimensions: {

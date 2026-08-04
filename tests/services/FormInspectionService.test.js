@@ -4,7 +4,7 @@
  * @description Tests for form hierarchy, columns, and event handler inspection
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Mock dependencies first
 vi.mock('../../src/services/PowerAppsApiService.js', () => ({
@@ -733,6 +733,311 @@ describe('FormInspectionService', () => {
         });
     });
 
+    describe('getPerformanceDetails composition snapshot', () => {
+        /**
+         * Builds a mock control.
+         * @param {string} type - The value getControlType returns.
+         * @returns {object} A control stub.
+         */
+        const control = (type) => ({ getControlType: vi.fn(() => type) });
+
+        /**
+         * Builds a mock tab.
+         * @param {object} config - Tab configuration.
+         * @param {string} config.name - Tab name.
+         * @param {string} [config.label] - Tab label.
+         * @param {string} [config.displayState] - 'expanded' or 'collapsed'.
+         * @param {boolean} [config.visible] - Tab visibility.
+         * @param {object[]} [config.controls] - Controls on the tab.
+         * @returns {object} A tab stub.
+         */
+        const tab = ({ name, label = name, displayState = 'expanded', visible = true, controls = [] }) => ({
+            getName: vi.fn(() => name),
+            getLabel: vi.fn(() => label),
+            getVisible: vi.fn(() => visible),
+            getDisplayState: vi.fn(() => displayState),
+            sections: { get: vi.fn(() => [{ controls: { get: vi.fn(() => controls) } }]) }
+        });
+
+        /**
+         * Wires the Xrm stubs and runs the snapshot.
+         * @param {object[]} tabs - Tab stubs.
+         * @param {object[]} [allControls] - What getAllControls returns.
+         * @returns {object} The performance details.
+         */
+        const snapshot = (tabs, allControls = []) => {
+            vi.spyOn(PowerAppsApiService, 'getPerformanceInfo').mockReturnValue(null);
+            vi.spyOn(PowerAppsApiService, 'getAllTabs').mockReturnValue(tabs);
+            vi.spyOn(PowerAppsApiService, 'getAllControls').mockReturnValue(allControls);
+            vi.spyOn(PowerAppsApiService, 'getAllAttributes').mockReturnValue([]);
+            global.performance = { getEntriesByType: vi.fn(() => []) };
+            return FormInspectionService.getPerformanceDetails();
+        };
+
+        it('should count columns from bound attributes, not from controls', () => {
+            // The documented mobile limit is stated in columns; a subgrid is a control but not a
+            // column, so counting controls would over-report.
+            vi.spyOn(PowerAppsApiService, 'getPerformanceInfo').mockReturnValue(null);
+            vi.spyOn(PowerAppsApiService, 'getAllTabs').mockReturnValue([]);
+            vi.spyOn(PowerAppsApiService, 'getAllControls')
+                .mockReturnValue([control('standard'), control('standard'), control('subgrid')]);
+            vi.spyOn(PowerAppsApiService, 'getAllAttributes')
+                .mockReturnValue([{ getOnChange: () => [] }, { getOnChange: () => [] }]);
+            global.performance = { getEntriesByType: vi.fn(() => []) };
+
+            const result = FormInspectionService.getPerformanceDetails();
+
+            expect(result.uiCounts.controls).toBe(3);
+            expect(result.uiCounts.columns).toBe(2);
+        });
+
+        it('should tally control types across the whole form', () => {
+            const result = snapshot([], [control('standard'), control('subgrid'), control('subgrid')]);
+
+            expect(result.controlTypes).toEqual({ standard: 1, subgrid: 2 });
+        });
+
+        it('should strip the component name from a custom control type', () => {
+            // Xrm reports custom controls as "customsubgrid: MscrmControls.Grid.X".
+            const result = snapshot([], [control('customsubgrid: MscrmControls.Grid.X')]);
+
+            expect(result.controlTypes).toEqual({ customsubgrid: 1 });
+        });
+
+        it('should ignore a control that throws while reporting its type', () => {
+            const broken = {
+                getControlType: vi.fn(() => {
+                    throw new Error('not ready');
+                })
+            };
+
+            expect(() => snapshot([], [broken, control('standard')])).not.toThrow();
+            expect(snapshot([], [broken, control('standard')]).controlTypes).toEqual({ standard: 1 });
+        });
+
+        it('should pick the first expanded visible tab as the default tab', () => {
+            const result = snapshot([
+                tab({ name: 'hidden', visible: false }),
+                tab({ name: 'collapsed', displayState: 'collapsed' }),
+                tab({ name: 'general', label: 'General' }),
+                tab({ name: 'later' })
+            ]);
+
+            expect(result.defaultTab.name).toBe('general');
+            expect(result.defaultTab.label).toBe('General');
+        });
+
+        it('should return no default tab when nothing is expanded', () => {
+            const result = snapshot([tab({ name: 'a', displayState: 'collapsed' })]);
+
+            expect(result.defaultTab).toBeNull();
+        });
+
+        it('should split the default tab controls into data-driven and deferrable', () => {
+            const result = snapshot([
+                tab({
+                    name: 'general',
+                    controls: [
+                        control('standard'),
+                        control('subgrid'),
+                        control('quickform'),
+                        control('iframe'),
+                        control('webresource')
+                    ]
+                })
+            ]);
+
+            expect(result.defaultTab.controls).toBe(5);
+            expect(result.defaultTab.dataControls).toEqual({ subgrid: 1, quickform: 1 });
+            expect(result.defaultTab.deferrable).toEqual({ iframe: 1, webresource: 1 });
+        });
+
+        it('should count only the default tab, not the whole form', () => {
+            const result = snapshot([
+                tab({ name: 'general', controls: [control('subgrid')] }),
+                tab({ name: 'other', controls: [control('subgrid'), control('subgrid')] })
+            ]);
+
+            expect(result.defaultTab.dataControls).toEqual({ subgrid: 1 });
+        });
+
+        it('should fall back to a readable label when the tab has none', () => {
+            const bare = {
+                getName: vi.fn(() => 'tab_1'),
+                getLabel: vi.fn(() => ''),
+                getVisible: vi.fn(() => true),
+                getDisplayState: vi.fn(() => 'expanded'),
+                sections: { get: vi.fn(() => []) }
+            };
+
+            expect(snapshot([bare]).defaultTab.label).toBe('tab_1');
+        });
+
+        it('should skip a tab that throws while reporting its display state', () => {
+            const broken = {
+                getVisible: vi.fn(() => true),
+                getDisplayState: vi.fn(() => {
+                    throw new Error('detached');
+                })
+            };
+            const result = snapshot([broken, tab({ name: 'general' })]);
+
+            expect(result.defaultTab.name).toBe('general');
+        });
+    });
+
+    describe('getFormScriptSources', () => {
+        beforeEach(() => {
+            // Libraries is an array of plain strings — see _addLibrary. Mocking it as objects hid
+            // a bug where every library was filtered out and the scan silently found nothing.
+            vi.spyOn(FormInspectionService, 'getFormEventHandlersForEntity').mockResolvedValue({
+                Libraries: ['new_/a.js', 'new_/b.js']
+            });
+        });
+
+        // These spies replace the service's own methods, so they must be put back or every later
+        // suite that calls the real ones inherits the stub.
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('should return the source of every library', async () => {
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation((_fn, name) => Promise.resolve({ name, content: `// ${name}` }));
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts).toHaveLength(2);
+            expect(result.scripts[0]).toEqual({ name: 'new_/a.js', source: '// new_/a.js' });
+            expect(result.skipped).toEqual([]);
+        });
+
+        it('should de-duplicate a library shared by several forms', async () => {
+            FormInspectionService.getFormEventHandlersForEntity.mockResolvedValue({
+                Libraries: ['new_/a.js', 'new_/a.js']
+            });
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockResolvedValue({ name: 'new_/a.js', content: 'x' });
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts).toHaveLength(1);
+        });
+
+        it('should report a library it could not read rather than treating it as clean', async () => {
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation((_fn, name) => (name === 'new_/a.js'
+                    ? Promise.resolve({ name, content: 'x' })
+                    : Promise.resolve(null)));
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts).toHaveLength(1);
+            expect(result.skipped).toEqual(['new_/b.js']);
+        });
+
+        it('should keep going when one library throws', async () => {
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation((_fn, name) => (name === 'new_/a.js'
+                    ? Promise.reject(new Error('403'))
+                    : Promise.resolve({ name, content: 'x' })));
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.skipped).toEqual(['new_/a.js']);
+            expect(result.scripts).toHaveLength(1);
+        });
+
+        it('should return empty results when the forms load no libraries', async () => {
+            FormInspectionService.getFormEventHandlersForEntity.mockResolvedValue({ Libraries: [] });
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result).toEqual({ scripts: [], skipped: [], system: 0 });
+        });
+
+        it('should read the libraries in parallel rather than one round trip at a time', async () => {
+            let inFlight = 0;
+            let peak = 0;
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation(async (_fn, name) => {
+                    inFlight += 1;
+                    peak = Math.max(peak, inFlight);
+                    await Promise.resolve();
+                    inFlight -= 1;
+                    return { name, content: 'x' };
+                });
+
+            await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(peak).toBe(2);
+        });
+
+        it('should keep the library order stable regardless of which read settles first', async () => {
+            // Findings name the libraries they came from, so the order must not depend on latency.
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation((_fn, name) => (name === 'new_/a.js'
+                    // The first library resolves last.
+                    ? new Promise(resolve => setTimeout(() => resolve({ name, content: 'x' }), 5))
+                    : Promise.resolve({ name, content: 'x' })));
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts.map(s => s.name)).toEqual(['new_/a.js', 'new_/b.js']);
+        });
+
+        it('should skip managed libraries instead of reviewing code nobody can change', async () => {
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockImplementation((_fn, name) => Promise.resolve({
+                    name,
+                    content: 'console.log(1);',
+                    isManaged: name === 'new_/b.js'
+                }));
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts.map(s => s.name)).toEqual(['new_/a.js']);
+            expect(result.system).toBe(1);
+            // A managed library is deliberately excluded, not an unreadable one.
+            expect(result.skipped).toEqual([]);
+        });
+
+        it('should read the string library names the parser actually produces', async () => {
+            // Regression: getFormEventHandlersForEntity returns Libraries as strings. Reading a
+            // .name off them filtered every library out, so the scan always reported "no scripts".
+            FormInspectionService.getFormEventHandlersForEntity.mockRestore();
+            const retrieveMultiple = vi.fn().mockResolvedValue({
+                entities: [{
+                    formid: 'f1',
+                    name: 'Main',
+                    type: 2,
+                    formxml: '<form><formLibraries><Library name="new_/real.js" /></formLibraries></form>'
+                }]
+            });
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockResolvedValue({ name: 'new_/real.js', content: 'var a = 1;' });
+
+            const result = await FormInspectionService.getFormScriptSources(
+                retrieveMultiple, vi.fn(), 'account'
+            );
+
+            expect(result.scripts).toEqual([{ name: 'new_/real.js', source: 'var a = 1;' }]);
+        });
+
+        it('should treat an empty web resource as readable', async () => {
+            FormInspectionService.getFormEventHandlersForEntity.mockResolvedValue({
+                Libraries: ['new_/empty.js']
+            });
+            vi.spyOn(FormInspectionService, 'getWebResourceByName')
+                .mockResolvedValue({ name: 'new_/empty.js', content: '' });
+
+            const result = await FormInspectionService.getFormScriptSources(vi.fn(), vi.fn(), 'account');
+
+            expect(result.scripts).toEqual([{ name: 'new_/empty.js', source: '' }]);
+            expect(result.skipped).toEqual([]);
+        });
+    });
+
     describe('_getFormIdReliably edge cases', () => {
         it('should return null when Xrm throws an exception', async () => {
             // Set up Xrm to throw an error when accessing formSelector
@@ -1000,7 +1305,7 @@ describe('FormInspectionService', () => {
             expect(result.Other[0].field).toBe('parentcustomerid');
             expect(result.Other[0].eventType).toBe('setadditionalparams');
             expect(result.Other[0].enabled).toBe(true);
-            expect(result.Other[0].managed).toBe(true);
+            expect(result.Other[0].internal).toBe(true);
         });
 
         it('should parse clientresources for internaljscriptfile entries', async () => {
@@ -1029,15 +1334,14 @@ describe('FormInspectionService', () => {
             expect(result.Libraries[0]).toBe('AppCommon/Contact/Contact_main_system_library.js');
         });
 
-        it('should parse clientresources for regular jscriptfile entries', async () => {
+        // The FormXML schema puts a form's script libraries in <formLibraries><Library name=…/>.
+        it('should parse formLibraries entries — where the schema actually puts form scripts', async () => {
             const formXml = `
                 <form>
-                    <clientresources>
-                        <clientincludes>
-                            <jscriptfile src="$webresource:new_/scripts/account.js" />
-                            <jscriptfile src="$webresource:new_/scripts/common.js" />
-                        </clientincludes>
-                    </clientresources>
+                    <formLibraries>
+                        <Library name="new_/scripts/account.js" libraryUniqueId="{11111111-1111-1111-1111-111111111111}" />
+                        <Library name="new_/scripts/common.js" libraryUniqueId="{22222222-2222-2222-2222-222222222222}" />
+                    </formLibraries>
                 </form>
             `;
 
@@ -1058,10 +1362,10 @@ describe('FormInspectionService', () => {
         it('should not duplicate library entries', async () => {
             const formXml = `
                 <form>
+                    <formLibraries>
+                        <Library name="my_script.js" libraryUniqueId="{11111111-1111-1111-1111-111111111111}" />
+                    </formLibraries>
                     <clientresources>
-                        <clientincludes>
-                            <jscriptfile src="$webresource:my_script.js" />
-                        </clientincludes>
                         <internalresources>
                             <clientincludes>
                                 <internaljscriptfile src="$webresource:my_script.js" />
@@ -1291,10 +1595,10 @@ describe('FormInspectionService', () => {
 
         it('should extract FormLibraries from formjson', async () => {
             const formjson = JSON.stringify({
-                FormLibraries: [
-                    { name: '$webresource:pt_FormLogic.js' },
-                    { name: 'other_script.js' }
-                ]
+                FormLibraries: {
+                    $type: 'System.String[], mscorlib',
+                    $values: ['$webresource:pt_FormLogic.js', 'other_script.js']
+                }
             });
 
             const retrieveMultipleRecords = vi.fn().mockResolvedValue({
@@ -1310,10 +1614,11 @@ describe('FormInspectionService', () => {
             expect(result.Libraries[1]).toBe('other_script.js');
         });
 
-        it('should extract ClientResources JsFiles from formjson', async () => {
+        it('should extract ClientResources from formjson', async () => {
             const formjson = JSON.stringify({
                 ClientResources: {
-                    JsFiles: ['$webresource:lib1.js', 'lib2.js']
+                    $type: 'System.String[], mscorlib',
+                    $values: ['$webresource:lib1.js', 'lib2.js']
                 }
             });
 
@@ -1328,6 +1633,203 @@ describe('FormInspectionService', () => {
             expect(result.Libraries).toHaveLength(2);
             expect(result.Libraries[0]).toBe('lib1.js');
             expect(result.Libraries[1]).toBe('lib2.js');
+        });
+
+        // ───────────────────────────────────────────────────────────────
+        // Real Dataverse formjson: a .NET-serialized descriptor tree where every collection is
+        // {$type, $values} and handlers hang off `EventHandlers` carrying their own `EventName`.
+        // Fixtures below mirror payloads captured from a live environment (contact + invoice main
+        // forms) — hand-rolled plain-array shapes used to pass here while parsing nothing at all.
+        // ───────────────────────────────────────────────────────────────
+        describe('real formjson descriptor shape', () => {
+            const values = (type, items) => ({
+                $type: `Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.${type}[], Microsoft.Crm.ObjectModel`,
+                $values: items
+            });
+
+            const handler = (eventName, overrides = {}) => ({
+                $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.EventHandlerDescriptor, Microsoft.Crm.ObjectModel',
+                EventName: eventName,
+                FunctionName: 'Contact.onLoad',
+                LibraryName: '$webresource:new_/scripts/contact.js',
+                HandlerUniqueId: '{5f5a0a9e-0000-0000-0000-000000000001}',
+                Enabled: true,
+                PassExecutionContext: true,
+                Parameters: '',
+                ...overrides
+            });
+
+            /**
+             * Builds a formjson string in the exact wrapper shape Dataverse returns.
+             * @param {{formHandlers?: Array, control?: object, libraries?: Array}} parts - Content to embed.
+             * @returns {string} Serialized formjson.
+             */
+            const buildFormJson = ({ formHandlers = [], control = null, libraries = [] } = {}) => JSON.stringify({
+                $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.Form, Microsoft.Crm.ObjectModel',
+                FormId: '2d86b7bf-aa03-ef11-9f89-002248141b39',
+                EntityLogicalName: null,
+                Tabs: values('Tab', [{
+                    $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.Tab, Microsoft.Crm.ObjectModel',
+                    Name: 'SUMMARY_TAB',
+                    Columns: values('Column', [{
+                        Sections: values('Section', [{
+                            Rows: values('Row', [{
+                                Cells: values('Cell', [{
+                                    Control: control || {
+                                        $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.CustomControl, Microsoft.Crm.ObjectModel',
+                                        DataFieldName: 'customerid',
+                                        Id: 'customerid',
+                                        EventHandlers: values('EventHandlerDescriptor', [])
+                                    }
+                                }])
+                            }])
+                        }])
+                    }])
+                }]),
+                HiddenFields: values('Control', []),
+                EventHandlers: values('EventHandlerDescriptor', formHandlers),
+                FormLibraries: { $type: 'System.String[], mscorlib', $values: libraries },
+                ClientResources: { $type: 'System.String[], mscorlib', $values: [] },
+                FormType: 2
+            });
+
+            /**
+             * Runs the entity parser over a single form definition.
+             * @param {object} form - systemform row fields.
+             * @returns {Promise<object>} Parsed automations.
+             */
+            const parse = (form) => FormInspectionService.getFormEventHandlersForEntity(
+                vi.fn().mockResolvedValue({ entities: [{ formid: 'form-real', ...form }] }),
+                vi.fn(),
+                'contact'
+            );
+
+            it('should read form-level handlers out of the $values wrapper', async () => {
+                const result = await parse({
+                    formjson: buildFormJson({
+                        formHandlers: [
+                            handler('onload'),
+                            handler('onsave', { FunctionName: 'Contact.onSave', PassExecutionContext: false })
+                        ]
+                    })
+                });
+
+                expect(result.OnLoad).toHaveLength(1);
+                expect(result.OnLoad[0].function).toBe('Contact.onLoad');
+                expect(result.OnLoad[0].library).toBe('new_/scripts/contact.js');
+                expect(result.OnLoad[0].passContext).toBe(true);
+                expect(result.OnSave).toHaveLength(1);
+                expect(result.OnSave[0].function).toBe('Contact.onSave');
+            });
+
+            it('should read control handlers and attribute them to the column', async () => {
+                const result = await parse({
+                    formjson: buildFormJson({
+                        control: {
+                            $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.CustomControl, Microsoft.Crm.ObjectModel',
+                            DataFieldName: 'm8_vatid',
+                            Id: 'm8_vatid',
+                            EventHandlers: values('EventHandlerDescriptor', [
+                                handler('onchange', { FunctionName: 'Invoice.vatChanged' })
+                            ])
+                        }
+                    })
+                });
+
+                expect(result.OnChange).toHaveLength(1);
+                expect(result.OnChange[0].function).toBe('Invoice.vatChanged');
+                expect(result.OnChange[0].field).toBe('m8_vatid');
+            });
+
+            it('should unwrap FormLibraries strings', async () => {
+                const result = await parse({
+                    formjson: buildFormJson({ libraries: ['$webresource:new_/scripts/contact.js', 'shared.js'] })
+                });
+
+                expect(result.Libraries).toEqual(['new_/scripts/contact.js', 'shared.js']);
+            });
+
+            it('should surface a handler whose event cannot be identified instead of dropping it', async () => {
+                const result = await parse({
+                    formjson: buildFormJson({
+                        formHandlers: [{ FunctionName: 'Mystery.run', LibraryName: 'mystery.js' }]
+                    })
+                });
+
+                expect(result.Other).toHaveLength(1);
+                expect(result.Other[0].function).toBe('Mystery.run');
+                expect(result.Other[0].eventType).toBe('unknown');
+            });
+
+            it('should treat a handler as enabled unless Enabled is explicitly false', async () => {
+                const result = await parse({
+                    formjson: buildFormJson({
+                        formHandlers: [
+                            handler('onload', { Enabled: undefined }),
+                            handler('onsave', { FunctionName: 'Contact.onSave', Enabled: false })
+                        ]
+                    })
+                });
+
+                expect(result.OnLoad[0].enabled).toBe(true);
+                expect(result.OnSave[0].enabled).toBe(false);
+            });
+
+            it('should parse a live form whose handler collections are all empty without error', async () => {
+                const result = await parse({ formjson: buildFormJson() });
+
+                expect(result.OnLoad).toEqual([]);
+                expect(result.OnSave).toEqual([]);
+                expect(result.OnChange).toEqual([]);
+                expect(result.Other).toEqual([]);
+                expect(result.Libraries).toEqual([]);
+            });
+        });
+
+        it('should keep the same function registered on two different events', async () => {
+            const formXml = `
+                <form>
+                    <events>
+                        <event name="onload">
+                            <Handler libraryName="shared.js" functionName="Form.init" enabled="true"/>
+                        </event>
+                        <event name="onsave">
+                            <Handler libraryName="shared.js" functionName="Form.init" enabled="true"/>
+                        </event>
+                    </events>
+                </form>
+            `;
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                vi.fn().mockResolvedValue({ entities: [{ formid: 'form-1', formxml: formXml }] }),
+                vi.fn(),
+                'contact'
+            );
+
+            expect(result.OnLoad).toHaveLength(1);
+            expect(result.OnSave).toHaveLength(1);
+        });
+
+        it('should treat a handler without an enabled attribute as enabled', async () => {
+            const formXml = `
+                <form>
+                    <events>
+                        <event name="onload">
+                            <Handler libraryName="shared.js" functionName="Form.init"/>
+                            <Handler libraryName="shared.js" functionName="Form.off" enabled="false"/>
+                        </event>
+                    </events>
+                </form>
+            `;
+
+            const result = await FormInspectionService.getFormEventHandlersForEntity(
+                vi.fn().mockResolvedValue({ entities: [{ formid: 'form-1', formxml: formXml }] }),
+                vi.fn(),
+                'contact'
+            );
+
+            expect(result.OnLoad[0].enabled).toBe(true);
+            expect(result.OnLoad[1].enabled).toBe(false);
         });
 
         it('should deduplicate handlers from formxml and formjson', async () => {
@@ -1358,6 +1860,124 @@ describe('FormInspectionService', () => {
             );
 
             expect(result.OnLoad).toHaveLength(1);
+        });
+
+        describe('form coverage and attribution', () => {
+            const onLoadXml = (fn, lib = 'shared.js') => `
+                <form><events>
+                    <event name="onload"><Handler libraryName="${lib}" functionName="${fn}" enabled="true"/></event>
+                </events></form>
+            `;
+
+            it('should query every form kind that can carry handlers, not just Main', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [{ formid: 'f1', name: 'Information', type: 2, formxml: onLoadXml('a') }]
+                });
+
+                await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                const query = retrieveMultipleRecords.mock.calls[0][1];
+                expect(query).toContain('type eq 2');
+                expect(query).toContain('type eq 6');
+                expect(query).toContain('type eq 7');
+                expect(query).toContain('type eq 11');
+                expect(query).toContain('$select=formid,name,type,formxml,formjson');
+            });
+
+            it('should escape a quote in the entity name rather than breaking the filter', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({ entities: [] });
+
+                await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), "o'brien"
+                );
+
+                expect(retrieveMultipleRecords.mock.calls[0][1]).toContain("objecttypecode eq 'o''brien'");
+            });
+
+            it('should summarize the forms it scanned', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [
+                        { formid: 'f1', name: 'Information', type: 2, formxml: onLoadXml('a') },
+                        { formid: 'f2', name: 'Contact Card', type: 11, formxml: onLoadXml('b') }
+                    ]
+                });
+
+                const result = await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                expect(result.forms).toEqual([
+                    { id: 'f1', name: 'Information', type: 2, typeLabel: 'Main' },
+                    { id: 'f2', name: 'Contact Card', type: 11, typeLabel: 'Card' }
+                ]);
+            });
+
+            it('should fall back to the type label when a form has no name', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [{ formid: 'f1', type: 7, formxml: onLoadXml('a') }]
+                });
+
+                const result = await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                expect(result.forms[0].name).toBe('Quick Create');
+            });
+
+            it('should attribute each handler to the form it came from', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [
+                        { formid: 'f1', name: 'Information', type: 2, formxml: onLoadXml('Contact.init') },
+                        { formid: 'f2', name: 'Contact Card', type: 11, formxml: onLoadXml('Card.init') }
+                    ]
+                });
+
+                const result = await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                expect(result.OnLoad).toHaveLength(2);
+                expect(result.OnLoad[0].forms).toEqual(['Information']);
+                expect(result.OnLoad[1].forms).toEqual(['Contact Card']);
+            });
+
+            it('should list a shared handler once, naming every form it appears on', async () => {
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [
+                        { formid: 'f1', name: 'Information', type: 2, formxml: onLoadXml('Contact.init') },
+                        { formid: 'f2', name: 'Contact Card', type: 11, formxml: onLoadXml('Contact.init') },
+                        { formid: 'f3', name: 'Quick Create Contact', type: 7, formxml: onLoadXml('Contact.init') }
+                    ]
+                });
+
+                const result = await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                expect(result.OnLoad).toHaveLength(1);
+                expect(result.OnLoad[0].forms).toEqual(['Information', 'Contact Card', 'Quick Create Contact']);
+            });
+
+            it('should not list the same form twice when both columns carry the handler', async () => {
+                const formjson = JSON.stringify({
+                    EventHandlers: {
+                        $type: 'Microsoft.Crm.ObjectModel.FormXmlToJsonUtil.Descriptors.EventHandlerDescriptor[], Microsoft.Crm.ObjectModel',
+                        $values: [{ EventName: 'onload', FunctionName: 'Contact.init', LibraryName: 'shared.js' }]
+                    }
+                });
+                const retrieveMultipleRecords = vi.fn().mockResolvedValue({
+                    entities: [{ formid: 'f1', name: 'Information', type: 2, formxml: onLoadXml('Contact.init'), formjson }]
+                });
+
+                const result = await FormInspectionService.getFormEventHandlersForEntity(
+                    retrieveMultipleRecords, vi.fn(), 'contact'
+                );
+
+                expect(result.OnLoad).toHaveLength(1);
+                expect(result.OnLoad[0].forms).toEqual(['Information']);
+            });
         });
 
         it('should aggregate handlers from multiple forms', async () => {
@@ -1479,7 +2099,7 @@ describe('FormInspectionService', () => {
                 ]
             });
 
-            const webApiFetch = vi.fn(() => Promise.resolve({ formxml: '<form></form>', formjson }));
+            const retrieveRecord = vi.fn(() => Promise.resolve({ formxml: '<form></form>', formjson }));
 
             global.Xrm = {
                 Page: {
@@ -1491,11 +2111,13 @@ describe('FormInspectionService', () => {
                 }
             };
 
-            const result = await FormInspectionService.getFormEventHandlers(webApiFetch);
+            const result = await FormInspectionService.getFormEventHandlers(retrieveRecord);
 
             expect(result.OnLoad).toHaveLength(1);
             expect(result.OnLoad[0].function).toBe('CurrentForm.onLoad');
-            expect(webApiFetch).toHaveBeenCalledWith('GET', 'systemforms(form-abc)', '?$select=formxml,formjson');
+            // Takes a retrieveRecord function, matching how DataService actually calls it — it used
+            // to be handed the PowerAppsApiService object and invoked as a function.
+            expect(retrieveRecord).toHaveBeenCalledWith('systemform', 'form-abc', '?$select=formxml,formjson');
         });
 
         it('should accept form with only formjson and no formxml', async () => {
@@ -1653,6 +2275,48 @@ describe('FormInspectionService', () => {
             const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'test.js');
 
             expect(result.content).toBe('');
+        });
+
+        /** Stores `source` the way Dataverse does: base64 of its UTF-8 bytes. */
+        const storedAs = (source) => Buffer.from(source, 'utf8').toString('base64');
+
+        const readBack = async (base64) => {
+            const retrieveMultiple = vi.fn(() => Promise.resolve({
+                entities: [{ webresourceid: 'wr-1', name: 'test.js', content: base64, webresourcetype: 3 }]
+            }));
+            const result = await FormInspectionService.getWebResourceByName(retrieveMultiple, 'test.js');
+            return result.content;
+        };
+
+        it('should decode UTF-8 content instead of returning raw bytes', async () => {
+            // atob alone yields one character per byte, turning `café` into `cafÃ©`.
+            expect(await readBack(storedAs('var s = "café — naïve";'))).toBe('var s = "café — naïve";');
+        });
+
+        it('should decode content outside the basic multilingual plane', async () => {
+            expect(await readBack(storedAs('// 世界 🚀'))).toBe('// 世界 🚀');
+        });
+
+        it('should survive a read/write round trip without corrupting the file', async () => {
+            // The bug that mattered: the editor read a script, the user saved it, and every
+            // non-ASCII character was rewritten mangled — compounding on each save.
+            const original = 'var msg = "café — 90% naïve";';
+            const content = await readBack(storedAs(original));
+
+            const updateRecord = vi.fn(() => Promise.resolve());
+            await FormInspectionService.updateWebResourceContent(updateRecord, 'wr-1', content);
+
+            expect(updateRecord.mock.calls[0][2].content).toBe(storedAs(original));
+        });
+
+        it('should fall back to the raw bytes when the content is not valid UTF-8', async () => {
+            // A Windows-1252 file must not come back peppered with U+FFFD.
+            const latin1 = Buffer.from([0x76, 0x61, 0x72, 0x20, 0xe9]).toString('base64');
+
+            const content = await readBack(latin1);
+
+            expect(content).toBe('var é');
+            expect(content).not.toContain('�');
         });
     });
 

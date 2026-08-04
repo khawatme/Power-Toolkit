@@ -49,6 +49,26 @@
                     "getFormType"
                 ],
                 "c": "function isCreateForm(executionContext) {\n  const formContext = executionContext.getFormContext();\n  return formContext.ui.getFormType() === 1; // 1=create, 2=update\n}"
+            },
+            {
+                "t": "Set a field required / optional",
+                "d": "Toggle business-required state at runtime.",
+                "tags": [
+                    "attribute",
+                    "setRequiredLevel",
+                    "required"
+                ],
+                "c": "function setPhoneRequired(executionContext, required) {\n  const formContext = executionContext.getFormContext();\n  const attr = formContext.getAttribute(\"telephone1\");\n  attr?.setRequiredLevel(required ? \"required\" : \"none\"); // or \"recommended\"\n}"
+            },
+            {
+                "t": "Run code after data loads (addOnLoad)",
+                "d": "formContext.data.addOnLoad fires after the form's data finishes loading or is refreshed.",
+                "tags": [
+                    "formContext",
+                    "data",
+                    "addOnLoad"
+                ],
+                "c": "function wireDataLoad(executionContext) {\n  const formContext = executionContext.getFormContext();\n  const onDataLoad = () => console.log(\"Form data loaded/reloaded\");\n  formContext.data.addOnLoad(onDataLoad);\n  // Remove later: formContext.data.removeOnLoad(onDataLoad);\n}"
             }
         ]
     },
@@ -99,6 +119,17 @@
                     "showProgressIndicator"
                 ],
                 "c": "async function withProgressIndicator(fn) {\n  try {\n    Xrm.Utility.showProgressIndicator(\"Working…\");\n    await fn();\n  } finally {\n    Xrm.Utility.closeProgressIndicator();\n  }\n}"
+            },
+            {
+                "t": "Detect save mode (block auto-save)",
+                "d": "getSaveMode: 1=Save, 2=Save & Close, 59=Save & New, 70=Auto-save. Prevent auto-save but allow explicit saves.",
+                "tags": [
+                    "OnSave",
+                    "getSaveMode",
+                    "autosave",
+                    "preventDefault"
+                ],
+                "c": "function onSave(executionContext) {\n  const args = executionContext.getEventArgs();\n  // 70 = auto-save (30s timer or navigating away)\n  if (args.getSaveMode() === 70) {\n    args.preventDefault();\n  }\n}"
             }
         ]
     },
@@ -273,6 +304,38 @@
                     "updateRecord"
                 ],
                 "c": "async function setPrimaryContactViaBind(accountId, contactId) {\n  const payload = { \"primarycontactid@odata.bind\": `/contacts(${contactId})` };\n  await Xrm.WebApi.updateRecord(\"account\", accountId, payload);\n}"
+            },
+            {
+                "t": "Retrieve multiple with FetchXML",
+                "d": "Use FetchXML for aggregates, link-entities, or complex filters. URL-encode the XML.",
+                "tags": [
+                    "WebApi",
+                    "fetchXml",
+                    "retrieveMultipleRecords"
+                ],
+                "c": "async function topAccountsByRevenue() {\n  const fetchXml = [\n    \"<fetch top='5'>\",\n    \"  <entity name='account'>\",\n    \"    <attribute name='name' />\",\n    \"    <attribute name='revenue' />\",\n    \"    <order attribute='revenue' descending='true' />\",\n    \"    <filter><condition attribute='statecode' operator='eq' value='0' /></filter>\",\n    \"  </entity>\",\n    \"</fetch>\"\n  ].join(\"\");\n  const res = await Xrm.WebApi.retrieveMultipleRecords(\"account\", \"?fetchXml=\" + encodeURIComponent(fetchXml));\n  return res.entities;\n}"
+            },
+            {
+                "t": "Read formatted values & lookups",
+                "d": "Xrm.WebApi returns display text via @OData.Community.Display.V1.FormattedValue annotations.",
+                "tags": [
+                    "WebApi",
+                    "FormattedValue",
+                    "lookup",
+                    "optionset"
+                ],
+                "c": "async function readContactDisplay(contactId) {\n  const rec = await Xrm.WebApi.retrieveRecord(\"contact\", contactId,\n    \"?$select=fullname,statuscode,_parentcustomerid_value\");\n  const FV = \"@OData.Community.Display.V1.FormattedValue\";\n  return {\n    name: rec.fullname,\n    status: rec[\"statuscode\" + FV],                   // choice label\n    accountName: rec[\"_parentcustomerid_value\" + FV], // lookup display name\n    accountId: rec._parentcustomerid_value            // lookup id\n  };\n}"
+            },
+            {
+                "t": "Error handling (try/catch)",
+                "d": "Xrm.WebApi rejects with { errorCode: Number, message: String }. Always catch and surface it.",
+                "tags": [
+                    "WebApi",
+                    "error",
+                    "errorCode",
+                    "try catch"
+                ],
+                "c": "async function safeRetrieve(id) {\n  try {\n    return await Xrm.WebApi.retrieveRecord(\"account\", id, \"?$select=name\");\n  } catch (error) {\n    // error = { errorCode: Number, message: String }\n    console.error(`Web API failed (${error.errorCode}): ${error.message}`);\n    await Xrm.Navigation.openErrorDialog({ message: error.message });\n    return null;\n  }\n}"
             }
         ]
     },
@@ -337,6 +400,26 @@
                     "error"
                 ],
                 "c": "async function dialogsDemo() {\n  await Xrm.Navigation.openAlertDialog({ text: \"Hello!\" });\n  const confirm = await Xrm.Navigation.openConfirmDialog({ text: \"Proceed?\" });\n  if (!confirm.confirmed) return;\n  await Xrm.Navigation.openErrorDialog({ message: \"Something happened.\" });\n}"
+            },
+            {
+                "t": "Open a custom page (dialog / pane)",
+                "d": "Open a Power Apps custom page; read context inside via Param('recordId') / Param('entityName').",
+                "tags": [
+                    "navigateTo",
+                    "custom page",
+                    "dialog"
+                ],
+                "c": "async function openCustomPage(recordId) {\n  await Xrm.Navigation.navigateTo(\n    { pageType: \"custom\", name: \"new_mycustompage_1a2b3\", entityName: \"account\", recordId },\n    { target: 2, position: 1, width: { value: 40, unit: \"%\" } } // 2=dialog, 1=center\n  );\n}"
+            },
+            {
+                "t": "Open a generative page (2026)",
+                "d": "Newer page type for generative pages; pass recordId/entityName/data when the page accepts inputs.",
+                "tags": [
+                    "navigateTo",
+                    "generative page",
+                    "modern"
+                ],
+                "c": "async function openGenerativePage(pageId, accountId) {\n  await Xrm.Navigation.navigateTo(\n    { pageType: \"generative\", pageId, recordId: accountId, entityName: \"account\" },\n    { target: 2, position: 1, height: { value: 80, unit: \"%\" }, width: { value: 70, unit: \"%\" } }\n  );\n}"
             }
         ]
     },
@@ -374,6 +457,31 @@
             }
         ]
     },
+    "App & Side Panes (Xrm.App)": {
+        "description": "App-level notifications and side panes — modern Unified Interface APIs (Xrm.App).",
+        "snippets": [
+            {
+                "t": "Global (app-level) notification",
+                "d": "App-wide message bar; returns an id used to clear it. level 1=success, 2=error, 3=warning, 4=info.",
+                "tags": [
+                    "Xrm.App",
+                    "addGlobalNotification",
+                    "notification"
+                ],
+                "c": "async function showGlobalWarning() {\n  const id = await Xrm.App.addGlobalNotification({\n    type: 2,      // 2 = message bar (only supported type)\n    level: 3,     // 1=success, 2=error, 3=warning, 4=info\n    message: \"Records are read-only during maintenance.\",\n    showCloseButton: true,\n    action: {\n      actionLabel: \"Learn more\",\n      eventHandler: () => Xrm.Navigation.openUrl(\"https://learn.microsoft.com/power-apps/\")\n    }\n  });\n  // later: await Xrm.App.clearGlobalNotification(id);\n  return id;\n}"
+            },
+            {
+                "t": "Open a record in a side pane",
+                "d": "Create a side pane (min width 300px) and navigate it to a record; reuse it by paneId.",
+                "tags": [
+                    "Xrm.App",
+                    "sidePanes",
+                    "createPane"
+                ],
+                "c": "async function openContactSidePane(contactId) {\n  const pane = await Xrm.App.sidePanes.createPane({\n    title: \"Contact\",\n    paneId: \"contactPane\", // reuse the same pane on repeat calls\n    canClose: true,\n    width: 400             // pixels (minimum 300)\n  });\n  await pane.navigate({\n    pageType: \"entityrecord\",\n    entityName: \"contact\",\n    entityId: contactId\n  });\n}"
+            }
+        ]
+    },
     "Utilities": {
         "description": "Global context, user/organization info, and role checks.",
         "snippets": [
@@ -395,6 +503,26 @@
                     "userSettings"
                 ],
                 "c": "function userHasRole(roleId) {\n  const roles = Xrm.Utility.getGlobalContext().userSettings.securityRoles || [];\n  // roleId must be a GUID without braces\n  return roles.some(r => r.toLowerCase() === roleId.toLowerCase());\n}"
+            },
+            {
+                "t": "List current user's role names",
+                "d": "userSettings.roles is a collection of {id, name}; securityRoles returns GUIDs only.",
+                "tags": [
+                    "userSettings",
+                    "roles",
+                    "securityRoles"
+                ],
+                "c": "function getUserRoleNames() {\n  const roles = Xrm.Utility.getGlobalContext().userSettings.roles;\n  const names = [];\n  roles.forEach(r => names.push(r.name));\n  return names;\n}"
+            },
+            {
+                "t": "Get current page context",
+                "d": "getPageContext().input tells you the current page (form or list). pageType & entityName are always set.",
+                "tags": [
+                    "Xrm.Utility",
+                    "getPageContext",
+                    "pageType"
+                ],
+                "c": "function getCurrentPage() {\n  const input = Xrm.Utility.getPageContext()?.input || {};\n  return {\n    pageType: input.pageType,     // \"entityrecord\" | \"entitylist\"\n    entityName: input.entityName,\n    entityId: input.entityId      // form only\n  };\n}"
             }
         ]
     }

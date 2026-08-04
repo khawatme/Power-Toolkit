@@ -18,7 +18,10 @@ vi.mock('../../src/services/DataService.js', () => ({
         updateRecord: vi.fn(() => Promise.resolve({})),
         deleteRecord: vi.fn(() => Promise.resolve({})),
         getAttributeDefinitions: vi.fn(() => Promise.resolve([])),
-        getNavigationPropertyMap: vi.fn(() => Promise.resolve(new Map()))
+        getNavigationPropertyMap: vi.fn(() => Promise.resolve(new Map())),
+        getEntityByAny: vi.fn(() => Promise.resolve({
+            LogicalName: 'account', EntitySetName: 'accounts', PrimaryIdAttribute: 'accountid'
+        }))
     }
 }));
 
@@ -81,6 +84,7 @@ vi.mock('../../src/utils/ui/ResultPanel.js', () => {
         this.destroy = vi.fn();
         this.removeBanner = vi.fn();
         this._selectedIndices = new Set();
+        this.clearSelection = vi.fn(() => this._selectedIndices.clear());
     });
     return { ResultPanel: MockResultPanel };
 });
@@ -179,6 +183,173 @@ describe('WebApiExplorerTab', () => {
         }
         component = null;
         document.body.innerHTML = '';
+    });
+
+    describe('GET current record shortcut', () => {
+        let PowerAppsApiService;
+        let EntityContextResolver;
+        let NotificationService;
+
+        beforeEach(async () => {
+            PowerAppsApiService = (await import('../../src/services/PowerAppsApiService.js')).PowerAppsApiService;
+            EntityContextResolver = (await import('../../src/utils/resolvers/EntityContextResolver.js')).EntityContextResolver;
+            NotificationService = (await import('../../src/services/NotificationService.js')).NotificationService;
+
+            PowerAppsApiService.isFormContextAvailable = true;
+            PowerAppsApiService.getEntityName.mockReturnValue('account');
+            PowerAppsApiService.getEntityId.mockReturnValue('11111111-2222-3333-4444-555555555555');
+            EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
+            DataService.getEntityByAny.mockResolvedValue({
+                LogicalName: 'account', EntitySetName: 'accounts', PrimaryIdAttribute: 'accountid'
+            });
+        });
+
+        // `isFormContextAvailable` is a plain property on the shared mock, so a test that turns it
+        // off has to turn it back on or every later test in the file renders off-form.
+        afterEach(() => {
+            PowerAppsApiService.isFormContextAvailable = true;
+        });
+
+        /**
+         * Makes the mocked filter manager build a real condition row so the values can be asserted.
+         * @param {object} instance - The component under test.
+         */
+        const wireFilterManager = (instance) => {
+            instance.getFilterManager.addFilterGroup.mockImplementation((container) => {
+                container.innerHTML = `
+                    <div class="pdt-filter-group">
+                        <div class="pdt-filter-group-conditions">
+                            <div class="pdt-condition-grid">
+                                <input data-prop="attribute">
+                                <select data-prop="operator"><option value="eq">eq</option></select>
+                                <input data-prop="value">
+                            </div>
+                        </div>
+                    </div>`;
+            });
+        };
+
+        it('should offer the button when the tool is on a form', async () => {
+            PowerAppsApiService.isFormContextAvailable = true;
+            const element = await setupComponent();
+
+            expect(element.querySelector('#api-get-current-record')).toBeTruthy();
+        });
+
+        it('should not offer the button away from a form', async () => {
+            PowerAppsApiService.isFormContextAvailable = false;
+            const element = await setupComponent();
+
+            expect(element.querySelector('#api-get-current-record')).toBeNull();
+            expect(component.ui.getCurrentRecordBtn).toBeNull();
+        });
+
+        it('should fill in the table of the record on screen', async () => {
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            expect(component.ui.getEntityInput.value).toBe('accounts');
+        });
+
+        it('should filter on the primary id of the record on screen', async () => {
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            const row = component.ui.getFiltersContainer.querySelector('.pdt-condition-grid');
+            expect(row.querySelector('[data-prop="attribute"]').value).toBe('accountid');
+            expect(row.querySelector('[data-prop="operator"]').value).toBe('eq');
+            expect(row.querySelector('[data-prop="value"]').value).toBe('11111111-2222-3333-4444-555555555555');
+        });
+
+        it('should reveal the filter section', async () => {
+            await setupComponent();
+            wireFilterManager(component);
+            component.ui.getFilterSection.hidden = true;
+
+            await component._useCurrentRecord();
+
+            expect(component.ui.getFilterSection.hidden).toBe(false);
+        });
+
+        it('should replace filters left over from another table', async () => {
+            await setupComponent();
+            wireFilterManager(component);
+            component.ui.getFiltersContainer.innerHTML = '<div class="pdt-filter-group" data-stale="true"></div>';
+
+            await component._useCurrentRecord();
+
+            expect(component.ui.getFiltersContainer.querySelector('[data-stale]')).toBeNull();
+            expect(component.ui.getFiltersContainer.querySelectorAll('.pdt-filter-group')).toHaveLength(1);
+        });
+
+        // Tables whose key doesn't follow the `<name>id` convention must still work.
+        it('should take the primary id from metadata rather than guessing it', async () => {
+            EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'activitypointers', logicalName: 'activitypointer' });
+            DataService.getEntityByAny.mockResolvedValue({
+                LogicalName: 'activitypointer', EntitySetName: 'activitypointers', PrimaryIdAttribute: 'activityid'
+            });
+            PowerAppsApiService.getEntityName.mockReturnValue('activitypointer');
+
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            const row = component.ui.getFiltersContainer.querySelector('.pdt-condition-grid');
+            expect(row.querySelector('[data-prop="attribute"]').value).toBe('activityid');
+        });
+
+        it('should fall back to the naming convention when metadata is unavailable', async () => {
+            DataService.getEntityByAny.mockRejectedValue(new Error('offline'));
+
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            const row = component.ui.getFiltersContainer.querySelector('.pdt-condition-grid');
+            expect(row.querySelector('[data-prop="attribute"]').value).toBe('accountid');
+        });
+
+        it('should warn instead of filtering when the record has no id yet', async () => {
+            PowerAppsApiService.getEntityId.mockReturnValue('');
+
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('save it first'), 'warn');
+            expect(component.getFilterManager.addFilterGroup).not.toHaveBeenCalled();
+        });
+
+        it('should report a failure to resolve the table and re-enable the button', async () => {
+            EntityContextResolver.resolve.mockRejectedValue(new Error('no such table'));
+
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('no such table'), 'error');
+            expect(component.ui.getCurrentRecordBtn.disabled).toBe(false);
+        });
+
+        it('should confirm what it set', async () => {
+            await setupComponent();
+            wireFilterManager(component);
+
+            await component._useCurrentRecord();
+
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('accounts'),
+                'success'
+            );
+        });
     });
 
     describe('constructor', () => {
@@ -2832,7 +3003,7 @@ describe('WebApiExplorerTab', () => {
 
             await component._executeBulkDelete();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warn');
         });
 
         it('should show confirmation dialog before bulk delete', async () => {
@@ -2897,7 +3068,7 @@ describe('WebApiExplorerTab', () => {
 
             await component._executeBulkDelete();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warn');
         });
 
         it('should execute bulk delete with filters when confirmed', async () => {
@@ -3694,10 +3865,11 @@ describe('WebApiExplorerTab', () => {
             expect(component.attrMap).toBe(mockAttrMap);
         });
 
-        it('should not refetch attrMap if already cached', async () => {
+        it('should not refetch attrMap if already cached for the same entity', async () => {
             const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
             const existingMap = new Map([['name', { type: 'string' }]]);
             component.attrMap = existingMap;
+            component._attrMapEntity = 'account';
 
             EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
             EntityContextResolver.getAttrMap.mockClear();
@@ -3709,6 +3881,39 @@ describe('WebApiExplorerTab', () => {
 
             expect(EntityContextResolver.getAttrMap).not.toHaveBeenCalled();
             expect(component.attrMap).toBe(existingMap);
+        });
+
+        // Reachable by switching method, which restores a saved table name by assigning .value
+        // directly - that fires no input event, so nothing clears the previous table's map.
+        it('should refetch attrMap when the entity changed', async () => {
+            const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
+            const accountMap = new Map([['name', { type: 'string' }]]);
+            const contactMap = new Map([['fullname', { type: 'string' }]]);
+
+            component.attrMap = accountMap;
+            component._attrMapEntity = 'account';
+
+            EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'contacts', logicalName: 'contact' });
+            EntityContextResolver.getAttrMap.mockClear();
+            EntityContextResolver.getAttrMap.mockResolvedValue(contactMap);
+
+            component.ui.methodSelect.value = 'GET';
+            component.ui.getEntityInput.value = 'contacts';
+
+            await component._updatePreview();
+
+            expect(EntityContextResolver.getAttrMap).toHaveBeenCalledWith('contact');
+            expect(component.attrMap).toBe(contactMap);
+        });
+
+        it('should record which entity the cached attrMap belongs to', async () => {
+            const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
+            EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
+            EntityContextResolver.getAttrMap.mockResolvedValue(new Map());
+
+            await component._getAttrMap('account');
+
+            expect(component._attrMapEntity).toBe('account');
         });
 
         it('should handle metadata fetch errors gracefully', async () => {
@@ -4349,6 +4554,11 @@ describe('WebApiExplorerTab', () => {
                 await setupComponent();
                 expect(component._parseDateValue('invalid-date')).toBeUndefined();
             });
+
+            it('should keep the local calendar day for an early-morning time', async () => {
+                await setupComponent();
+                expect(component._parseDateValue('2026-01-01T00:30')).toBe('2026-01-01');
+            });
         });
 
         describe('_parseDateTimeValue', () => {
@@ -4373,6 +4583,37 @@ describe('WebApiExplorerTab', () => {
             it('should return raw string for invalid JSON', async () => {
                 await setupComponent();
                 expect(component._parseDefaultValue('plain text')).toBe('plain text');
+            });
+        });
+
+        describe('verbatim text columns', () => {
+            const buildInput = (type) => {
+                const input = document.createElement('input');
+                input.dataset.type = type;
+                return input;
+            };
+
+            it.each(['string', 'memo', 'uniqueidentifier', 'entityname'])(
+                'should send a JSON-shaped value on a %s column as text',
+                async (type) => {
+                    await setupComponent();
+                    expect(component._parseFieldValue(buildInput(type), '{"a":1}')).toBe('{"a":1}');
+                }
+            );
+
+            it('should keep a numeric string on a string column as text', async () => {
+                await setupComponent();
+                expect(component._parseFieldValue(buildInput('string'), '123')).toBe('123');
+            });
+
+            it('should keep the word null on a string column as text', async () => {
+                await setupComponent();
+                expect(component._parseFieldValue(buildInput('string'), 'null')).toBe('null');
+            });
+
+            it('should still parse a structured value when the column type is unresolved', async () => {
+                await setupComponent();
+                expect(component._parseFieldValue(buildInput('text'), '{"a":1}')).toEqual({ a: 1 });
             });
         });
     });
@@ -4449,6 +4690,53 @@ describe('WebApiExplorerTab', () => {
                 const uploads = component._extractFileUploads();
 
                 expect(uploads).toEqual([]);
+            });
+        });
+
+        describe('_executePost file uploads', () => {
+            it('should warn instead of silently dropping files when no record ID is returned', async () => {
+                const { DataService } = await import('../../src/services/DataService.js');
+                const { NotificationService } = await import('../../src/services/NotificationService.js');
+                const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
+                await setupComponent();
+                vi.clearAllMocks();
+
+                component.ui.postEntityInput.value = 'accounts';
+                EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
+                DataService.createRecord.mockResolvedValue({});
+                vi.spyOn(component, '_getRequestBody').mockReturnValue({});
+                vi.spyOn(component, '_extractFileUploads').mockReturnValue([
+                    { attributeName: 'doc1', fileData: 'd1', fileName: 'file1.pdf', mimeType: 'application/pdf' }
+                ]);
+                const uploadSpy = vi.spyOn(component, '_uploadFiles').mockResolvedValue();
+
+                await component._executePost();
+
+                expect(uploadSpy).not.toHaveBeenCalled();
+                expect(NotificationService.show).toHaveBeenCalledWith(
+                    expect.stringContaining('not uploaded'),
+                    'warn'
+                );
+            });
+
+            it('should upload files when a record ID is returned', async () => {
+                const { DataService } = await import('../../src/services/DataService.js');
+                const { EntityContextResolver } = await import('../../src/utils/resolvers/EntityContextResolver.js');
+                await setupComponent();
+                vi.clearAllMocks();
+
+                component.ui.postEntityInput.value = 'accounts';
+                EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
+                DataService.createRecord.mockResolvedValue({ id: 'new-id' });
+                vi.spyOn(component, '_getRequestBody').mockReturnValue({});
+                vi.spyOn(component, '_extractFileUploads').mockReturnValue([
+                    { attributeName: 'doc1', fileData: 'd1', fileName: 'file1.pdf', mimeType: 'application/pdf' }
+                ]);
+                const uploadSpy = vi.spyOn(component, '_uploadFiles').mockResolvedValue();
+
+                await component._executePost();
+
+                expect(uploadSpy).toHaveBeenCalledWith('account', 'new-id', expect.any(Array));
             });
         });
     });
@@ -4663,7 +4951,7 @@ describe('WebApiExplorerTab', () => {
 
                 await component._executeBulkPatch();
 
-                expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warning');
+                expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('No records match'), 'warn');
             });
 
             it('should show confirmation before bulk update', async () => {
@@ -5784,8 +6072,8 @@ describe('WebApiExplorerTab', () => {
                 await component._uploadFiles('account', 'record-id', uploads);
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
-                    expect.stringContaining('File upload failed'),
-                    'warning'
+                    expect.stringContaining('test.pdf'),
+                    'warn'
                 );
             });
         });
@@ -5866,7 +6154,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.stringContaining('No records'),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -5877,7 +6165,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.stringContaining('No records'),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -6096,7 +6384,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -6109,7 +6397,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -6122,7 +6410,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -6804,6 +7092,60 @@ describe('WebApiExplorerTab', () => {
                 );
             });
 
+            /** Runs a successful single-page count, returning the args the query builder saw. */
+            const runCountAndCaptureBuildArgs = async () => {
+                const { ODataQueryBuilder } = await import('../../src/utils/builders/ODataQueryBuilder.js');
+                EntityContextResolver.resolve.mockResolvedValue({ entitySet: 'accounts', logicalName: 'account' });
+                EntityContextResolver.getAttrMap.mockResolvedValue(new Map());
+                PowerAppsApiService.getEntityMetadata = vi.fn().mockResolvedValue({ PrimaryIdAttribute: 'accountid' });
+                DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [], nextLink: null });
+
+                await component._getCountHandler();
+
+                return ODataQueryBuilder.build.mock.calls.at(-1)[0];
+            };
+
+            it('should not let Top Count cap the total', async () => {
+                await setupComponent();
+                component.ui.getEntityInput.value = 'accounts';
+                component.ui.getTopInput.value = '10';
+
+                const args = await runCountAndCaptureBuildArgs();
+
+                expect(args.top).toBeUndefined();
+            });
+
+            it('should not order the pages of a count query', async () => {
+                await setupComponent();
+                component.ui.getEntityInput.value = 'accounts';
+                component.ui.getOrderByAttrInput.value = 'name';
+
+                const args = await runCountAndCaptureBuildArgs();
+
+                expect(args.orderAttr).toBeUndefined();
+            });
+
+            it('should select only the primary key regardless of the chosen columns', async () => {
+                await setupComponent();
+                component.ui.getEntityInput.value = 'accounts';
+                component.ui.getSelectInput.value = 'name';
+
+                const args = await runCountAndCaptureBuildArgs();
+
+                expect(args.select).toEqual(['accountid']);
+            });
+
+            it('should keep the filter so the count matches the query', async () => {
+                await setupComponent();
+                component.ui.getEntityInput.value = 'accounts';
+                const filterGroups = [{ logic: 'and', filters: [{ attr: 'name', op: 'eq', value: 'Contoso' }] }];
+                vi.spyOn(component.getFilterManager, 'extractFilterGroups').mockReturnValue(filterGroups);
+
+                const args = await runCountAndCaptureBuildArgs();
+
+                expect(args.filterGroups).toEqual(filterGroups);
+            });
+
             it('should handle paginated count with multiple pages', async () => {
                 await setupComponent();
                 component.ui.getEntityInput.value = 'accounts';
@@ -6907,7 +7249,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.stringContaining('reload'),
-                    'warning'
+                    'warn'
                 );
             });
         });
@@ -6921,7 +7263,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -7404,7 +7746,7 @@ describe('WebApiExplorerTab', () => {
 
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
         });
@@ -8292,6 +8634,226 @@ describe('WebApiExplorerTab', () => {
             });
         });
 
+        // A bulk operation whose conditions all get dropped would target the whole table.
+        describe('bulk operations refuse to run unfiltered', () => {
+            const emptyDateCondition = [{
+                filterType: 'and',
+                interGroupOperator: 'and',
+                filters: [{ attr: 'createdon', op: 'eq', value: '' }]
+            }];
+
+            // The builder is mocked here, so the query it returns is set per test. That the real
+            // builder drops unusable conditions is covered in ODataQueryBuilder's own tests.
+            const mockBuiltQuery = async (query) => {
+                const { ODataQueryBuilder } = await import('../../src/utils/builders/ODataQueryBuilder.js');
+                ODataQueryBuilder.build.mockReturnValue(query);
+            };
+
+            it('should throw rather than fetch when the built query has no filter', async () => {
+                await setupComponent();
+                await mockBuiltQuery('?$select=accountid');
+                DataService.retrieveMultipleRecords.mockClear();
+
+                await expect(
+                    component._fetchMatchingRecords('accounts', emptyDateCondition, ['accountid'])
+                ).rejects.toThrow(/every record/i);
+
+                expect(DataService.retrieveMultipleRecords).not.toHaveBeenCalled();
+            });
+
+            it('should fetch normally when the built query carries a filter', async () => {
+                await setupComponent();
+                await mockBuiltQuery("?$select=accountid&$filter=name eq 'Contoso'");
+                DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [{ accountid: '1' }] });
+
+                const records = await component._fetchMatchingRecords(
+                    'accounts', emptyDateCondition, ['accountid']
+                );
+
+                expect(records).toHaveLength(1);
+                expect(DataService.retrieveMultipleRecords).toHaveBeenCalled();
+            });
+
+            it('should not delete anything when the filter is incomplete', async () => {
+                const { NotificationService } = await import('../../src/services/NotificationService.js');
+                await setupComponent();
+                await mockBuiltQuery('?$select=accountid');
+
+                component.ui.methodSelect.value = 'DELETE';
+                component.ui.deleteEntityInput.value = 'accounts';
+                vi.spyOn(component.deleteFilterManager, 'extractFilterGroups')
+                    .mockReturnValue(emptyDateCondition);
+                DataService.retrieveMultipleRecords.mockClear();
+                NotificationService.show.mockClear();
+
+                await component._executeBulkDelete();
+
+                // Never reached the retrieve, so no records could be queued for deletion.
+                expect(DataService.retrieveMultipleRecords).not.toHaveBeenCalled();
+                expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'error');
+            });
+        });
+
+        describe('text values keep their type', () => {
+            const parseText = (value) => component._parseFieldValue({ dataset: {} }, value);
+
+            // JSON.parse used to run on every text value, silently retyping it.
+            it.each([
+                ['123', '123'],
+                ['0012', '0012'],
+                ['true', 'true'],
+                ['false', 'false'],
+                ['null', 'null'],
+                ['1e5', '1e5'],
+                ['-7', '-7']
+            ])('should keep %s as a string', async (input, expected) => {
+                await setupComponent();
+                const result = parseText(input);
+                expect(result).toBe(expected);
+                expect(typeof result).toBe('string');
+            });
+
+            it('should not turn the text null into a value that clears the column', async () => {
+                await setupComponent();
+                expect(parseText('null')).not.toBeNull();
+            });
+
+            it('should still parse an object literal for a structured column', async () => {
+                await setupComponent();
+                expect(parseText('{"a":1}')).toEqual({ a: 1 });
+            });
+
+            it('should still parse an array literal', async () => {
+                await setupComponent();
+                expect(parseText('[1,2]')).toEqual([1, 2]);
+            });
+
+            it('should keep malformed json as text', async () => {
+                await setupComponent();
+                expect(parseText('{not json')).toBe('{not json');
+            });
+
+            it('should keep ordinary prose untouched', async () => {
+                await setupComponent();
+                expect(parseText('Contoso Ltd')).toBe('Contoso Ltd');
+            });
+        });
+
+        describe('date-only values do not shift', () => {
+            const parseDate = (value) =>
+                component._parseFieldValue({ dataset: { type: 'date' } }, value);
+
+            it('should pass a plain date through unchanged', async () => {
+                await setupComponent();
+                // A UTC round-trip could land on the previous day east of Greenwich.
+                expect(parseDate('2026-01-01')).toBe('2026-01-01');
+            });
+
+            it('should keep the picked day for a local datetime', async () => {
+                await setupComponent();
+                // Via toISOString this returned 2025-12-31 in any positive UTC offset.
+                expect(parseDate('2026-01-01T00:30')).toBe('2026-01-01');
+            });
+
+            it('should keep the picked day late in the evening', async () => {
+                await setupComponent();
+                // The mirror case: negative offsets would roll this forward a day.
+                expect(parseDate('2026-01-01T23:30')).toBe('2026-01-01');
+            });
+
+            it('should return undefined for an unparseable date', async () => {
+                await setupComponent();
+                expect(parseDate('not a date')).toBeUndefined();
+            });
+        });
+
+        describe('partial bulk matches are disclosed', () => {
+            it('should flag a truncated match from nextLink', async () => {
+                await setupComponent();
+                const { ODataQueryBuilder } = await import('../../src/utils/builders/ODataQueryBuilder.js');
+                ODataQueryBuilder.build.mockReturnValue("?$filter=name eq 'x'");
+                DataService.retrieveMultipleRecords.mockResolvedValue({
+                    entities: [{ accountid: '1' }],
+                    nextLink: 'https://example.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=x'
+                });
+
+                await component._fetchMatchingRecords('accounts', [], ['accountid']);
+
+                expect(component._bulkMatchHasMore).toBe(true);
+                expect(component._partialMatchNoticeHtml()).toContain('Run the operation again');
+            });
+
+            it('should not flag a complete match', async () => {
+                await setupComponent();
+                const { ODataQueryBuilder } = await import('../../src/utils/builders/ODataQueryBuilder.js');
+                ODataQueryBuilder.build.mockReturnValue("?$filter=name eq 'x'");
+                DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [{ accountid: '1' }] });
+
+                await component._fetchMatchingRecords('accounts', [], ['accountid']);
+
+                expect(component._bulkMatchHasMore).toBe(false);
+                expect(component._partialMatchNoticeHtml()).toBe('');
+            });
+
+            it('should not carry a stale flag into the next bulk delete', async () => {
+                await setupComponent();
+                component._bulkMatchHasMore = true;
+                component.ui.deleteEntityInput.value = 'accounts';
+                vi.spyOn(component.deleteFilterManager, 'extractFilterGroups')
+                    .mockReturnValue([{ filterType: 'and', filters: [{ attr: 'name', op: 'eq', value: 'x' }] }]);
+                // Mocked, so it never sets the flag itself - the reset must come from the caller.
+                vi.spyOn(component, '_fetchMatchingRecords').mockResolvedValue([]);
+
+                await component._executeBulkDelete();
+
+                expect(component._bulkMatchHasMore).toBe(false);
+            });
+        });
+
+        describe('destroy removes every bound listener', () => {
+            // These previously named merged post/patch elements that no longer exist, so the
+            // removals were silent no-ops and the listeners outlived the tab.
+            it.each([
+                ['postBodyModeToggle', 'change'],
+                ['patchBodyModeToggle', 'change'],
+                ['postAddFieldBtn', 'click'],
+                ['patchAddFieldBtn', 'click'],
+                ['browsePostEntityBtn', 'click'],
+                ['browsePatchEntityBtn', 'click']
+            ])('should remove the %s listener', async (uiKey, event) => {
+                await setupComponent();
+                const el = component.ui[uiKey];
+                expect(el).toBeTruthy();
+
+                const spy = vi.spyOn(el, 'removeEventListener');
+                component.destroy();
+
+                expect(spy).toHaveBeenCalledWith(event, expect.any(Function));
+            });
+
+            it('should tear down every live-preview input it bound', async () => {
+                await setupComponent();
+                const spies = component._livePreviewInputs()
+                    .map(el => vi.spyOn(el, 'removeEventListener'));
+                expect(spies.length).toBeGreaterThan(0);
+
+                component.destroy();
+
+                spies.forEach(spy => {
+                    expect(spy).toHaveBeenCalledWith('input', expect.any(Function));
+                });
+            });
+
+            it('should bind and tear down the same live-preview elements', async () => {
+                await setupComponent();
+                const bound = component._livePreviewInputs();
+
+                // One shared list, so the two paths cannot disagree.
+                expect(bound).toEqual(component._livePreviewInputs());
+                expect(bound.every(Boolean)).toBe(true);
+            });
+        });
+
         describe('_restoreFieldValues with attrMetadata', () => {
             it('should restore attrMetadata to rows', async () => {
                 await setupComponent();
@@ -8313,14 +8875,42 @@ describe('WebApiExplorerTab', () => {
                 }];
 
                 const renderValueInputSpy = vi.spyOn(component, '_renderValueInput');
+                component.selectedEntityLogicalName = 'account';
                 component._restoreFieldValues(fieldValues, 'POST');
 
                 expect(row._attrMetadata).toEqual({ type: 'string', displayName: 'Name' });
+                // The third argument is the owning table, which SmartValueInput needs to look up
+                // picklist and boolean options. It used to receive the field's value.
                 expect(renderValueInputSpy).toHaveBeenCalledWith(
                     row,
                     { type: 'string', displayName: 'Name' },
-                    'Test'
+                    'account'
                 );
+            });
+
+            it('should reapply the saved value after re-rendering the input', async () => {
+                await setupComponent();
+                component.ui.methodSelect.value = 'POST';
+                component.ui.postFieldsContainer.innerHTML = '';
+
+                const row = document.createElement('div');
+                row.className = 'pdt-field-grid';
+                row.innerHTML = `
+                    <input data-prop="field-attribute" value="" />
+                    <div class="pdt-value-container">
+                        <input data-prop="field-value" value="" />
+                    </div>
+                `;
+                component.ui.postFieldsContainer.appendChild(row);
+                component.selectedEntityLogicalName = 'account';
+
+                // Rendering replaces the input, so the value has to be written back after.
+                vi.spyOn(component, '_renderValueInput').mockResolvedValue(undefined);
+                await component._restoreFieldValueInput(row, {
+                    attribute: 'name', value: 'Contoso', attrMetadata: { type: 'string' }
+                });
+
+                expect(row.querySelector('[data-prop="field-value"]').value).toBe('Contoso');
             });
 
             it('should render value input for fields with metadata', async () => {
@@ -9614,9 +10204,54 @@ describe('WebApiExplorerTab', () => {
             await component._uploadFiles('account', 'entity-123', fileUploads);
 
             expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.stringContaining('File upload failed'),
-                'warning'
+                expect.stringContaining('file1.pdf'),
+                'warn'
             );
+        });
+
+        it('should still upload the remaining files after one fails', async () => {
+            await setupComponent();
+            FileUploadService.uploadFile
+                .mockRejectedValueOnce(new Error('Upload failed'))
+                .mockResolvedValue({});
+
+            const fileUploads = [
+                { attributeName: 'doc1', fileData: 'd1', fileName: 'file1.pdf', mimeType: 'application/pdf' },
+                { attributeName: 'doc2', fileData: 'd2', fileName: 'file2.pdf', mimeType: 'application/pdf' },
+                { attributeName: 'doc3', fileData: 'd3', fileName: 'file3.pdf', mimeType: 'application/pdf' }
+            ];
+
+            await component._uploadFiles('account', 'entity-123', fileUploads);
+
+            expect(FileUploadService.uploadFile).toHaveBeenCalledTimes(3);
+        });
+
+        it('should report how many of the batch failed', async () => {
+            await setupComponent();
+            FileUploadService.uploadFile.mockRejectedValue(new Error('Upload failed'));
+
+            const fileUploads = [
+                { attributeName: 'doc1', fileData: 'd1', fileName: 'file1.pdf', mimeType: 'application/pdf' },
+                { attributeName: 'doc2', fileData: 'd2', fileName: 'file2.pdf', mimeType: 'application/pdf' }
+            ];
+
+            await component._uploadFiles('account', 'entity-123', fileUploads);
+
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('2 of 2'),
+                'warn'
+            );
+        });
+
+        it('should not notify when every upload succeeds', async () => {
+            await setupComponent();
+            FileUploadService.uploadFile.mockResolvedValue({});
+
+            await component._uploadFiles('account', 'entity-123', [
+                { attributeName: 'doc1', fileData: 'd1', fileName: 'file1.pdf', mimeType: 'application/pdf' }
+            ]);
+
+            expect(NotificationService.show).not.toHaveBeenCalled();
         });
     });
 
@@ -9820,7 +10455,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -9844,7 +10479,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -9868,7 +10503,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -9893,7 +10528,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -10069,7 +10704,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -10363,7 +10998,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('selected'),
-                'warning'
+                'warn'
             );
         });
 
@@ -10375,7 +11010,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('selected'),
-                'warning'
+                'warn'
             );
         });
     });
@@ -10616,7 +11251,7 @@ describe('WebApiExplorerTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
 
             // Don't assign to component variable to avoid cleanup in afterEach
@@ -10647,7 +11282,7 @@ describe('WebApiExplorerTab', () => {
                 expect(result).toBeNull();
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
 
@@ -10662,7 +11297,7 @@ describe('WebApiExplorerTab', () => {
                 expect(result).toBeNull();
                 expect(NotificationService.show).toHaveBeenCalledWith(
                     expect.any(String),
-                    'warning'
+                    'warn'
                 );
             });
         });

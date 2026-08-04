@@ -79,7 +79,7 @@ export class CustomApiTab extends BaseComponent {
             <div class="section-title">${Config.MESSAGES.CUSTOM_API.title}</div>
 
             <!-- Solution Selector -->
-            <div class="pdt-toolbar" style="margin-bottom: 10px;">
+            <div class="pdt-toolbar">
                 <select id="capi-solution-select" class="pdt-select" style="flex: 2;">
                     <option value="">${Config.MESSAGES.CUSTOM_API.loadingSolutions}</option>
                 </select>
@@ -445,6 +445,7 @@ export class CustomApiTab extends BaseComponent {
         const frag = document.createDocumentFragment();
         this.allApis.forEach(api => frag.appendChild(this._createApiCard(api)));
         this.ui.listContainer.appendChild(frag);
+        this._filterCards();
     }
 
     /** @private Renders summary statistics. */
@@ -2302,6 +2303,7 @@ export class CustomApiTab extends BaseComponent {
         const btn = card?.querySelector('.capi-expand-btn');
         if (card && btn) {
             this._toggleExpand(card, btn);
+            card.scrollIntoView({ block: 'nearest' });
         }
     }
 

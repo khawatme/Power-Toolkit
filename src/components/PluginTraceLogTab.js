@@ -7,6 +7,7 @@
 import { BaseComponent } from '../core/BaseComponent.js';
 import { ICONS } from '../assets/Icons.js';
 import { DataService } from '../services/DataService.js';
+import { PLUGIN_TRACE_LOG_SETTING } from '../services/OrganizationService.js';
 import { UIFactory } from '../ui/UIFactory.js';
 import { NotificationService } from '../services/NotificationService.js';
 import { addEnterKeyListener, clearContainer, copyToClipboard, escapeHtml, toggleElementHeight } from '../helpers/index.js';
@@ -18,6 +19,7 @@ import { Config } from '../constants/index.js';
  * @property {string} messageContent - Filter for the trace message content.
  * @property {string} dateFrom - Filter for traces created on or after this date.
  * @property {string} dateTo - Filter for traces created on or before this date.
+ * @property {string} status - Outcome filter: '' (all), 'error' (has an exception), or 'success' (no exception).
  */
 
 /**
@@ -48,9 +50,11 @@ export class PluginTraceLogTab extends BaseComponent {
         /** @type {number|null} */
         this.pollingTimer = null;
         /** @type {PluginTraceFilters} */
-        this.filters = { typeName: '', messageContent: '', dateFrom: '', dateTo: '' };
+        this.filters = { typeName: '', messageContent: '', dateFrom: '', dateTo: '', status: '' };
         /** @type {boolean} */
         this.isLoading = false;
+        /** @type {number|null} The org's current plug-in trace logging level (null until known). */
+        this.loggingLevel = null;
 
         // Event handler references for cleanup
         /** @private {Function|null} */ this._handleServerFilter = null;
@@ -65,6 +69,8 @@ export class PluginTraceLogTab extends BaseComponent {
         /** @private {Function|null} */ this._typeNameEnterHandler = null;
         /** @private {Function|null} */ this._contentEnterHandler = null;
         /** @private {Function|null} */ this._handlePageSizeChange = null;
+        /** @private {Function|null} */ this._handleStatusFilter = null;
+        /** @private {Function|null} */ this._handleLoggingLevel = null;
     }
 
     /**
@@ -78,6 +84,18 @@ export class PluginTraceLogTab extends BaseComponent {
 
         container.innerHTML = `
             <div class="section-title">Plugin Trace Logs</div>
+
+            <div id="trace-logging-banner" class="pdt-diagnostic-banner pdt-diagnostic-banner-row" hidden>
+                <span id="trace-logging-text" role="status"></span>
+                <label class="pdt-diagnostic-banner-control" for="trace-logging-level">
+                    <span>${Config.MESSAGES.PLUGIN_TRACE.loggingLevelLabel}</span>
+                    <select id="trace-logging-level" class="pdt-select pdt-diagnostic-banner-select" title="${Config.MESSAGES.PLUGIN_TRACE.loggingLevelTitle}">
+                        <option value="${PLUGIN_TRACE_LOG_SETTING.OFF}">${Config.MESSAGES.PLUGIN_TRACE.loggingLevelOff}</option>
+                        <option value="${PLUGIN_TRACE_LOG_SETTING.EXCEPTION}">${Config.MESSAGES.PLUGIN_TRACE.loggingLevelException}</option>
+                        <option value="${PLUGIN_TRACE_LOG_SETTING.ALL}">${Config.MESSAGES.PLUGIN_TRACE.loggingLevelAll}</option>
+                    </select>
+                </label>
+            </div>
 
             <div class="pdt-toolbar">
                 <span>From</span>
@@ -107,6 +125,13 @@ export class PluginTraceLogTab extends BaseComponent {
             <div class="pdt-toolbar">
                 <input type="text" id="trace-filter-typename" class="pdt-input" placeholder="Type Name contains..." title="Filter by plugin class name">
                 <input type="text" id="trace-filter-content" class="pdt-input" placeholder="Message, Entity or Content contains..." title="Search in message name, entity name, or trace content">
+                <div class="pdt-toolbar-group">
+                    <select id="trace-status-filter" class="pdt-select pdt-trace-status-select" title="${Config.MESSAGES.PLUGIN_TRACE.statusTitle}">
+                        <option value="">${Config.MESSAGES.PLUGIN_TRACE.statusAll}</option>
+                        <option value="error">${Config.MESSAGES.PLUGIN_TRACE.statusErrors}</option>
+                        <option value="success">${Config.MESSAGES.PLUGIN_TRACE.statusSuccess}</option>
+                    </select>
+                </div>
             </div>
 
             <div id="trace-log-list" class="pdt-content-host">
@@ -141,7 +166,11 @@ export class PluginTraceLogTab extends BaseComponent {
     postRender(element) {
         this.ui = {
             container: element,
+            loggingBanner: element.querySelector('#trace-logging-banner'),
+            loggingText: element.querySelector('#trace-logging-text'),
+            loggingLevelSelect: element.querySelector('#trace-logging-level'),
             serverFilterBtn: element.querySelector('#apply-server-filters-btn'),
+            statusFilter: element.querySelector('#trace-status-filter'),
             typeNameInput: element.querySelector('#trace-filter-typename'),
             contentInput: element.querySelector('#trace-filter-content'),
             dateFromInput: element.querySelector('#trace-filter-date-from'),
@@ -166,9 +195,112 @@ export class PluginTraceLogTab extends BaseComponent {
         this.totalPages = 0;
         this.hasMoreTraces = false;
         this.nextBatchLink = null;
+        this.loggingLevel = null;
 
         this._bindEvents();
+        this._loadLoggingStatus();
         this._fetchAllTraces(true);
+    }
+
+    /**
+     * Reads the org-level plugin trace logging setting and shows a banner explaining it, with a
+     * dropdown to change it. When logging is Off, no new traces are recorded no matter the filters —
+     * this turns a silent empty list into a self-explaining one you can act on without leaving the
+     * tab. Best-effort: on any failure the banner stays hidden, dropdown included, because offering a
+     * control we could not even read the current value for would be worse than offering none.
+     * @private
+     */
+    async _loadLoggingStatus() {
+        if (!this.ui.loggingBanner) {
+            return;
+        }
+        try {
+            const { pluginTraceLogSetting } = await DataService.getOrganizationDiagnostics();
+            this.loggingLevel = pluginTraceLogSetting;
+        } catch {
+            // Organization settings unavailable; leave the banner hidden.
+            this.loggingLevel = null;
+        }
+        this._renderLoggingBanner();
+    }
+
+    /**
+     * Paints the logging banner from {@link loggingLevel}: the consequence of the current level as
+     * text, and the dropdown parked on that level. An unknown level hides the whole banner.
+     * @private
+     */
+    _renderLoggingBanner() {
+        const { loggingBanner: banner, loggingText: text, loggingLevelSelect: select } = this.ui;
+        if (!banner || !text) {
+            return;
+        }
+
+        const M = Config.MESSAGES.PLUGIN_TRACE;
+        const copy = {
+            [PLUGIN_TRACE_LOG_SETTING.OFF]: { message: M.loggingOff, modifier: 'pdt-diagnostic-banner--warn' },
+            [PLUGIN_TRACE_LOG_SETTING.EXCEPTION]: { message: M.loggingException, modifier: 'pdt-diagnostic-banner--info' },
+            [PLUGIN_TRACE_LOG_SETTING.ALL]: { message: M.loggingAll, modifier: 'pdt-diagnostic-banner--info' }
+        }[this.loggingLevel];
+
+        if (!copy) {
+            banner.hidden = true;
+            return;
+        }
+
+        banner.className = `pdt-diagnostic-banner pdt-diagnostic-banner-row ${copy.modifier}`;
+        text.textContent = copy.message;
+        if (select) {
+            select.value = String(this.loggingLevel);
+        }
+        banner.hidden = false;
+    }
+
+    /**
+     * Applies the logging level picked in the dropdown to the environment. On failure — most often no
+     * privilege to write organization settings — the dropdown snaps back to the level that is really
+     * in effect, so it never claims a change the platform rejected.
+     * @private
+     */
+    async _changeLoggingLevel() {
+        const select = this.ui.loggingLevelSelect;
+        if (!select) {
+            return;
+        }
+
+        const M = Config.MESSAGES.PLUGIN_TRACE;
+        const previousLevel = this.loggingLevel;
+        const level = parseInt(select.value, 10);
+        if (level === previousLevel) {
+            return;
+        }
+
+        select.disabled = true;
+        try {
+            await DataService.setPluginTraceLogSetting(level);
+            this.loggingLevel = level;
+            this._renderLoggingBanner();
+            NotificationService.show(M.loggingLevelUpdated(this._loggingLevelLabel(level)), 'success');
+        } catch (error) {
+            select.value = previousLevel === null ? '' : String(previousLevel);
+            NotificationService.show(M.loggingLevelFailed(error?.message || error), 'error');
+        } finally {
+            select.disabled = false;
+        }
+    }
+
+    /**
+     * Maps a logging level to its dropdown label, for use in messages.
+     * @param {number} level - One of `PLUGIN_TRACE_LOG_SETTING`.
+     * @returns {string} The label ('Off', 'Exception', 'All').
+     * @private
+     */
+    _loggingLevelLabel(level) {
+        const M = Config.MESSAGES.PLUGIN_TRACE;
+        return {
+            [PLUGIN_TRACE_LOG_SETTING.OFF]: M.loggingLevelOff,
+            [PLUGIN_TRACE_LOG_SETTING.EXCEPTION]: M.loggingLevelException,
+            [PLUGIN_TRACE_LOG_SETTING.ALL]: M.loggingLevelAll
+        }[level] || String(level);
     }
 
     /**
@@ -198,6 +330,8 @@ export class PluginTraceLogTab extends BaseComponent {
         this._typeNameEnterHandler = null;
         this._contentEnterHandler = null;
         this._handlePageSizeChange = null;
+        this._handleStatusFilter = null;
+        this._handleLoggingLevel = null;
     }
 
     /**
@@ -213,6 +347,8 @@ export class PluginTraceLogTab extends BaseComponent {
         this._removeListener(this.ui.liveToggle, 'change', this._handleLiveToggle);
         this._removeListener(this.ui.liveIntervalSelect, 'change', this._handleLiveInterval);
         this._removeListener(this.ui.pageSizeSelect, 'change', this._handlePageSizeChange);
+        this._removeListener(this.ui.statusFilter, 'change', this._handleStatusFilter);
+        this._removeListener(this.ui.loggingLevelSelect, 'change', this._handleLoggingLevel);
         this._removeListener(this.ui.logList, 'click', this._handleLogListClick);
     }
 
@@ -251,6 +387,14 @@ export class PluginTraceLogTab extends BaseComponent {
 
         this._typeNameEnterHandler = addEnterKeyListener(this.ui.typeNameInput, this._handleServerFilter);
         this._contentEnterHandler = addEnterKeyListener(this.ui.contentInput, this._handleServerFilter);
+
+        this._handleStatusFilter = () => this._applyServerFilters();
+        this.ui.statusFilter.addEventListener('change', this._handleStatusFilter);
+
+        if (this.ui.loggingLevelSelect) {
+            this._handleLoggingLevel = () => this._changeLoggingLevel();
+            this.ui.loggingLevelSelect.addEventListener('change', this._handleLoggingLevel);
+        }
 
         this._handleFirstPage = () => this._goToPage(1);
         this.ui.firstPageBtn.addEventListener('click', this._handleFirstPage);
@@ -294,7 +438,7 @@ export class PluginTraceLogTab extends BaseComponent {
         this._handlePageSizeChange = (e) => {
             const newPageSize = parseInt(e.target.value, 10);
             if (isNaN(newPageSize) || newPageSize < 1 || newPageSize > 1000) {
-                NotificationService.show('Page size must be between 1 and 1000', 'warning');
+                NotificationService.show('Page size must be between 1 and 1000', 'warn');
                 e.target.value = this.pageSize.toString();
                 return;
             }
@@ -331,6 +475,7 @@ export class PluginTraceLogTab extends BaseComponent {
         this.filters.messageContent = this.ui.contentInput.value.trim();
         this.filters.dateFrom = this.ui.dateFromInput.value.trim();
         this.filters.dateTo = this.ui.dateToInput.value.trim();
+        this.filters.status = this.ui.statusFilter.value;
         this.currentPage = 1;
         this.allTraces = [];
         this.totalPages = 0;
@@ -509,6 +654,12 @@ export class PluginTraceLogTab extends BaseComponent {
                 `contains(primaryentity,'${searchTerm}')`
             ];
             filterClauses.push(`(${contentFilters.join(' or ')})`);
+        }
+
+        if (this.filters.status === 'error') {
+            filterClauses.push("(exceptiondetails ne null and exceptiondetails ne '')");
+        } else if (this.filters.status === 'success') {
+            filterClauses.push("(exceptiondetails eq null or exceptiondetails eq '')");
         }
 
         let filterString = '';

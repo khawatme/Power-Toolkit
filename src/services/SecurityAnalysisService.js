@@ -14,7 +14,8 @@ import { Config } from '../constants/index.js';
 
 /**
  * @typedef {Object} SecurityRole
- * @property {string} roleid - The unique identifier of the role
+ * @property {string} roleid - The root role identifier, stable across business units
+ * @property {string[]} sourceRoleIds - The role records actually assigned, for id-keyed lookups
  * @property {string} name - The display name of the role
  * @property {boolean} [isInherited] - Whether the role is inherited from a team
  * @property {Array<{teamId: string, teamName: string}>} [teams] - Array of teams providing this role (only for inherited roles)
@@ -54,6 +55,92 @@ import { Config } from '../constants/index.js';
  * @property {Array<EntityPrivilege>} entityPrivileges - Entity privileges for target user
  */
 
+
+/**
+ * Verb reported in the Entity Privileges table, keyed by the `PrivilegeType` the platform returns
+ * for each privilege in table metadata.
+ *
+ * Reading the type from metadata removes all guesswork: privilege *names* do not follow the table's
+ * logical name (`systemuser` is granted by `prvReadUser`, activity tables share `prvReadActivity`),
+ * so any name-matching scheme silently reports "No Access" for those tables.
+ * @private
+ * @type {Object<string, string>}
+ */
+const PRIVILEGE_TYPE_TO_VERB = {
+    Create: 'create',
+    Read: 'read',
+    Write: 'write',
+    Delete: 'delete',
+    Assign: 'assign',
+    Share: 'share',
+    Append: 'append',
+    AppendTo: 'appendto'
+};
+
+/**
+ * Display label for each `Depth` value returned by the privilege-retrieval messages.
+ * @private
+ * @type {Object<string, string>}
+ */
+const DEPTH_LABELS = {
+    Basic: 'Basic (User)',
+    Local: 'Local (BU)',
+    Deep: 'Deep (BU + Child)',
+    Global: 'Global (Org)'
+};
+
+/**
+ * Depth ranking, used to keep the strongest grant when several roles grant the same privilege.
+ * @private
+ * @type {Object<string, number>}
+ */
+const DEPTH_RANK = { Basic: 0, Local: 1, Deep: 2, Global: 3 };
+
+/** Verb keys every privilege result carries, in the order the UI renders them. @private */
+const PRIVILEGE_VERBS = ['read', 'create', 'write', 'delete', 'append', 'appendto', 'assign', 'share'];
+
+/**
+ * Builds the "no privileges known" result every entity-privilege lookup starts from.
+ * @private
+ * @returns {Object<string, {hasPrivilege: boolean, depth: string|null, roles: string[]}>}
+ */
+function _emptyPrivilegeSet() {
+    return PRIVILEGE_VERBS.reduce((acc, verb) => {
+        acc[verb] = { hasPrivilege: false, depth: null, roles: [] };
+        return acc;
+    }, {});
+}
+
+/**
+ * Normalizes the `Depth` of a returned role privilege to a {@link DEPTH_RANK} key.
+ *
+ * The documented responses use the enum member name, but OData enums can also arrive as their
+ * ordinal. Silently dropping an ordinal would report a held privilege as denied — the exact failure
+ * this lookup exists to avoid — so both forms are accepted.
+ * @private
+ * @param {string|number} depth - The `Depth` value from a RolePrivilege
+ * @returns {string|null} A DEPTH_RANK key, or null when unrecognized
+ */
+function _normalizeDepth(depth) {
+    if (typeof depth === 'string' && depth in DEPTH_RANK) {
+        return depth;
+    }
+    if (Number.isInteger(depth)) {
+        return Object.keys(DEPTH_RANK).find(name => DEPTH_RANK[name] === depth) || null;
+    }
+    return null;
+}
+
+/**
+ * Normalizes a GUID for use as a map key. Dataverse is inconsistent about casing and braces
+ * between metadata, function responses and table rows.
+ * @private
+ * @param {string} guid - The value to normalize
+ * @returns {string} Lowercase GUID without braces, or an empty string
+ */
+function _guidKey(guid) {
+    return String(guid || '').replace(/[{}]/g, '').toLowerCase();
+}
 
 /**
  * Security Analysis Service - provides tools to analyze and compare user security settings.
@@ -116,6 +203,40 @@ export const SecurityAnalysisService = {
      * @async
      */
     async getUserRoles(userId, getEntitySetName = MetadataService.getEntitySetName) {
+        try {
+            return await this._fetchUserRoles(userId, getEntitySetName);
+        } catch (error) {
+            NotificationService.show(Config.MESSAGES.COMMON?.operationFailed?.(error.message) || `Failed to get user roles: ${error.message}`, 'error');
+            return [];
+        }
+    },
+
+    /**
+     * Reports whether a user holds any security role at all, directly or through a team.
+     *
+     * Unlike {@link getUserRoles} this propagates failures instead of returning an empty array, so
+     * callers can tell "holds no roles" from "could not ask" — a user genuinely without roles fails
+     * every request while impersonated, which is worth warning about; a failed lookup is not.
+     * @param {string} userId - The system user ID
+     * @param {Function} [getEntitySetName] - Entity set name resolver
+     * @returns {Promise<boolean>} True when the user holds at least one role
+     * @throws {Error} When the roles cannot be read
+     * @async
+     */
+    async hasAnySecurityRole(userId, getEntitySetName = MetadataService.getEntitySetName) {
+        const roles = await this._fetchUserRoles(userId, getEntitySetName);
+        return roles.length > 0;
+    },
+
+    /**
+     * Fetches a user's direct and team-inherited roles, throwing on failure.
+     * @param {string} userId - The system user ID
+     * @param {Function} getEntitySetName - Entity set name resolver
+     * @returns {Promise<Array<SecurityRole>>} Array of security roles
+     * @private
+     * @async
+     */
+    async _fetchUserRoles(userId, getEntitySetName) {
         // Handle null userId by getting current user
         let actualUserId = userId;
         if (!actualUserId) {
@@ -126,91 +247,99 @@ export const SecurityAnalysisService = {
             actualUserId = currentUserId.replace(/[{}]/g, '');
         }
 
-        try {
-            // Fetch direct roles (full records) and team memberships in parallel
-            // We need all fields to access _parentrootroleid_value which is the consistent root role ID
-            const [directRolesResponse, teamsResponse] = await Promise.all([
+        // Fetch direct roles (full records) and team memberships in parallel
+        // We need all fields to access _parentrootroleid_value which is the consistent root role ID
+        const [directRolesResponse, teamsResponse] = await Promise.all([
+            WebApiService.webApiFetch(
+                'GET',
+                `systemusers(${actualUserId})/systemuserroles_association`,
+                '',
+                null,
+                {},
+                getEntitySetName
+            ),
+            WebApiService.webApiFetch(
+                'GET',
+                `systemusers(${actualUserId})/teammembership_association?$select=teamid,name`,
+                '',
+                null,
+                {},
+                getEntitySetName
+            )
+        ]);
+
+        // `roleid` is the root role so the same role compares equal across business units;
+        // `sourceRoleIds` keeps the records actually assigned, which is what tables such as
+        // roleprivilegescollection are keyed by.
+        const directRoles = (directRolesResponse?.value || []).map(r => ({
+            roleid: r._parentrootroleid_value || r.roleid,
+            sourceRoleIds: [r.roleid],
+            name: r.name,
+            isInherited: false
+        }));
+
+        const teams = (teamsResponse?.value || []);
+        const teamIds = teams.map(t => t.teamid);
+
+        // Fetch team roles (full records) for all teams in parallel
+        let teamRoles = [];
+        if (teamIds.length > 0) {
+            const teamRolePromises = teamIds.map((teamId, index) =>
                 WebApiService.webApiFetch(
                     'GET',
-                    `systemusers(${actualUserId})/systemuserroles_association`,
+                    `teams(${teamId})/teamroles_association`,
                     '',
                     null,
                     {},
                     getEntitySetName
-                ),
-                WebApiService.webApiFetch(
-                    'GET',
-                    `systemusers(${actualUserId})/teammembership_association?$select=teamid,name`,
-                    '',
-                    null,
-                    {},
-                    getEntitySetName
-                )
-            ]);
+                ).then(result => ({ teamId, teamName: teams[index].name, result }))
+                    .catch(() => ({ teamId, teamName: teams[index].name, result: { value: [] } }))
+            );
 
-            // Use _parentrootroleid_value (root role ID) if available, otherwise use roleid
-            // This ensures consistent role IDs across business units and environments
-            const directRoles = (directRolesResponse?.value || []).map(r => ({
-                roleid: r._parentrootroleid_value || r.roleid,
-                name: r.name,
-                isInherited: false
-            }));
+            const teamRoleResults = await Promise.all(teamRolePromises);
+            teamRoles = teamRoleResults.flatMap(({ teamId, teamName, result }) =>
+                (result?.value || []).map(r => ({
+                    roleid: r._parentrootroleid_value || r.roleid,
+                    sourceRoleIds: [r.roleid],
+                    name: r.name,
+                    isInherited: true,
+                    teamId,
+                    teamName
+                }))
+            );
+        }
 
-            const teams = (teamsResponse?.value || []);
-            const teamIds = teams.map(t => t.teamid);
-
-            // Fetch team roles (full records) for all teams in parallel
-            let teamRoles = [];
-            if (teamIds.length > 0) {
-                const teamRolePromises = teamIds.map((teamId, index) =>
-                    WebApiService.webApiFetch(
-                        'GET',
-                        `teams(${teamId})/teamroles_association`,
-                        '',
-                        null,
-                        {},
-                        getEntitySetName
-                    ).then(result => ({ teamId, teamName: teams[index].name, result }))
-                        .catch(() => ({ teamId, teamName: teams[index].name, result: { value: [] } }))
-                );
-
-                const teamRoleResults = await Promise.all(teamRolePromises);
-                teamRoles = teamRoleResults.flatMap(({ teamId, teamName, result }) =>
-                    (result?.value || []).map(r => ({
-                        roleid: r._parentrootroleid_value || r.roleid,
-                        name: r.name,
-                        isInherited: true,
-                        teamId,
-                        teamName
-                    }))
-                );
+        // Group roles, tracking all teams that provide each inherited role
+        const roleMap = new Map();
+        for (const role of directRoles) {
+            roleMap.set(role.roleid, role);
+        }
+        for (const role of teamRoles) {
+            if (!roleMap.has(role.roleid)) {
+                roleMap.set(role.roleid, {
+                    ...role,
+                    teams: [{ teamId: role.teamId, teamName: role.teamName }]
+                });
+                continue;
             }
 
-            // Group roles, tracking all teams that provide each inherited role
-            const roleMap = new Map();
-            for (const role of directRoles) {
-                roleMap.set(role.roleid, role);
-            }
-            for (const role of teamRoles) {
-                if (!roleMap.has(role.roleid)) {
-                    roleMap.set(role.roleid, {
-                        ...role,
-                        teams: [{ teamId: role.teamId, teamName: role.teamName }]
-                    });
-                } else if (roleMap.get(role.roleid).isInherited) {
-                    const existing = roleMap.get(role.roleid);
-                    if (!existing.teams) {
-                        existing.teams = [];
-                    }
-                    existing.teams.push({ teamId: role.teamId, teamName: role.teamName });
+            const existing = roleMap.get(role.roleid);
+            // The same root role can reach the user through several business-unit copies; every
+            // one of them is a record that could carry the privilege rows.
+            for (const sourceId of role.sourceRoleIds) {
+                if (!existing.sourceRoleIds.includes(sourceId)) {
+                    existing.sourceRoleIds.push(sourceId);
                 }
             }
-
-            return Array.from(roleMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-        } catch (error) {
-            NotificationService.show(Config.MESSAGES.COMMON?.operationFailed?.(error.message) || `Failed to get user roles: ${error.message}`, 'error');
-            return [];
+            if (existing.isInherited) {
+                if (!existing.teams) {
+                    existing.teams = [];
+                }
+                existing.teams.push({ teamId: role.teamId, teamName: role.teamName });
+            }
         }
+
+        return Array.from(roleMap.values()).sort((a, b) => a.name.localeCompare(b.name));
     },
 
     /**
@@ -416,12 +545,7 @@ export const SecurityAnalysisService = {
      * @async
      */
     async getUserEntityPrivileges(userId, entityLogicalName, getEntitySetName = MetadataService.getEntitySetName) {
-        const privilegeVerbs = ['Read', 'Create', 'Write', 'Delete', 'Append', 'AppendTo', 'Assign', 'Share'];
-
-        const privileges = {};
-        for (const verb of privilegeVerbs) {
-            privileges[verb.toLowerCase()] = { hasPrivilege: false, depth: null, roles: [] };
-        }
+        const privileges = _emptyPrivilegeSet();
 
         // Handle null userId by getting current user
         let actualUserId = userId;
@@ -437,321 +561,188 @@ export const SecurityAnalysisService = {
             return privileges;
         }
 
+        let privilegeMetadata;
         try {
-            const entityPrivileges = await this._getEntityPrivilegesFromMetadata(entityLogicalName, getEntitySetName);
-
-            if (entityPrivileges.length === 0) {
-                return privileges;
-            }
-
-            const privilegeIdToInfo = new Map();
-            for (const priv of entityPrivileges) {
-                const name = priv.name || '';
-                for (const verb of privilegeVerbs) {
-                    const pattern = verb === 'Append'
-                        ? new RegExp(`^prv${verb}(?!To)`, 'i')
-                        : new RegExp(`^prv${verb}`, 'i');
-
-                    if (pattern.test(name)) {
-                        privilegeIdToInfo.set(priv.privilegeid, { verb: verb.toLowerCase(), name: priv.name });
-                        break;
-                    }
-                }
-            }
-
-            const userRoles = await this.getUserRoles(actualUserId, getEntitySetName);
-
-            for (const role of userRoles) {
-                await this._checkRolePrivileges(role, privilegeIdToInfo, privileges, getEntitySetName);
-            }
-
-            return privileges;
+            privilegeMetadata = await this._getEntityPrivilegeMetadata(entityLogicalName, getEntitySetName);
         } catch (error) {
-            NotificationService.show(Config.MESSAGES.COMMON?.operationFailed?.(error.message) || `Failed to get entity privileges: ${error.message}`, 'error');
+            // A failure here is not the same as "no access" — say so rather than let the table
+            // claim the user is locked out of a table they may well own.
+            privileges.unavailable = error.message;
             return privileges;
         }
-    },
 
-    /**
-     * Checks privileges for a single role and updates the privileges object.
-     * Queries the roleprivilegescollection entity to get privileges with depth information.
-     * Handles pagination since roles can have more than 5000 privileges.
-     * @param {Object} role - The role object with roleid
-     * @param {Map} privilegeIdToInfo - Map of privilege IDs to privilege info
-     * @param {Object} privileges - The privileges object to update
-     * @param {Function} getEntitySetName - Entity set name resolver
-     * @private
-     * @async
-     */
-    async _checkRolePrivileges(role, privilegeIdToInfo, privileges, getEntitySetName) {
+        if (privilegeMetadata.size === 0) {
+            return privileges;
+        }
+
         try {
-            // Query the roleprivilegescollection intersect entity directly
-            // EntitySetName: roleprivilegescollection
-            // Columns: roleid, privilegeid, privilegedepthmask (integer bit mask)
-            // Bit masks: Basic=1, Local=2, Deep=4, Global=8
-            // Note: GUIDs in OData filters must be enclosed in single quotes
-
-            let roleIdValue = role.roleid;
-            if (typeof roleIdValue === 'object' && roleIdValue !== null) {
-                roleIdValue = roleIdValue.guid || roleIdValue.value || roleIdValue.toString();
-            }
-
-            roleIdValue = String(roleIdValue || '').trim();
-            if (!roleIdValue) {
-                return;
-            }
-
-            const guidMatch = roleIdValue.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
-            const cleanRoleId = guidMatch ? guidMatch[0] : roleIdValue;
-
-            const allRolePrivs = [];
-            let nextUrl = 'roleprivilegescollection?$select=privilegeid,privilegedepthmask&$filter=roleid eq \'' + cleanRoleId + '\'';
-
-            while (nextUrl) {
-                const rolePrivResponse = await WebApiService.webApiFetch(
-                    'GET',
-                    nextUrl,
-                    '',
-                    null,
-                    {},
-                    getEntitySetName
-                );
-
-                if (rolePrivResponse?.value) {
-                    allRolePrivs.push(...rolePrivResponse.value);
-                }
-
-                if (rolePrivResponse?.['@odata.nextLink']) {
-                    const nextLink = rolePrivResponse['@odata.nextLink'];
-                    const match = nextLink.match(/\/api\/data\/v[\d.]+\/(.+)/);
-                    nextUrl = match ? match[1] : null;
-                } else {
-                    nextUrl = null;
+            const depths = await this._retrieveHeldPrivileges(actualUserId, [...privilegeMetadata.keys()], getEntitySetName);
+            for (const [privilegeId, depth] of depths) {
+                const verb = privilegeMetadata.get(privilegeId)?.verb;
+                if (verb) {
+                    privileges[verb] = { hasPrivilege: true, depth: DEPTH_LABELS[depth], roles: [] };
                 }
             }
+        } catch (error) {
+            privileges.unavailable = error.message;
+            return privileges;
+        }
 
-            for (const rolePriv of allRolePrivs) {
-                this._updatePrivilegeIfBetter(rolePriv, privilegeIdToInfo, privileges, role.name);
-            }
+        // Which roles grant each privilege is a diagnostic nicety layered on top of an answer we
+        // already have, so a failure here degrades the badge list rather than the verdict.
+        try {
+            await this._attachGrantingRoles(actualUserId, privilegeMetadata, privileges, getEntitySetName);
         } catch {
-            // Continue checking other roles even if one fails
+            // Privilege depths stand on their own without role attribution.
         }
+
+        return privileges;
     },
 
     /**
-     * Updates the privilege if the new depth is better than existing.
-     * Handles role privilege objects from roleprivilegescollection entity.
-     * @param {Object} rolePriv - The role privilege object with privilegeid and privilegedepthmask
-     * @param {Map} privilegeIdToInfo - Map of privilege IDs to privilege info
-     * @param {Object} privileges - The privileges object to update
-     * @param {string} roleName - Name of the role granting this privilege
+     * Reads the privileges that guard a table straight from its metadata.
+     *
+     * `EntityMetadata.Privileges` states each privilege's `PrivilegeType`, so the verb never has to
+     * be inferred from the privilege name.
+     * @param {string} entityLogicalName - The entity logical name
+     * @param {Function} getEntitySetName - Entity set name resolver
+     * @returns {Promise<Map<string, {verb: string, name: string}>>} Privilege id → verb and name
      * @private
+     * @async
      */
-    _updatePrivilegeIfBetter(rolePriv, privilegeIdToInfo, privileges, roleName) {
-        // roleprivilegescollection returns privilegeid and privilegedepthmask (integer bit mask)
-        const privilegeId = rolePriv.privilegeid;
-        const privInfo = privilegeIdToInfo.get(privilegeId);
-        if (!privInfo) {
-            return;
-        }
+    async _getEntityPrivilegeMetadata(entityLogicalName, getEntitySetName) {
+        const response = await WebApiService.webApiFetch(
+            'GET',
+            `EntityDefinitions(LogicalName='${entityLogicalName}')`,
+            '?$select=LogicalName,Privileges',
+            null,
+            {},
+            getEntitySetName
+        );
 
-        const existingPriv = privileges[privInfo.verb];
-        // privilegedepthmask is an integer bit mask:
-        // Basic = 1 (0x00000001)
-        // Local = 2 (0x00000002)
-        // Deep = 4 (0x00000004)
-        // Global = 8 (0x00000008)
-        const depthMask = rolePriv.privilegedepthmask;
-
-        if (!existingPriv.hasPrivilege || this._compareDepth(depthMask, existingPriv.depth) >= 0) {
-            const depthName = this._getDepthName(depthMask);
-
-            if (!existingPriv.hasPrivilege || this._compareDepth(depthMask, existingPriv.depth) > 0) {
-                privileges[privInfo.verb] = {
-                    hasPrivilege: true,
-                    depth: depthName,
-                    roles: [roleName]
-                };
-            } else if (this._compareDepth(depthMask, existingPriv.depth) === 0) {
-                if (!existingPriv.roles.includes(roleName)) {
-                    existingPriv.roles.push(roleName);
-                }
+        const byId = new Map();
+        for (const privilege of response?.Privileges || []) {
+            const verb = PRIVILEGE_TYPE_TO_VERB[privilege?.PrivilegeType];
+            const id = _guidKey(privilege?.PrivilegeId);
+            if (verb && id) {
+                byId.set(id, { verb, name: privilege.Name });
             }
         }
+        return byId;
     },
 
     /**
-     * Gets the privileges linked to a specific entity from metadata.
-     * Uses the entity's ObjectTypeCode to find associated privileges.
-     * @param {string} entityLogicalName - The entity logical name
-     * @param {Function} [getEntitySetName] - Entity set name resolver
-     * @returns {Promise<Array>} Array of privilege objects with privilegeid and name
-     * @async
+     * Asks the platform which of the given privileges a user actually holds, and at what depth.
+     *
+     * `RetrieveUserSetOfPrivilegesByIds` accounts for direct roles, team-inherited roles and the
+     * System Administrator role in one call — which role-by-role queries against
+     * `roleprivilegescollection` do not, because the role ids a user is assigned in a child business
+     * unit are copies of the ones those queries look for.
+     * @param {string} userId - The system user ID
+     * @param {string[]} privilegeIds - Privilege ids to test
+     * @param {Function} getEntitySetName - Entity set name resolver
+     * @returns {Promise<Map<string, string>>} Privilege id → highest depth held ('Basic'…'Global')
      * @private
+     * @async
      */
-    async _getEntityPrivilegesFromMetadata(entityLogicalName, getEntitySetName) {
+    async _retrieveHeldPrivileges(userId, privilegeIds, getEntitySetName) {
+        const wanted = new Set(privilegeIds);
         try {
-            const entityResponse = await WebApiService.webApiFetch(
+            const response = await WebApiService.webApiFetch(
                 'GET',
-                `EntityDefinitions(LogicalName='${entityLogicalName}')?$select=ObjectTypeCode,LogicalName,IsActivity`,
+                `systemusers(${userId})/Microsoft.Dynamics.CRM.RetrieveUserSetOfPrivilegesByIds(PrivilegeIds=@p1)`,
+                `?@p1=${encodeURIComponent(JSON.stringify(privilegeIds))}`,
+                null,
+                {},
+                getEntitySetName
+            );
+            return this._toDepthMap(response, wanted);
+        } catch {
+            // RetrieveUserPrivileges takes no parameters, so it survives anything that upsets the
+            // collection-parameter call. It reports team-inherited privileges as Basic depth
+            // regardless of the team role's real depth, so it is the second choice, not the first.
+            const response = await WebApiService.webApiFetch(
+                'GET',
+                `systemusers(${userId})/Microsoft.Dynamics.CRM.RetrieveUserPrivileges`,
                 '',
                 null,
                 {},
                 getEntitySetName
             );
-
-            const objectTypeCode = entityResponse?.ObjectTypeCode;
-            if (!objectTypeCode) {
-                return [];
-            }
-
-            const isActivityEntity = entityResponse?.IsActivity === true;
-            const entityToUseForPrivileges = isActivityEntity && entityLogicalName !== 'activitypointer'
-                ? 'activitypointer'
-                : entityLogicalName;
-
-
-            const allPrivileges = await this._fetchAllPrivileges(getEntitySetName);
-
-            const privilegeEntityName = entityToUseForPrivileges === 'activitypointer' ? 'activity' : entityToUseForPrivileges;
-            const entityNameLower = privilegeEntityName.toLowerCase();
-            const entityPrivileges = allPrivileges.filter(p => {
-                const nameLower = (p.name || '').toLowerCase();
-                return nameLower.endsWith(entityNameLower);
-            });
-
-            return entityPrivileges;
-        } catch (error) {
-            NotificationService.show(Config.MESSAGES.COMMON?.operationFailed?.(error.message) || `Failed to get entity privileges from metadata: ${error.message}`, 'error');
-            return [];
+            return this._toDepthMap(response, wanted);
         }
     },
 
     /**
-     * Fetches all privileges from the system, handling pagination.
-     * The privileges table can have thousands of records, so we need to follow @odata.nextLink.
-     * @param {Function} [getEntitySetName] - Entity set name resolver
-     * @returns {Promise<Array>} Array of all privilege objects
+     * Reduces a `RolePrivileges` response to the strongest depth held per requested privilege.
+     * @param {Object} response - A response carrying a `RolePrivileges` collection
+     * @param {Set<string>} wanted - Privilege ids to keep
+     * @returns {Map<string, string>} Privilege id → highest depth held
+     * @private
+     */
+    _toDepthMap(response, wanted) {
+        const depths = new Map();
+        for (const rolePrivilege of response?.RolePrivileges || []) {
+            const id = _guidKey(rolePrivilege?.PrivilegeId);
+            const depth = _normalizeDepth(rolePrivilege?.Depth);
+            if (!wanted.has(id) || !depth) {
+                continue;
+            }
+            const held = depths.get(id);
+            if (held === undefined || DEPTH_RANK[depth] > DEPTH_RANK[held]) {
+                depths.set(id, depth);
+            }
+        }
+        return depths;
+    },
+
+    /**
+     * Names the roles that grant each privilege the user was found to hold.
+     * @param {string} userId - The system user ID
+     * @param {Map<string, {verb: string}>} privilegeMetadata - Privilege id → verb
+     * @param {Object} privileges - The privileges object to annotate in place
+     * @param {Function} getEntitySetName - Entity set name resolver
+     * @returns {Promise<void>}
+     * @private
      * @async
-     * @private
      */
-    async _fetchAllPrivileges(getEntitySetName) {
-        const allPrivileges = [];
-        let nextUrl = 'privileges?$select=privilegeid,name';
-
-        try {
-            while (nextUrl) {
-                const response = await WebApiService.webApiFetch(
-                    'GET',
-                    nextUrl,
-                    '',
-                    null,
-                    {},
-                    getEntitySetName
-                );
-
-                if (response?.value) {
-                    allPrivileges.push(...response.value);
-                }
-
-                if (response?.['@odata.nextLink']) {
-                    const nextLink = response['@odata.nextLink'];
-                    const match = nextLink.match(/\/api\/data\/v[\d.]+\/(.+)/);
-                    nextUrl = match ? match[1] : null;
-                } else {
-                    nextUrl = null;
-                }
+    async _attachGrantingRoles(userId, privilegeMetadata, privileges, getEntitySetName) {
+        const roles = await this.getUserRoles(userId, getEntitySetName);
+        const roleNames = new Map();
+        for (const role of roles) {
+            for (const id of role.sourceRoleIds || []) {
+                roleNames.set(_guidKey(id), role.name);
             }
-        } catch (error) {
-            NotificationService.show(Config.MESSAGES.COMMON?.operationFailed?.(error.message) || `Failed to fetch all privileges: ${error.message}`, 'error');
+            roleNames.set(_guidKey(role.roleid), role.name);
+        }
+        if (roleNames.size === 0) {
+            return;
         }
 
-        return allPrivileges;
-    },
+        // One request: the filter is bounded by the table's handful of privileges and the user's
+        // roles, so it can never page.
+        const privilegeFilter = [...privilegeMetadata.keys()].map(id => `privilegeid eq '${id}'`).join(' or ');
+        const roleFilter = [...roleNames.keys()].map(id => `roleid eq '${id}'`).join(' or ');
+        const response = await WebApiService.webApiFetch(
+            'GET',
+            'roleprivilegescollection',
+            `?$select=roleid,privilegeid&$filter=(${privilegeFilter}) and (${roleFilter})`,
+            null,
+            {},
+            getEntitySetName
+        );
 
-    /**
-     * Converts privilegedepthmask bitmask to depth value.
-     * @param {number} depthMask - The privilege depth mask (bitmask)
-     * @returns {number} Depth value (0=Basic, 1=Local, 2=Deep, 3=Global)
-     * @private
-     */
-    _depthMaskToDepth(depthMask) {
-        // privilegedepthmask is a bitmask:
-        // 1 = Basic (User), 2 = Local (BU), 4 = Deep (BU+Child), 8 = Global (Org)
-        // Return the highest depth level
-        if (depthMask & 8) {
-            return 3; // Global
+        for (const row of response?.value || []) {
+            const verb = privilegeMetadata.get(_guidKey(row?.privilegeid))?.verb;
+            const roleName = roleNames.get(_guidKey(row?.roleid));
+            const privilege = verb ? privileges[verb] : null;
+            if (privilege?.hasPrivilege && roleName && !privilege.roles.includes(roleName)) {
+                privilege.roles.push(roleName);
+            }
         }
-        if (depthMask & 4) {
-            return 2; // Deep
-        }
-        if (depthMask & 2) {
-            return 1; // Local
-        }
-        if (depthMask & 1) {
-            return 0; // Basic
-        }
-        return -1; // No access
-    },
 
-    /**
-     * Compares two depth values. Returns positive if depth1 is better than depth2.
-     * @param {number|string} depth1 - First depth value (bit mask: 1=Basic, 2=Local, 4=Deep, 8=Global, or depth number 0-3, or string)
-     * @param {number|string|null} depth2 - Second depth value (can be null or string like "Global (Org)")
-     * @returns {number} Positive if depth1 > depth2, negative if depth1 < depth2, 0 if equal
-     * @private
-     */
-    _compareDepth(depth1, depth2) {
-        const getDepthNumber = (d) => {
-            if (typeof d === 'number') {
-                if (d === 1 || d === 2 || d === 4 || d === 8) {
-                    return this._depthMaskToDepth(d);
-                }
-                // Otherwise assume it's already a depth number (0-3)
-                return d;
-            }
-            if (!d) {
-                return -1;
-            }
-            const dLower = String(d).toLowerCase();
-            if (dLower.includes('global') || dLower.includes('organization')) {
-                return 3;
-            }
-            if (dLower.includes('deep') || dLower.includes('parent')) {
-                return 2;
-            }
-            if (dLower.includes('local') || dLower.includes('bu')) {
-                return 1;
-            }
-            if (dLower.includes('basic') || dLower.includes('user')) {
-                return 0;
-            }
-            return -1;
-        };
-
-        return getDepthNumber(depth1) - getDepthNumber(depth2);
-    },
-
-    /**
-     * Converts privilege depth bit mask to human-readable name.
-     * @param {number} depthMask - The privilege depth bit mask (1=Basic, 2=Local, 4=Deep, 8=Global)
-     * @returns {string} Human-readable depth name
-     * @private
-     */
-    _getDepthName(depthMask) {
-        const depth = this._depthMaskToDepth(depthMask);
-
-        switch (depth) {
-            case 0:
-                return 'Basic (User)';
-            case 1:
-                return 'Local (BU)';
-            case 2:
-                return 'Deep (BU + Child)';
-            case 3:
-                return 'Global (Org)';
-            default:
-                return 'Not Allowed';
+        for (const verb of PRIVILEGE_VERBS) {
+            privileges[verb].roles.sort((a, b) => a.localeCompare(b));
         }
     },
 
@@ -791,25 +782,10 @@ export const SecurityAnalysisService = {
 
         const comparisonUserFieldProfiles = await this.getUserFieldSecurityProfiles(comparisonUserId, getEntitySetName);
 
-        if (entityLogicalName && targetUserFieldProfiles.length > 0) {
-            for (const profile of targetUserFieldProfiles) {
-                profile.permissions = await this.getFieldPermissions(
-                    profile.fieldsecurityprofileid,
-                    entityLogicalName,
-                    getEntitySetName
-                );
-            }
-        }
-
-        if (entityLogicalName && comparisonUserFieldProfiles.length > 0) {
-            for (const profile of comparisonUserFieldProfiles) {
-                profile.permissions = await this.getFieldPermissions(
-                    profile.fieldsecurityprofileid,
-                    entityLogicalName,
-                    getEntitySetName
-                );
-            }
-        }
+        await Promise.all([
+            this._attachFieldPermissions(targetUserFieldProfiles, entityLogicalName, getEntitySetName),
+            this._attachFieldPermissions(comparisonUserFieldProfiles, entityLogicalName, getEntitySetName)
+        ]);
 
         return {
             currentUserRoles,
@@ -824,6 +800,30 @@ export const SecurityAnalysisService = {
             comparisonUserEntityPrivileges,
             comparisonUserFieldProfiles
         };
+    },
+
+    /**
+     * Loads each profile's field permissions for an entity, in parallel, onto `profile.permissions`.
+     * A user can hold many field security profiles, and the sequential version made one round trip
+     * per profile per user on a path the preview overlay hits on every toggle.
+     * @param {Array<FieldSecurityProfile>} profiles - Profiles to annotate in place
+     * @param {string|null} entityLogicalName - Entity to scope permissions to; no-op when absent
+     * @param {Function} getEntitySetName - Entity set name resolver
+     * @returns {Promise<void>}
+     * @private
+     * @async
+     */
+    async _attachFieldPermissions(profiles, entityLogicalName, getEntitySetName) {
+        if (!entityLogicalName || !profiles?.length) {
+            return;
+        }
+
+        const permissions = await Promise.all(profiles.map(profile =>
+            this.getFieldPermissions(profile.fieldsecurityprofileid, entityLogicalName, getEntitySetName)
+        ));
+        profiles.forEach((profile, index) => {
+            profile.permissions = permissions[index];
+        });
     },
 
     /**
@@ -846,21 +846,11 @@ export const SecurityAnalysisService = {
                 return [];
             }
 
-            const allPermissions = [];
-            for (const profile of profiles) {
-                const permissions = await this.getFieldPermissions(
-                    profile.fieldsecurityprofileid,
-                    entityLogicalName,
-                    getEntitySetName
-                );
+            await this._attachFieldPermissions(profiles, entityLogicalName, getEntitySetName);
 
-                for (const perm of permissions) {
-                    allPermissions.push({
-                        ...perm,
-                        profileName: profile.name
-                    });
-                }
-            }
+            const allPermissions = profiles.flatMap(profile =>
+                (profile.permissions || []).map(perm => ({ ...perm, profileName: profile.name }))
+            );
 
             const columnMap = new Map();
             for (const perm of allPermissions) {

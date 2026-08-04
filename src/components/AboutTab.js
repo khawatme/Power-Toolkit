@@ -72,7 +72,7 @@ export class AboutTab extends BaseComponent {
                 <div class="pdt-card-body">
                     <div class="info-grid">
                         <strong>GitHub:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit', 'View on GitHub')}
-                        <strong>Documentation:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit#readme', 'Read the Docs')}
+                        <strong>Documentation:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit/blob/main/docs/USER-GUIDE.md', 'Read the User Guide')}
                         <strong>Report Issue:</strong>${StringHelpers.createExternalLink('https://github.com/khawatme/Power-Toolkit/issues/new/choose', 'Submit a Bug Report')}
                     </div>
                 </div>
@@ -111,13 +111,106 @@ export class AboutTab extends BaseComponent {
      */
     _buildCurrentReleaseHtml() {
         return `
-            <p class="pdt-changelog-intro">All new features in this release are part of the <strong>Custom APIs</strong> tab.</p>
+            <p class="pdt-changelog-intro">This major release introduces the <strong>AI Workbench</strong>, rebuilds Form Automation and the Impersonate analysis, and sharpens every query and metadata tab.</p>
+
+            <p class="pdt-changelog-group">AI Workbench <span class="pdt-badge-small">New tab</span></p>
             <ul class="pdt-changelog-list">
-                <li><strong>Custom API Manager (New Tab):</strong> Full lifecycle management for Dataverse Custom APIs scoped by solution. Browse all APIs in a card grid with expandable parameters and response properties. Create new APIs with deep-insert of parameters/properties in a single request. Edit and delete unmanaged APIs directly from the browser.</li>
-                <li><strong>Custom API Tester:</strong> Select any Custom API to auto-populate the correct HTTP method, endpoint URL (Global, Entity-bound, Collection-bound), and type-aware parameter inputs. Add custom request headers, execute the API, and inspect the response — status, timing, size, body (JSON/XML/Raw), and headers — each with one-click copy.</li>
-                <li><strong>Code Generation (4 Languages):</strong> Instantly generate ready-to-use code snippets for any Custom API in JavaScript (fetch), C# (SDK), raw HTTP, and Power Automate action JSON formats.</li>
-                <li><strong>Export / Import:</strong> Export a Custom API definition (including all parameters and response properties) as a portable JSON file and import it into any other environment.</li>
-                <li><strong>Execution History:</strong> The last 20 API executions are tracked with method, status code, and elapsed time. Click any entry to re-populate the tester.</li>
+                <li><strong>Browse:</strong> Copilot Studio agents and workflows plus AI Builder prompts &amp; models, as solution-scoped cards with Draft/Published and Active/Inactive states, JSON export, portal deep links, and safe delete.</li>
+                <li><strong>Agent dialog:</strong> Instructions &amp; model, an orchestration map of connected agents, grouped components, activity with publish readiness, readable transcripts, and the configuration JSON — editable with Save &amp; Publish for unmanaged agents.</li>
+                <li><strong>Prompt editor:</strong> Edit a prompt as plain text with <code>{token}</code> placeholders intact, grouped settings, and one-click Test reporting finish reason, token breakdown, and AI Builder/Copilot credits.</li>
+                <li><strong>Model versions:</strong> Every configuration iteration listed newest-first with a Live marker, and a failed training run shown with its error instead of a blank panel.</li>
+                <li><strong>Template library:</strong> 200+ copy-ready Copilot Studio scaffolds with placeholder filling and problem-language search.</li>
+                <li><strong>Instruction generator &amp; review:</strong> Compose an instruction set from 60+ role presets, or check existing instructions against Microsoft's guidance.</li>
+                <li><strong>Cross-agent search:</strong> One box across every agent's component names, descriptions, and full instructions.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Power Automate Flows</p>
+            <ul class="pdt-changelog-list">
+                <li>Visual <code>runAfter</code> editor with status toggles, add/remove predecessors, and cycle-safe arrows.</li>
+                <li>Run history — status, trigger, duration, per-action logs, success rate, and auto-refresh.</li>
+                <li>Copilot Studio workflows get an <em>Agent flow</em> badge and open in Copilot Studio.</li>
+                <li>Complex inputs such as <code>variables</code> arrays are editable field-by-field in visual mode.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Metadata Browser</p>
+            <ul class="pdt-changelog-list">
+                <li>Column Details now shows <strong>choice options</strong> and <strong>lookup targets</strong>, including polymorphic lookups such as <code>customerid</code> and <code>ownerid</code>.</li>
+                <li>A Key Facts summary at the top, and copyable option and target labels.</li>
+                <li>Fixed dialog sizing, nested scrollbars, and searching straight after pasting a name.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">FetchXML Tester</p>
+            <ul class="pdt-changelog-list">
+                <li>Columns are detected as you type or paste, not only when picked from the dialog.</li>
+                <li>Correct link-entity output for <code>exists</code>, <code>in</code>, and cross-apply link types.</li>
+                <li>Aggregate, alias-clash, and link-limit errors are explained in plain language.</li>
+                <li>Changing a join's table keeps the joins below it in sync.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">WebAPI Explorer</p>
+            <ul class="pdt-changelog-list">
+                <li><strong>Date filters without guessing a time:</strong> Dataverse date functions — On, OnOrAfter, Today, This Month, Last X Days and more.</li>
+                <li>Field values keep their type, so <code>123</code> and <code>null</code> stay text on a text column.</li>
+                <li><strong>Get Count</strong> reports the true total instead of stopping at Top Count.</li>
+                <li><strong>Current record:</strong> on a form, one button under GET fills in the table you are looking at and filters it to that record's id — the table's real primary key, read from metadata.</li>
+                <li>Bulk update and delete refuse to run on an incomplete filter that would match every record.</li>
+                <li>File uploads continue past a failure and name the file that failed.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Impersonate</p>
+            <ul class="pdt-changelog-list">
+                <li><strong>Quick Check:</strong> one button summarising what the impersonated user would get on the page you're on — table privileges, the form they'd actually open, columns field security hides, record access, the apps they can open by name, and role-scoped views. Works on forms and lists, and never touches the page.</li>
+                <li><strong>Impersonation now covers writes it previously missed:</strong> paging, Custom API execution and file upload silently ran as you; page 2 of a result set could come from a different user than page 1.</li>
+                <li>Command differences that depend on custom JavaScript or Power Fx are reported as "Cannot be determined" instead of "Same".</li>
+                <li>Analyze Security and Compare Commands can no longer overlap and overwrite each other's results.</li>
+                <li><strong>No more lock-out:</strong> the user search runs as you, so impersonating a user who can't read the user table no longer 403s every attempt to switch away.</li>
+                <li>Search matches email and sign-in name, not just full name; a GUID matches the user or Entra object id.</li>
+                <li><strong>Entity privileges are correct:</strong> read straight from table metadata and the platform's own privilege check, so admin and team-inherited access is reported instead of "No Access".</li>
+                <li>A privilege that can't be read shows as Unknown rather than denied.</li>
+                <li>Picking a user with no security roles warns you up front.</li>
+                <li>Selecting a different user clears the previous user's analysis.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Plugin Traces</p>
+            <ul class="pdt-changelog-list">
+                <li>Outcome filter — All, Errors only, or Success only — applied server-side.</li>
+                <li><strong>Change the logging level without leaving the tab:</strong> the banner now carries a <strong>Logging level</strong> dropdown — Off, Exception, or All — that writes the environment setting. Needs write access to the Organization table, and applies to plug-ins that run after it.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Form Automation</p>
+            <ul class="pdt-changelog-list">
+                <li><strong>The <code>formjson</code> reader actually reads now:</strong> Dataverse wraps every collection as <code>{"$type", "$values"}</code> and names the handler list <code>EventHandlers</code>, so the JSON side of the parser had been matching nothing at all since it was added. Handlers that live only in <code>formjson</code> were invisible.</li>
+                <li><strong>Quick View, Quick Create and Card forms are included</strong> — previously only Main forms were read, so handlers on every other form kind were missing entirely.</li>
+                <li><strong>Every handler names the form it lives on</strong>, and a script shared by several forms is listed once with the count instead of being merged into an anonymous pile.</li>
+                <li><strong>Script libraries are found:</strong> the parser looked for elements that don't exist in the FormXML schema; it now reads <code>&lt;formLibraries&gt;</code>, where forms actually declare their JavaScript — each with a button that opens it in the web resource editor.</li>
+                <li><strong>A function registered on two events is no longer swallowed:</strong> deduplication ignored the event, so the same function on OnLoad and OnSave showed up only once.</li>
+                <li><strong>Honest badges:</strong> <em>Managed</em>/<em>Custom</em> became <em>System</em>/<em>Form</em> — the form definition records who registered a handler, not which solution it came from.</li>
+                <li>A handler with no explicit <code>enabled</code> attribute is no longer shown as disabled.</li>
+                <li>OnChange handlers are attributed to the column the event names, and a handler whose event can't be identified is listed under Other instead of being dropped.</li>
+                <li>A note reports which forms were scanned, so "no handlers" says what it actually checked.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Performance</p>
+            <ul class="pdt-changelog-list">
+                <li><strong>Performance Review:</strong> the form is checked against Microsoft's published guidance instead of the toolkit's own opinions, and every finding <strong>links to the Microsoft Learn page behind it</strong>.</li>
+                <li><strong>Scan form scripts:</strong> reads the table's unmanaged form libraries and adds the client-scripting rules — synchronous requests, <code>window.top</code>, the OData v2.0 endpoint, leftover <code>console</code> calls, new windows, and uncleaned timers or listeners.</li>
+                <li>Until the scan runs, the script rules are <strong>skipped rather than passed</strong>, and the all-clear says how many rules actually ran.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Code Hub</p>
+            <ul class="pdt-changelog-list">
+                <li>Twelve new Client API snippets, including <strong>generative pages</strong>, <code>Xrm.App</code> side panes and global notifications, save-mode detection for blocking auto-save, <code>addOnLoad</code>, and FetchXML through <code>Xrm.WebApi</code>.</li>
+                <li>Every snippet re-checked against the Microsoft Learn Client API reference.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Settings</p>
+            <ul class="pdt-changelog-list">
+                <li><strong>Give a tab its own color:</strong> each row in Tab Configuration has a color swatch. The tab then carries that color as an edge bar and a tinted icon in the navigation, so the one you reach for constantly is findable at a glance. Colors travel with <strong>Export</strong> / <strong>Import Settings</strong> and clear with <strong>Reset All Settings</strong>.</li>
+            </ul>
+
+            <p class="pdt-changelog-group">Across all tabs</p>
+            <ul class="pdt-changelog-list">
+                <li>Real server error messages instead of bare HTTP codes, with the stack-trace noise stripped.</li>
             </ul>
         `;
     }
@@ -131,6 +224,16 @@ export class AboutTab extends BaseComponent {
             <details class="pdt-changelog-details">
                 <summary><strong> Previous Releases</strong></summary>
                 <div class="pdt-changelog-previous-releases">
+                    <details class="pdt-changelog-version">
+                        <summary><strong>Version 4.3.0</strong></summary>
+                        <ul class="pdt-changelog-list">
+                            <li><strong>Custom API Manager (New Tab):</strong> Full lifecycle management for Dataverse Custom APIs scoped by solution. Browse all APIs in a card grid with expandable parameters and response properties. Create new APIs with deep-insert of parameters/properties in a single request. Edit and delete unmanaged APIs directly from the browser.</li>
+                            <li><strong>Custom API Tester:</strong> Select any Custom API to auto-populate the correct HTTP method, endpoint URL (Global, Entity-bound, Collection-bound), and type-aware parameter inputs. Add custom request headers, execute the API, and inspect the response — status, timing, size, body (JSON/XML/Raw), and headers — each with one-click copy.</li>
+                            <li><strong>Code Generation (4 Languages):</strong> Instantly generate ready-to-use code snippets for any Custom API in JavaScript (fetch), C# (SDK), raw HTTP, and Power Automate action JSON formats.</li>
+                            <li><strong>Export / Import:</strong> Export a Custom API definition (including all parameters and response properties) as a portable JSON file and import it into any other environment.</li>
+                            <li><strong>Execution History:</strong> The last 20 API executions are tracked with method, status code, and elapsed time. Click any entry to re-populate the tester.</li>
+                        </ul>
+                    </details>
                     <details class="pdt-changelog-version">
                         <summary><strong>Version 4.2.2</strong></summary>
                         <ul class="pdt-changelog-list">
