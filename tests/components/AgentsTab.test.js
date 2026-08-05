@@ -3746,6 +3746,30 @@ describe('AgentsTab', () => {
             );
         });
 
+        it('should open a modern agent on the /agents/ route with no /overview suffix', async () => {
+            const ctx = await renderTab();
+            tab = ctx.tab;
+            ctx.el.querySelector('[data-agent-id="bot-1"] [data-action="open-studio"]').click();
+            await flush();
+
+            expect(window.open).toHaveBeenCalledWith(
+                'https://copilotstudio.microsoft.com/environments/env-abc-123/agents/bot-1',
+                '_blank'
+            );
+        });
+
+        it('should open a classic agent on the /bots/ route with the /overview suffix', async () => {
+            const ctx = await renderTab();
+            tab = ctx.tab;
+            ctx.el.querySelector('[data-agent-id="bot-2"] [data-action="open-studio"]').click();
+            await flush();
+
+            expect(window.open).toHaveBeenCalledWith(
+                'https://copilotstudio.microsoft.com/environments/env-abc-123/bots/bot-2/overview',
+                '_blank'
+            );
+        });
+
         it('should fall back to the base Copilot Studio URL when the environment id is unavailable', async () => {
             const ctx = await renderTab();
             tab = ctx.tab;

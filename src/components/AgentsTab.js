@@ -8450,7 +8450,12 @@ export class AgentsTab extends BaseComponent {
 
     /**
      * Opens an agent in the Copilot Studio maker portal.
-     * @param {string} agentId
+     *
+     * The route depends on the agent experience. The portal serves a modern generative agent from
+     * `/agents/{botid}` and a classic topic-based one from `/bots/{botid}/overview` — different
+     * segment *and* different suffix. Linking everything to the classic route sent modern agents to
+     * a page the portal doesn't serve for them.
+     * @param {string} agentId - The bot GUID.
      * @private
      */
     async _openInCopilotStudio(agentId) {
@@ -8458,10 +8463,16 @@ export class AgentsTab extends BaseComponent {
             return;
         }
         const envId = await this._getEnvironmentId();
-        const url = envId
-            ? `https://copilotstudio.microsoft.com/environments/${envId}/bots/${agentId}/overview`
-            : 'https://copilotstudio.microsoft.com/';
-        window.open(url, '_blank');
+        if (!envId) {
+            window.open('https://copilotstudio.microsoft.com/', '_blank');
+            return;
+        }
+        // Unknown kind falls back to the modern route, which is what a new agent is today.
+        const agent = this.agents?.find(a => a.id === agentId);
+        const path = agent && !agent.isModern
+            ? `bots/${agentId}/overview`
+            : `agents/${agentId}`;
+        window.open(`https://copilotstudio.microsoft.com/environments/${envId}/${path}`, '_blank');
     }
 
     /**

@@ -10,9 +10,10 @@
  *   source-v<version>.zip    — full source via `git archive`
  */
 
-const { execSync } = require('child_process');
-const { readFileSync, mkdirSync } = require('fs');
+const { execSync, execFileSync } = require('child_process');
+const { readFileSync, mkdirSync, readdirSync, writeFileSync, rmSync } = require('fs');
 const path = require('path');
+const os = require('os');
 
 const rootDir = path.resolve(__dirname, '..');
 const pkg = JSON.parse(readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
@@ -53,23 +54,101 @@ console.log(`   • releases/source-${version}.zip\n`);
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Zips the *contents* of a directory (not the directory folder itself) into a
- * ZIP file using System.IO.Compression.ZipFile via PowerShell.
+ * Lists every file under a directory as a ZIP-safe relative path.
+ * @param {string} dir  - Directory to walk.
+ * @param {string} base - Root the returned paths are relative to.
+ * @returns {string[]} Relative paths, always forward-slash separated.
+ */
+function listFiles(dir, base = dir) {
+    const found = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            found.push(...listFiles(full, base));
+        } else {
+            found.push(path.relative(base, full).split(path.sep).join('/'));
+        }
+    }
+    return found;
+}
+
+/** Escapes a path for a single-quoted PowerShell string literal. */
+function psQuote(value) {
+    return value.replace(/'/g, "''");
+}
+
+/**
+ * Zips the *contents* of a directory (not the directory folder itself).
  *
  * @param {string} sourceDir - Absolute path to the directory to compress.
  * @param {string} destZip   - Absolute path for the output ZIP file.
  */
 function zipDir(sourceDir, destZip) {
-    // Normalise to forward-slashes; PowerShell accepts them and it avoids
-    // backslash-escape headaches inside the single-quoted PS string literals.
-    const src = sourceDir.replace(/\\/g, '/');
-    const dst = destZip.replace(/\\/g, '/');
+    const files = listFiles(sourceDir);
+    if (!files.length) {
+        throw new Error(`Nothing to package: ${sourceDir} is empty. Did the build run?`);
+    }
 
-    const ps = [
+    const src = psQuote(sourceDir.replace(/\\/g, '/'));
+    const dst = psQuote(destZip.replace(/\\/g, '/'));
+
+    const script = [
+        `$ErrorActionPreference = 'Stop'`,
+        `Add-Type -AssemblyName System.IO.Compression`,
         `Add-Type -AssemblyName System.IO.Compression.FileSystem`,
-        `if (Test-Path '${dst}') { Remove-Item -LiteralPath '${dst}' }`,
-        `[System.IO.Compression.ZipFile]::CreateFromDirectory('${src}', '${dst}')`,
-    ].join('; ');
+        `if (Test-Path -LiteralPath '${dst}') { Remove-Item -LiteralPath '${dst}' -Force }`,
+        `$zip = [System.IO.Compression.ZipFile]::Open('${dst}', 'Create')`,
+        `try {`,
+        ...files.map(file => '  [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile('
+            + `$zip, '${src}/${psQuote(file)}', '${psQuote(file)}', `
+            + '[System.IO.Compression.CompressionLevel]::Optimal)'),
+        `} finally { $zip.Dispose() }`
+    ].join('\n');
 
-    execSync(`powershell -NoProfile -Command "${ps}"`, { stdio: 'inherit' });
+    const scriptPath = path.join(os.tmpdir(), `pt-zip-${process.pid}-${Date.now()}.ps1`);
+    writeFileSync(scriptPath, script, 'utf8');
+    try {
+        execFileSync(
+            'powershell',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+            { stdio: 'inherit' }
+        );
+    } finally {
+        rmSync(scriptPath, { force: true });
+    }
+
+    assertZipEntryNames(destZip, files.length);
+}
+
+/**
+ * Fails the build if an archive contains a backslash in any entry name, so a ZIP
+ * Firefox will reject can never reach the releases folder unnoticed.
+ * @param {string} zipPath  - Archive to inspect.
+ * @param {number} expected - How many entries it should contain.
+ */
+function assertZipEntryNames(zipPath, expected) {
+    const dst = psQuote(zipPath.replace(/\\/g, '/'));
+    const names = execFileSync('powershell', [
+        '-NoProfile', '-Command',
+        `Add-Type -AssemblyName System.IO.Compression.FileSystem; `
+        + `$z = [System.IO.Compression.ZipFile]::OpenRead('${dst}'); `
+        + `try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }`
+    ], { encoding: 'utf8' })
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+    const invalid = names.filter(name => name.includes('\\'));
+    if (invalid.length) {
+        throw new Error(
+            `${path.basename(zipPath)} has ${invalid.length} entry name(s) with backslashes, `
+            + `which Firefox rejects: ${invalid.slice(0, 3).join(', ')}`
+        );
+    }
+    if (names.length !== expected) {
+        throw new Error(
+            `${path.basename(zipPath)} has ${names.length} entries, expected ${expected}.`
+        );
+    }
+    console.log(`   ✓ ${names.length} entries, all forward-slash separated`);
 }
