@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Power-Toolkit for Power Apps",
-    "version": "4.3.0",
-    "description": "A client-side toolkit for Power Apps and Dynamics365 developers to inspect, debug, and manipulate data.",
+    "version": "5.0.0",
+    "description": "Inspect forms, query Dataverse, trace plug-ins, and review AI agents inside Power Apps. MIT licensed. No telemetry, no backend.",
     "author": "Mohammed Khawatme",
     "icons": {
         "16": "icons/icon16.png",

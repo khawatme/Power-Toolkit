@@ -23,16 +23,62 @@ async function _readBodySafe(resp) {
 }
 
 /**
- * Build HTTP error object with details.
+ * Extracts the human-readable message and error code from a Dataverse Web API error body.
+ * Dataverse returns `{ "error": { "code": "0x...", "message": "...", "innererror": {...} } }`;
+ * some endpoints return `{ "Message": "..." }`. Returns empty values for non-JSON/empty bodies.
+ * @private
+ * @param {string|object} body - Response body (text or parsed object)
+ * @returns {{message: string, code: string|undefined}}
+ */
+function _parseErrorBody(body) {
+    if (!body) {
+        return { message: '', code: undefined };
+    }
+    let data = body;
+    if (typeof body === 'string') {
+        const trimmed = body.trim();
+        if (!trimmed) {
+            return { message: '', code: undefined };
+        }
+        try {
+            data = JSON.parse(trimmed);
+        } catch {
+            return { message: '', code: undefined };
+        }
+    }
+    if (data && typeof data === 'object') {
+        const err = data.error;
+        if (err && typeof err === 'object') {
+            return {
+                message: err.message || err.innererror?.message || '',
+                code: err.code
+            };
+        }
+        return { message: data.Message || data.message || '', code: undefined };
+    }
+    return { message: '', code: undefined };
+}
+
+/**
+ * Build HTTP error object with details. The message leads with the HTTP status line and appends the
+ * Dataverse error message when it adds information beyond the status text — so callers that show
+ * `error.message` surface the real cause (e.g. "referenced by N components") instead of just a code.
  * @private
  * @param {Response} resp - Fetch response
  * @param {string} body - Response body text
  * @returns {Error}
  */
 function _buildHttpError(resp, body) {
-    const error = new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    const { message: detail, code } = _parseErrorBody(body);
+    const statusLine = `HTTP ${resp.status} ${resp.statusText}`.trimEnd();
+    const message = detail && detail !== resp.statusText ? `${statusLine}: ${detail}` : statusLine;
+
+    const error = new Error(message);
     error.status = resp.status;
     error.statusText = resp.statusText;
+    if (code) {
+        error.code = code;
+    }
     error.response = { status: resp.status, statusText: resp.statusText, data: body };
     return error;
 }
@@ -201,6 +247,44 @@ export const WebApiService = {
 
         const text = await resp.text();
         return _parseResponse(resp, text);
+    },
+
+    /**
+     * Fetch an absolute Web API URL that the platform handed us, such as an `@odata.nextLink`.
+     *
+     * Exists so callers never hand-roll headers: impersonation has to survive paging, or page 1 comes
+     * back as the impersonated user and page 2 as the signed-in one, in a single result set.
+     * @param {string} url - Absolute URL, already built by Dataverse
+     * @param {string|null} [impersonatedUserId] - User ID for impersonation
+     * @param {HeadersInit} [customHeaders={}] - Additional headers
+     * @returns {Promise<object>} Parsed response JSON
+     * @throws {Error} When the request fails
+     */
+    async fetchAbsolute(url, impersonatedUserId = null, customHeaders = {}) {
+        const resp = await fetch(url, {
+            method: 'GET',
+            headers: _buildRequestHeaders(customHeaders, impersonatedUserId)
+        });
+
+        if (!resp.ok) {
+            const body = await _readBodySafe(resp);
+            throw _buildHttpError(resp, body);
+        }
+
+        const text = await resp.text();
+        return _parseResponse(resp, text);
+    },
+
+    /**
+     * Builds request headers, applying impersonation when a user id is supplied.
+     * Exposed so services that must issue their own `fetch` (file upload block APIs, Custom API
+     * execution) cannot drift from the impersonation rules.
+     * @param {HeadersInit} [customHeaders={}] - Additional headers
+     * @param {string|null} [impersonatedUserId=null] - User ID for impersonation
+     * @returns {HeadersInit} Complete headers object
+     */
+    buildHeaders(customHeaders = {}, impersonatedUserId = null) {
+        return _buildRequestHeaders(customHeaders, impersonatedUserId);
     },
 
     /**

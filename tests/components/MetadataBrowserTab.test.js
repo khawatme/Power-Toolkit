@@ -27,6 +27,7 @@ vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
         getEntityDefinitions: vi.fn(() => Promise.resolve(mockEntities)),
         getAttributeDefinitions: vi.fn(() => Promise.resolve(mockAttributes)),
+        getAttributeDetail: vi.fn(() => Promise.resolve(null)),
         getImpersonationInfo: vi.fn(() => ({ isImpersonating: false }))
     }
 }));
@@ -74,7 +75,12 @@ vi.mock('../../src/helpers/index.js', () => ({
         debounced.cancel = vi.fn();
         return debounced;
     }),
-    escapeHtml: vi.fn((str) => str || ''),
+    // Mirrors the real helper - an identity stub would hide escaping regressions.
+    escapeHtml: vi.fn((str) => {
+        const p = document.createElement('p');
+        p.textContent = String(str ?? '');
+        return p.innerHTML;
+    }),
     filterODataProperties: vi.fn((obj) => Object.entries(obj || {})),
     generateSortableTableHeaders: vi.fn(() => '<tr><th>Name</th><th>Logical Name</th></tr>'),
     getMetadataDisplayName: vi.fn((item) => item?.DisplayName?.UserLocalizedLabel?.Label || item?.LogicalName || 'Unknown'),
@@ -560,12 +566,35 @@ describe('MetadataBrowserTab', () => {
             }
         });
 
-        it('should show details dialog on row click', async () => {
+        it('should NOT show details dialog on row click', async () => {
             const row = component.ui.entityList.querySelector('tr[data-logical-name="account"]');
             if (row) {
                 row.click();
-                expect(DialogService.show).toHaveBeenCalled();
+                expect(DialogService.show).not.toHaveBeenCalled();
             }
+        });
+
+        it('should show details dialog when the info button is clicked', async () => {
+            const btn = component.ui.entityList.querySelector('tr[data-logical-name="account"] .pdt-metadata-info-btn');
+            expect(btn).toBeTruthy();
+            btn.click();
+            expect(DialogService.show).toHaveBeenCalled();
+        });
+
+        it('should also select the table when the info button is clicked', async () => {
+            const btn = component.ui.entityList.querySelector('tr[data-logical-name="account"] .pdt-metadata-info-btn');
+            btn.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(component.selectedEntity.LogicalName).toBe('account');
+            expect(DataService.getAttributeDefinitions).toHaveBeenCalledWith('account');
+        });
+
+        it('should mark the row active when the info button is clicked', () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="account"]');
+            row.querySelector('.pdt-metadata-info-btn').click();
+
+            expect(row.classList.contains('active')).toBe(true);
         });
 
         it('should add active class to selected row', async () => {
@@ -606,7 +635,19 @@ describe('MetadataBrowserTab', () => {
 
         it('should call DialogService.show', () => {
             component._showMetadataDetailsDialog('Test Title', { name: 'test' });
-            expect(DialogService.show).toHaveBeenCalledWith('Test Title', expect.any(HTMLElement));
+            expect(DialogService.show).toHaveBeenCalledWith(
+                'Test Title',
+                expect.any(HTMLElement),
+                null,
+                expect.objectContaining({ onClose: expect.any(Function) })
+            );
+        });
+
+        it('should cancel the debounced filter through onClose', () => {
+            component._showMetadataDetailsDialog('Test Title', { name: 'test' });
+
+            const options = DialogService.show.mock.calls.at(-1)[3];
+            expect(() => options.onClose()).not.toThrow();
         });
 
         it('should include filter input in dialog', () => {
@@ -631,6 +672,407 @@ describe('MetadataBrowserTab', () => {
             component._showMetadataDetailsDialog('Test Title', { name: 'test' });
 
             expect(dialogContent.querySelector('.info-grid')).toBeTruthy();
+        });
+    });
+
+    describe('column details sections', () => {
+        let dialogContent;
+
+        const openColumn = async (attribute) => {
+            DialogService.show.mockImplementation((title, content) => {
+                dialogContent = content;
+                return { close: vi.fn() };
+            });
+            component._showMetadataDetailsDialog('Column Details', attribute, { entityLogicalName: 'account' });
+            // Let the lazy type lookup settle.
+            await new Promise(resolve => setTimeout(resolve, 0));
+        };
+
+        beforeEach(async () => {
+            dialogContent = null;
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+        });
+
+        it('should render key facts for a column', async () => {
+            await openColumn({
+                LogicalName: 'name',
+                AttributeType: 'String',
+                AttributeTypeName: { Value: 'StringType' },
+                DisplayName: { UserLocalizedLabel: { Label: 'Account Name' } },
+                RequiredLevel: { Value: 'ApplicationRequired' }
+            });
+
+            const text = dialogContent.textContent;
+            expect(text).toContain('Key Facts');
+            expect(text).toContain('Account Name');
+            expect(text).toContain('ApplicationRequired');
+        });
+
+        it('should not render key facts for a table', () => {
+            DialogService.show.mockImplementation((title, content) => {
+                dialogContent = content;
+                return { close: vi.fn() };
+            });
+            component._showMetadataDetailsDialog('Table Details', { LogicalName: 'account' });
+
+            expect(dialogContent.textContent).not.toContain('Key Facts');
+        });
+
+        it('should render target chips for a polymorphic lookup', async () => {
+            await openColumn({
+                LogicalName: 'customerid',
+                AttributeType: 'Customer',
+                AttributeTypeName: { Value: 'CustomerType' },
+                Targets: ['account', 'contact']
+            });
+
+            const chips = [...dialogContent.querySelectorAll('.pdt-metadata-targets .pdt-badge-small')];
+            expect(dialogContent.querySelector('.pdt-badge-group')).toBeNull();
+            expect(chips.map(c => c.textContent)).toEqual(['account', 'contact']);
+            expect(dialogContent.textContent).toContain('polymorphic');
+        });
+
+        it('should not label a single-target lookup polymorphic', async () => {
+            await openColumn({
+                LogicalName: 'primarycontactid',
+                AttributeType: 'Lookup',
+                AttributeTypeName: { Value: 'LookupType' },
+                Targets: ['contact']
+            });
+
+            expect(dialogContent.textContent).toContain('Lookup Targets (1)');
+            expect(dialogContent.textContent).not.toContain('polymorphic');
+        });
+
+        it('should explain an empty target list', async () => {
+            await openColumn({
+                LogicalName: 'customerid',
+                AttributeType: 'Customer',
+                AttributeTypeName: { Value: 'CustomerType' },
+                Targets: []
+            });
+
+            expect(dialogContent.querySelector('.pdt-note').textContent)
+                .toBe('No target tables returned — metadata read privileges may be limited.');
+        });
+
+        it('should not fetch type details for a lookup column', async () => {
+            await openColumn({
+                LogicalName: 'ownerid',
+                AttributeType: 'Owner',
+                AttributeTypeName: { Value: 'OwnerType' },
+                Targets: ['systemuser', 'team']
+            });
+
+            expect(DataService.getAttributeDetail).not.toHaveBeenCalled();
+        });
+
+        it('should render an options table for a choice column', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce({
+                Options: [
+                    { value: 1, label: 'Active' },
+                    { value: 2, label: 'Inactive' }
+                ]
+            });
+
+            await openColumn({
+                LogicalName: 'statuscode',
+                AttributeType: 'Status',
+                AttributeTypeName: { Value: 'StatusType' }
+            });
+
+            const rows = [...dialogContent.querySelectorAll('.pdt-metadata-options tbody tr')];
+            expect(rows).toHaveLength(2);
+            expect(rows[0].textContent).toContain('1');
+            expect(rows[0].textContent).toContain('Active');
+            expect(dialogContent.textContent).toContain('Choice Options (2)');
+        });
+
+        it('should make both the option value and label copyable', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce({
+                Options: [{ value: 1, label: 'Active' }]
+            });
+
+            await openColumn({
+                LogicalName: 'statecode',
+                AttributeType: 'State',
+                AttributeTypeName: { Value: 'StateType' }
+            });
+
+            const cells = [...dialogContent.querySelectorAll('.pdt-metadata-options tbody td.copyable')];
+            expect(cells.map(c => c.textContent)).toEqual(['1', 'Active']);
+        });
+
+        it('should explain a choice with no options', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce({ Options: [] });
+
+            await openColumn({
+                LogicalName: 'industrycode',
+                AttributeType: 'Picklist',
+                AttributeTypeName: { Value: 'PicklistType' }
+            });
+
+            expect(dialogContent.querySelector('.pdt-note').textContent)
+                .toBe('No options defined for this choice.');
+        });
+
+        it('should explain when choice details cannot be loaded', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce(null);
+
+            await openColumn({
+                LogicalName: 'industrycode',
+                AttributeType: 'Picklist',
+                AttributeTypeName: { Value: 'PicklistType' }
+            });
+
+            expect(dialogContent.querySelector('.pdt-note').textContent)
+                .toBe('Type details unavailable — metadata read privileges may be limited.');
+        });
+
+        it('should add max length to key facts for a string column', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce({ MaxLength: 160 });
+
+            await openColumn({
+                LogicalName: 'name',
+                AttributeType: 'String',
+                AttributeTypeName: { Value: 'StringType' }
+            });
+
+            expect(dialogContent.textContent).toContain('Max Length');
+            expect(dialogContent.textContent).toContain('160');
+        });
+
+        it('should add a range to key facts for a numeric column', async () => {
+            DataService.getAttributeDetail.mockResolvedValueOnce({ MinValue: 0, MaxValue: 100 });
+
+            await openColumn({
+                LogicalName: 'numberofemployees',
+                AttributeType: 'Integer',
+                AttributeTypeName: { Value: 'IntegerType' }
+            });
+
+            expect(dialogContent.textContent).toContain('0 to 100');
+        });
+
+        it('should discard type details once the dialog is closed', async () => {
+            let resolveDetail;
+            DataService.getAttributeDetail.mockReturnValueOnce(
+                new Promise(resolve => { resolveDetail = resolve; })
+            );
+            DialogService.show.mockImplementation((title, content) => {
+                dialogContent = content;
+                return { close: vi.fn() };
+            });
+
+            component._showMetadataDetailsDialog(
+                'Column Details',
+                { LogicalName: 'industrycode', AttributeType: 'Picklist', AttributeTypeName: { Value: 'PicklistType' } },
+                { entityLogicalName: 'account' }
+            );
+
+            const options = DialogService.show.mock.calls.at(-1)[3];
+            options.onClose();
+
+            resolveDetail({ Options: [{ value: 1, label: 'Accounting' }] });
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(dialogContent.textContent).not.toContain('Accounting');
+        });
+    });
+
+    describe('keyboard access', () => {
+        const press = (el, key) => el.dispatchEvent(
+            new KeyboardEvent('keydown', { key, bubbles: true })
+        );
+
+        beforeEach(async () => {
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should expose table rows as focusable buttons', () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="account"]');
+            expect(row.getAttribute('role')).toBe('button');
+            expect(row.getAttribute('tabindex')).toBe('0');
+        });
+
+        it('should select a table with Enter', async () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="contact"]');
+            press(row, 'Enter');
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(component.selectedEntity.LogicalName).toBe('contact');
+            expect(row.getAttribute('aria-pressed')).toBe('true');
+        });
+
+        it('should select a table with Space', async () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="lead"]');
+            press(row, ' ');
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(component.selectedEntity.LogicalName).toBe('lead');
+        });
+
+        it('should ignore other keys on a table row', async () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="contact"]');
+            press(row, 'a');
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(component.selectedEntity).toBeNull();
+        });
+
+        it('should open column details with Enter', async () => {
+            await component._handleEntitySelect('account');
+
+            const row = component.ui.attributeList.querySelector('tr[data-logical-name="name"]');
+            expect(row.getAttribute('role')).toBe('button');
+            press(row, 'Enter');
+
+            expect(DialogService.show).toHaveBeenCalled();
+        });
+    });
+
+    describe('table switching', () => {
+        beforeEach(async () => {
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        it('should clear the column search when switching tables', async () => {
+            await component._handleEntitySelect('account');
+            component.ui.attributeSearch.value = 'accountnumber';
+
+            await component._handleEntitySelect('contact');
+
+            expect(component.ui.attributeSearch.value).toBe('');
+        });
+
+        it('should not reload when the selected table is clicked again', async () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="account"]');
+            row.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            DataService.getAttributeDefinitions.mockClear();
+            component.ui.attributeSearch.value = 'name';
+            row.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(DataService.getAttributeDefinitions).not.toHaveBeenCalled();
+            expect(component.ui.attributeSearch.value).toBe('name');
+        });
+
+        it('should still open details when the info button of the selected table is clicked', async () => {
+            const row = component.ui.entityList.querySelector('tr[data-logical-name="account"]');
+            row.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            DialogService.show.mockClear();
+            row.querySelector('.pdt-metadata-info-btn').click();
+
+            expect(DialogService.show).toHaveBeenCalled();
+        });
+    });
+
+    describe('pasted search terms', () => {
+        beforeEach(async () => {
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+
+        // A context-menu paste, drag-drop or autofill fires 'input' but never a key event.
+        const paste = (input, text) => {
+            input.value = text;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        it('should filter tables on a paste with no keystroke', () => {
+            paste(component.ui.entitySearch, 'contact');
+
+            const names = [...component.ui.entityList.querySelectorAll('tr[data-logical-name]')]
+                .map(r => r.dataset.logicalName);
+            expect(names).toEqual(['contact']);
+        });
+
+        it('should filter columns on a paste with no keystroke', async () => {
+            await component._handleEntitySelect('account');
+
+            paste(component.ui.attributeSearch, 'accountnumber');
+
+            const names = [...component.ui.attributeList.querySelectorAll('tr[data-logical-name]')]
+                .map(r => r.dataset.logicalName);
+            expect(names).toEqual(['accountnumber']);
+        });
+
+        it('should filter dialog properties on a paste with no keystroke', () => {
+            let dialogContent;
+            DialogService.show.mockImplementation((title, content) => {
+                dialogContent = content;
+                return { close: vi.fn() };
+            });
+
+            component._showMetadataDetailsDialog('Table Details', {
+                LogicalName: 'account',
+                SchemaName: 'Account'
+            });
+
+            paste(dialogContent.querySelector('input'), 'SchemaName');
+
+            const grid = dialogContent.querySelector('.info-grid');
+            const visible = [...grid.children].filter(c => c.style.display !== 'none');
+            expect(visible.map(c => c.textContent)).toEqual(['SchemaName:', 'Account']);
+        });
+    });
+
+    describe('output escaping', () => {
+        const XSS = '<img src=x onerror=alert(1)>';
+
+        afterEach(() => {
+            DataService.getEntityDefinitions.mockResolvedValue(mockEntities);
+            DataService.getAttributeDefinitions.mockResolvedValue(mockAttributes);
+        });
+
+        it('should escape a malicious table display name', async () => {
+            DataService.getEntityDefinitions.mockResolvedValueOnce([
+                { LogicalName: 'account', DisplayName: { UserLocalizedLabel: { Label: XSS } } }
+            ]);
+
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(component.ui.entityList.querySelector('img')).toBeNull();
+            expect(component.ui.entityList.textContent).toContain(XSS);
+        });
+
+        it('should escape a malicious column display name', async () => {
+            DataService.getAttributeDefinitions.mockResolvedValueOnce([
+                { LogicalName: 'name', AttributeType: 'String', DisplayName: { UserLocalizedLabel: { Label: XSS } } }
+            ]);
+
+            component = new MetadataBrowserTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+            // The table list must load before a table can be selected.
+            await new Promise(resolve => setTimeout(resolve, 50));
+            await component._handleEntitySelect('account');
+
+            expect(component.ui.attributeList.querySelector('img')).toBeNull();
+            expect(component.ui.attributeList.textContent).toContain(XSS);
         });
     });
 
@@ -1150,7 +1592,7 @@ describe('MetadataBrowserTab', () => {
 
             const searchInput = dialogContent.querySelector('input');
             searchInput.value = 'status';
-            searchInput.dispatchEvent(new Event('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             // Wait for debounce
             await new Promise(resolve => setTimeout(resolve, 250));
@@ -1167,7 +1609,7 @@ describe('MetadataBrowserTab', () => {
 
             const searchInput = dialogContent.querySelector('input');
             searchInput.value = '';
-            searchInput.dispatchEvent(new Event('keyup'));
+            searchInput.dispatchEvent(new Event('input'));
 
             await new Promise(resolve => setTimeout(resolve, 250));
         });
@@ -1384,7 +1826,7 @@ describe('MetadataBrowserTab', () => {
 
             // Trigger a search
             component.ui.entitySearch.value = 'test';
-            component.ui.entitySearch.dispatchEvent(new Event('keyup'));
+            component.ui.entitySearch.dispatchEvent(new Event('input'));
 
             // Destroy before debounce completes
             component.destroy();
@@ -1402,7 +1844,7 @@ describe('MetadataBrowserTab', () => {
 
             // Trigger a search
             component.ui.attributeSearch.value = 'test';
-            component.ui.attributeSearch.dispatchEvent(new Event('keyup'));
+            component.ui.attributeSearch.dispatchEvent(new Event('input'));
 
             // Destroy before debounce completes
             component.destroy();

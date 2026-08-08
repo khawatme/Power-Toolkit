@@ -432,6 +432,51 @@ describe('FileHelpers', () => {
             await expect(FileHelpers.readTextFile(mockFile)).rejects.toThrow('Failed to read file');
         });
     });
+
+    describe('readBase64File', () => {
+        /** Stands in for FileReader, resolving readAsDataURL with the given result. */
+        const stubReader = (result) => {
+            global.FileReader = class {
+                constructor() {
+                    this.onload = null;
+                    this.onerror = null;
+                }
+                readAsDataURL() {
+                    setTimeout(() => {
+                        if (result === null) {
+                            this.onerror();
+                        } else {
+                            this.onload({ target: { result } });
+                        }
+                    }, 0);
+                }
+            };
+        };
+
+        it('should reject when no file provided', async () => {
+            await expect(FileHelpers.readBase64File(null)).rejects.toThrow('No file provided');
+        });
+
+        it('should strip the data URL prefix', async () => {
+            stubReader('data:application/pdf;base64,JVBERi0xLjQK');
+
+            const result = await FileHelpers.readBase64File({ name: 'doc.pdf' });
+
+            expect(result).toBe('JVBERi0xLjQK');
+        });
+
+        it('should return the payload unchanged when there is no prefix', async () => {
+            stubReader('JVBERi0xLjQK');
+
+            expect(await FileHelpers.readBase64File({ name: 'doc.pdf' })).toBe('JVBERi0xLjQK');
+        });
+
+        it('should reject on read error', async () => {
+            stubReader(null);
+
+            await expect(FileHelpers.readBase64File({ name: 'doc.pdf' })).rejects.toThrow('Failed to read file');
+        });
+    });
 });
 
 // Also export the standalone function for compatibility

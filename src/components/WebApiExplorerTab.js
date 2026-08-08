@@ -26,6 +26,24 @@ import { BulkTouchService } from '../services/BulkTouchService.js';
 /** @typedef {'GET'|'POST'|'PATCH'|'DELETE'} HttpMethod */
 /** @typedef {'table'|'json'} ResultView */
 
+/**
+ * @private Dataverse rejects a query carrying more conditions than this, with
+ * 0x8004430C TooManyConditionsInQuery.
+ * @type {number}
+ */
+const MAX_ODATA_CONDITIONS = 500;
+
+/**
+ * @private Column types whose value is always sent exactly as typed.
+ *
+ * Dataverse rejects a structured value on these with 0x80048d19, so text that merely looks like
+ * JSON — `{"a":1}` in a single line of text — must reach the payload as a string. The unresolved
+ * `text` type is deliberately absent: with no metadata to contradict it, a JSON-shaped value there
+ * is taken at face value.
+ * @type {Set<string>}
+ */
+const VERBATIM_TEXT_TYPES = new Set(['string', 'memo', 'uniqueidentifier', 'entityname']);
+
 export class WebApiExplorerTab extends BaseComponent {
     /**
      * Create the Web API Explorer tab.
@@ -46,6 +64,10 @@ export class WebApiExplorerTab extends BaseComponent {
         this.selectedEntityLogicalName = null;
         /** @private @type {Map<string, {type: string, targets?: string[]}> | null} */
         this.attrMap = null;
+        /** @private @type {string|null} Entity `attrMap` was loaded for, so a different table cannot reuse it. */
+        this._attrMapEntity = null;
+        /** @private @type {boolean} Whether more records matched than the last bulk fetch returned. */
+        this._bulkMatchHasMore = false;
         /** @private @type {{column: string|null, direction: 'asc'|'desc'}} */
         this.resultSortState = { column: null, direction: 'asc' };
         /** @private @type {ResultPanel|null} */
@@ -79,6 +101,7 @@ export class WebApiExplorerTab extends BaseComponent {
         /** @private {Function|null} */ this._externalRefreshHandler = null;
         /** @private {Function|null} */ this._patchIdInputHandler = null;
         /** @private {Function|null} */ this._deleteIdInputHandler = null;
+        /** @private {Function|null} */ this._getCurrentRecordHandler = null;
         /** @private {Function|null} */ this._patchCopyFromGetHandler = null;
         /** @private {Function|null} */ this._deleteCopyFromGetHandler = null;
 
@@ -137,9 +160,17 @@ export class WebApiExplorerTab extends BaseComponent {
      * @returns {string} HTML string for GET section
      */
     _renderGetSection() {
+        // Only offered on a record form — off-form there is no current record to point at.
+        const currentRecordButton = PowerAppsApiService.isFormContextAvailable
+            ? `<button id="api-get-current-record" class="modern-button secondary pdt-copy-from-get-btn" title="${Config.MESSAGES.WEB_API.currentRecordTitle}">${Config.MESSAGES.WEB_API.currentRecordButton}</button>`
+            : '';
+
         return `
             <div id="api-view-get">
-                <div class="pdt-section-header">Request Builder</div>
+                <div class="pdt-section-header">
+                    Request Builder
+                    ${currentRecordButton}
+                </div>
                 <div class="pdt-form-grid">
                     <label for="api-get-entity">Table Name</label>
                     <div class="pdt-input-with-button">
@@ -326,6 +357,7 @@ export class WebApiExplorerTab extends BaseComponent {
             addGetFilterGroupBtn: root.querySelector('#api-get-add-filter-group-btn'),
             getOrderByAttrInput: root.querySelector('#api-get-orderby-attribute'),
             getOrderByDirSelect: root.querySelector('#api-get-orderby-dir'),
+            getCurrentRecordBtn: root.querySelector('#api-get-current-record'),
             browseGetEntityBtn: root.querySelector('#browse-api-get-entity-btn'),
             browseGetSelectBtn: root.querySelector('#browse-api-get-select-btn'),
             browseGetOrderByBtn: root.querySelector('#browse-api-get-orderby-btn'),
@@ -403,18 +435,22 @@ export class WebApiExplorerTab extends BaseComponent {
         this._getEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
+            this._attrMapEntity = null;
         };
         this._postEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
+            this._attrMapEntity = null;
         };
         this._patchEntityInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
+            this._attrMapEntity = null;
         };
         this._deleteEntityNameInputHandler = () => {
             this.selectedEntityLogicalName = null;
             this.attrMap = null;
+            this._attrMapEntity = null;
         };
 
         // Debounced handler for auto-populating required fields when POST table name changes
@@ -960,12 +996,60 @@ export class WebApiExplorerTab extends BaseComponent {
                 // Restore metadata and render proper value input
                 if (savedField.attrMetadata) {
                     row._attrMetadata = savedField.attrMetadata;
-                    this._renderValueInput(row, savedField.attrMetadata, savedField.value);
+                    this._restoreFieldValueInput(row, savedField);
                 } else if (valueInput) {
                     valueInput.value = savedField.value;
                 }
             }
         });
+    }
+
+    /**
+     * Rebuilds a saved field's type-aware value input, then reapplies the saved value.
+     *
+     * The metadata alone is not enough: SmartValueInput needs the owning table to look up
+     * picklist and boolean options, and rendering replaces the input, so the value has to be
+     * written back afterwards.
+     * @private
+     * @param {HTMLElement} row - The field row element
+     * @param {{attribute: string, value: string, attrMetadata: Object}} savedField - Saved field state
+     * @returns {Promise<void>}
+     */
+    async _restoreFieldValueInput(row, savedField) {
+        // The entity input handlers null selectedEntityLogicalName on every keystroke, so it is
+        // usually unset by the time state is restored. Without a table name SmartValueInput
+        // cannot load choice or boolean options and renders an empty picker.
+        let logicalName = this.selectedEntityLogicalName;
+        if (!logicalName) {
+            try {
+                ({ logicalName } = await this._ensureEntityContext());
+            } catch (_e) {
+                logicalName = '';
+            }
+        }
+
+        await this._renderValueInput(row, savedField.attrMetadata, logicalName);
+        this._applySavedValue(row, '[data-prop="field-value"]', savedField.value);
+    }
+
+    /**
+     * Writes a saved value into a rendered value input, handling multiselect dropdowns.
+     * @private
+     * @param {HTMLElement} container - Row containing the input
+     * @param {string} selector - Selector for the value input
+     * @param {string} value - Value to apply
+     */
+    _applySavedValue(container, selector, value) {
+        const input = container.querySelector(selector);
+        if (!input) {
+            return;
+        }
+
+        if (input.classList?.contains('pdt-multiselect-dropdown')) {
+            this._setMultiselectValue(input, value ?? '');
+        } else {
+            input.value = value ?? '';
+        }
     }
 
     /**
@@ -1012,8 +1096,22 @@ export class WebApiExplorerTab extends BaseComponent {
             attrMap: this.attrMap
         });
 
+        // A bulk operation must never run unfiltered. The presence of filter rows is not proof of
+        // a real filter: a condition whose value cannot form a literal of the column's type is
+        // dropped while the query is built, and every condition being dropped would leave a query
+        // that matches the whole table.
+        if (!options.includes('$filter=')) {
+            throw new Error(Config.MESSAGES.WEB_API.bulkFilterIncomplete);
+        }
+
         BusyIndicator.set(this.ui.executeBtn, this.ui.resultRoot, Config.MESSAGES.WEB_API.findingRecords);
         const result = await DataService.retrieveMultipleRecords(entitySet, options);
+
+        // One request returns one page, so a filter matching more than the page size yields a
+        // partial set. Recorded here so the confirmation can say so instead of implying the
+        // operation covers everything that matched.
+        this._bulkMatchHasMore = Boolean(result.nextLink);
+
         return result.entities || [];
     }
 
@@ -1195,13 +1293,8 @@ export class WebApiExplorerTab extends BaseComponent {
                         const attr = attributes.find(a => a.LogicalName.toLowerCase() === cleanAttrName);
 
                         if (attr) {
-                            const attrType = (attr.AttributeType || attr.AttributeTypeName?.Value || '').toLowerCase();
-                            const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-
-                            if (isLookup && !attributeInput.value.endsWith('@odata.bind')) {
-                                const navPropMap = await DataService.getNavigationPropertyMap(entityName);
-                                const navPropName = navPropMap.get(attr.LogicalName.toLowerCase()) || attr.LogicalName;
-                                attributeInput.value = `${navPropName}@odata.bind`;
+                            if (this._isLookupAttribute(attr) && !attributeInput.value.endsWith('@odata.bind')) {
+                                attributeInput.value = await this._resolveFieldName(attr, entityName);
                             }
 
                             row._attrMetadata = attr;
@@ -1283,20 +1376,11 @@ export class WebApiExplorerTab extends BaseComponent {
                                 return logicalName;
                             },
                             async (attr) => {
-                                const attrType = (attr.AttributeType || attr.AttributeTypeName?.Value || '').toLowerCase();
+                                const { logicalName: entityLogicalName } =
+                                    await this._ensureEntityContext(entityInput.value);
 
-                                const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-                                if (isLookup) {
-                                    const { logicalName: entityLogicalName } = await this._ensureEntityContext(entityInput.value);
-                                    const navPropMap = await DataService.getNavigationPropertyMap(entityLogicalName);
-                                    const navPropName = navPropMap.get(attr.LogicalName.toLowerCase()) || attr.LogicalName;
-                                    attributeInput.value = `${navPropName}@odata.bind`;
-                                    await this._renderValueInput(row, attr, entityLogicalName);
-                                } else {
-                                    attributeInput.value = attr.LogicalName;
-                                    const { logicalName: entityLogicalName } = await this._ensureEntityContext(entityInput.value);
-                                    await this._renderValueInput(row, attr, entityLogicalName);
-                                }
+                                attributeInput.value = await this._resolveFieldName(attr, entityLogicalName);
+                                await this._renderValueInput(row, attr, entityLogicalName);
 
                                 if (isFirst) {
                                     updateRemoveButtonState();
@@ -1463,7 +1547,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     const isFirst = this.ui.getFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.getFilterManager.addFilterGroup(this.ui.getFiltersContainer, isFirst);
                 } catch (_e) {
-                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 } finally {
                     this.ui.addGetFilterGroupBtn.disabled = false;
                 }
@@ -1480,7 +1564,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     const isFirst = this.ui.patchFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.patchFilterManager.addFilterGroup(this.ui.patchFiltersContainer, isFirst);
                 } catch (_e) {
-                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 } finally {
                     this.ui.addPatchFilterGroupBtn.disabled = false;
                 }
@@ -1497,12 +1581,18 @@ export class WebApiExplorerTab extends BaseComponent {
                     const isFirst = this.ui.deleteFiltersContainer.querySelectorAll('.pdt-filter-group').length === 0;
                     this.deleteFilterManager.addFilterGroup(this.ui.deleteFiltersContainer, isFirst);
                 } catch (_e) {
-                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 } finally {
                     this.ui.addDeleteFilterGroupBtn.disabled = false;
                 }
             };
             this.ui.addDeleteFilterGroupBtn.addEventListener('click', this._addDeleteFilterGroupHandler);
+        }
+
+        // GET current record (form context only, so the button may not exist)
+        if (this.ui.getCurrentRecordBtn) {
+            this._getCurrentRecordHandler = () => this._useCurrentRecord();
+            this.ui.getCurrentRecordBtn.addEventListener('click', this._getCurrentRecordHandler);
         }
 
         // PATCH copy from GET
@@ -1571,7 +1661,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     this._addFieldUI(false, 'POST');
                     this._updatePreview();
                 } catch (_e) {
-                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 }
             };
             this.ui.postAddFieldBtn.addEventListener('click', this._postAddFieldBtnHandler);
@@ -1620,11 +1710,111 @@ export class WebApiExplorerTab extends BaseComponent {
                     this._addFieldUI(false, 'PATCH');
                     this._updatePreview();
                 } catch (_e) {
-                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+                    NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
                 }
             };
             this.ui.patchAddFieldBtn.addEventListener('click', this._patchAddFieldBtnHandler);
         }
+    }
+
+    /**
+     * Point the GET builder at the record the form is showing: its table, filtered to its id.
+     *
+     * The existing filters are replaced rather than appended to — they were written against
+     * whatever table was in the box before, so keeping them alongside a new table would build a
+     * query that cannot run.
+     * @private
+     * @async
+     */
+    async _useCurrentRecord() {
+        const M = Config.MESSAGES.WEB_API;
+        const entityName = PowerAppsApiService.getEntityName();
+        const recordId = PowerAppsApiService.getEntityId();
+
+        // An unsaved record has a form context but no id yet, so there is nothing to filter on.
+        if (!entityName || !recordId) {
+            NotificationService.show(M.currentRecordUnavailable, 'warn');
+            return;
+        }
+
+        const button = this.ui.getCurrentRecordBtn;
+        if (button) {
+            button.disabled = true;
+        }
+
+        try {
+            const { entitySet, logicalName } = await EntityContextResolver.resolve(entityName);
+            if (this.ui.getEntityInput) {
+                this.ui.getEntityInput.value = entitySet;
+            }
+
+            const primaryIdAttribute = await this._resolvePrimaryIdAttribute(logicalName);
+            await this._setSingleGetFilter(logicalName, primaryIdAttribute, recordId);
+
+            NotificationService.show(M.currentRecordApplied(entitySet, primaryIdAttribute), 'success');
+        } catch (error) {
+            NotificationService.show(M.currentRecordFailed(error.message || String(error)), 'error');
+        } finally {
+            if (button) {
+                button.disabled = false;
+            }
+        }
+    }
+
+    /**
+     * Resolves a table's primary key column.
+     *
+     * Almost always `${logicalName}id`, but not always — `activitypointer` uses `activityid` — so
+     * the metadata is asked first and the convention is only a fallback.
+     * @param {string} logicalName - Table logical name.
+     * @returns {Promise<string>} The primary id attribute.
+     * @private
+     * @async
+     */
+    async _resolvePrimaryIdAttribute(logicalName) {
+        try {
+            const definition = await DataService.getEntityByAny(logicalName);
+            if (definition?.PrimaryIdAttribute) {
+                return definition.PrimaryIdAttribute;
+            }
+        } catch (_e) {
+            // Fall through to the naming convention.
+        }
+        return `${logicalName}id`;
+    }
+
+    /**
+     * Replaces the GET filters with a single "primary id equals this record" condition.
+     * @param {string} logicalName - Table logical name, for attribute metadata.
+     * @param {string} attribute - The column to filter on.
+     * @param {string} value - The value to match.
+     * @returns {Promise<void>}
+     * @private
+     * @async
+     */
+    async _setSingleGetFilter(logicalName, attribute, value) {
+        const container = this.ui.getFiltersContainer;
+        if (!container) {
+            return;
+        }
+
+        this._clearTargetFilters(container);
+        this.getFilterManager.addFilterGroup(container, true);
+
+        if (this.ui.getFilterSection) {
+            this.ui.getFilterSection.hidden = false;
+        }
+
+        const conditionRow = container.querySelector('.pdt-condition-grid');
+        if (!conditionRow) {
+            return;
+        }
+
+        const filter = { attr: attribute, op: 'eq', value };
+        this._setConditionAttributes(conditionRow, filter);
+
+        const attrMap = await EntityContextResolver.getAttrMap(logicalName).catch(() => null);
+        await this._renderConditionValue(conditionRow, filter, attrMap, { logicalName }, this.getFilterManager);
     }
 
     /**
@@ -1665,7 +1855,7 @@ export class WebApiExplorerTab extends BaseComponent {
         const tableName = this.ui.getEntityInput?.value?.trim();
 
         if (!tableName) {
-            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warning');
+            NotificationService.show(Config.MESSAGES.COMMON.selectTableFirst, 'warn');
             return null;
         }
 
@@ -1918,16 +2108,7 @@ export class WebApiExplorerTab extends BaseComponent {
      * @private
      */
     _setValueInputValue(conditionRow, filter) {
-        const valueInput = conditionRow.querySelector('[data-prop="value"]');
-        if (!valueInput) {
-            return;
-        }
-
-        if (valueInput.classList?.contains('pdt-multiselect-dropdown')) {
-            this._setMultiselectValue(valueInput, filter.value);
-        } else {
-            valueInput.value = filter.value;
-        }
+        this._applySavedValue(conditionRow, '[data-prop="value"]', filter.value);
     }
 
     /**
@@ -1996,9 +2177,7 @@ export class WebApiExplorerTab extends BaseComponent {
                 const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
                 const primaryKey = metadata.PrimaryIdAttribute;
 
-                const options = await this._buildGetOptionsString(logicalName);
-                const baseOptions = options ? options.replace(/\$select=[^&]+&?/, '') : '';
-                const countOptions = baseOptions ? `${baseOptions}&$select=${primaryKey}` : `?$select=${primaryKey}`;
+                const countOptions = await this._buildCountOptionsString(logicalName, primaryKey);
 
                 let totalCount = 0;
                 let nextLink = null;
@@ -2018,7 +2197,7 @@ export class WebApiExplorerTab extends BaseComponent {
                     if (pageCount >= Config.DATAVERSE_PAGINATION.MAX_COUNT_PAGES) {
                         NotificationService.show(
                             Config.MESSAGES.WEB_API.countLimitWarning(totalCount.toLocaleString()),
-                            'warning'
+                            'warn'
                         );
                         break;
                     }
@@ -2053,7 +2232,7 @@ export class WebApiExplorerTab extends BaseComponent {
                 );
             } catch (error) {
                 const friendly = ErrorParser.extract(error);
-                const notifType = friendly === Config.MESSAGES.COMMON.selectTableFirst ? 'warning' : 'error';
+                const notifType = friendly === Config.MESSAGES.COMMON.selectTableFirst ? 'warn' : 'error';
                 NotificationService.show(friendly, notifType);
             } finally {
                 this.ui.getCountBtn.disabled = false;
@@ -2076,9 +2255,8 @@ export class WebApiExplorerTab extends BaseComponent {
             const method = this.ui.methodSelect.value;
 
             this._removePaginationBanner();
-            if (this.resultPanel) {
-                this.resultPanel._selectedIndices?.clear();
-            }
+            // Selection is by row index, so it must not survive into a different result set.
+            this.resultPanel?.clearSelection?.();
 
             this._setExecuting(true);
             try {
@@ -2095,7 +2273,7 @@ export class WebApiExplorerTab extends BaseComponent {
                 }
             } catch (error) {
                 const friendly = ErrorParser.extract(error);
-                const notifType = friendly === Config.MESSAGES.COMMON.selectTableFirst ? 'warning' : 'error';
+                const notifType = friendly === Config.MESSAGES.COMMON.selectTableFirst ? 'warn' : 'error';
                 NotificationService.show(friendly, notifType);
             } finally {
                 this._setExecuting(false);
@@ -2137,9 +2315,19 @@ export class WebApiExplorerTab extends BaseComponent {
         const res = await DataService.createRecord(entitySet, body);
         this.lastResult = normalizeApiResponse(res);
 
-        if (fileUploads.length > 0 && res.id) {
-            await this._uploadFiles(logicalName, res.id, fileUploads);
+        if (fileUploads.length === 0) {
+            return;
         }
+
+        if (!res.id) {
+            NotificationService.show(
+                Config.MESSAGES.WEB_API.fileUploadNoRecordId(fileUploads.length),
+                'warn'
+            );
+            return;
+        }
+
+        await this._uploadFiles(logicalName, res.id, fileUploads);
     }
 
     /**
@@ -2233,18 +2421,32 @@ export class WebApiExplorerTab extends BaseComponent {
      * Bind debounced live preview refresh for input changes.
      * @private
      */
-    _bindLivePreview() {
-        this._livePreviewRefreshHandler = debounce(async () => {
-            await this._updatePreview();
-        }, 200);
-
-        [
+    /**
+     * The inputs whose edits refresh the request preview.
+     *
+     * Shared by the bind and teardown paths. Maintaining two copies is how they drifted: the
+     * teardown list still named merged post/patch elements that no longer exist, so those
+     * listeners were never removed.
+     * @private
+     * @returns {HTMLElement[]} Cached elements that exist
+     */
+    _livePreviewInputs() {
+        return [
             this.ui.methodSelect, this.ui.getEntityInput, this.ui.getSelectInput, this.ui.getTopInput,
             this.ui.getOrderByAttrInput, this.ui.getOrderByDirSelect,
             this.ui.postEntityInput, this.ui.patchEntityInput, this.ui.patchIdInput,
             this.ui.postBodyArea, this.ui.patchBodyArea,
             this.ui.deleteEntityInput, this.ui.deleteIdInput
-        ].forEach(n => n && n.addEventListener('input', this._livePreviewRefreshHandler));
+        ].filter(Boolean);
+    }
+
+    _bindLivePreview() {
+        this._livePreviewRefreshHandler = debounce(async () => {
+            await this._updatePreview();
+        }, 200);
+
+        this._livePreviewInputs()
+            .forEach(n => n.addEventListener('input', this._livePreviewRefreshHandler));
 
         if (this.ui.getFiltersContainer) {
             this.ui.getFiltersContainer.addEventListener('input', this._livePreviewRefreshHandler);
@@ -2307,13 +2509,29 @@ export class WebApiExplorerTab extends BaseComponent {
         }
 
         this.selectedEntityLogicalName = logicalName;
-
-        // Only fetch attrMap if not already cached for this specific entity
-        if (!this.attrMap || this.selectedEntityLogicalName !== logicalName) {
-            this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
-        }
+        await this._getAttrMap(logicalName);
 
         return { entitySet, logicalName };
+    }
+
+    /**
+     * Returns the attribute map for an entity, loading it when it is missing or belongs to a
+     * different one.
+     *
+     * The map is keyed by entity rather than cleared by whoever changes the table, because not
+     * every path can: restoring per-method state assigns the entity inputs directly, which
+     * raises no input event, so a stale map would be reused for a different table and give the
+     * wrong types for `$select` rewriting and filter formatting.
+     * @private
+     * @param {string} logicalName - Entity logical name
+     * @returns {Promise<Map<string, {type: string, targets?: string[]}>|null>}
+     */
+    async _getAttrMap(logicalName) {
+        if (!this.attrMap || this._attrMapEntity !== logicalName) {
+            this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
+            this._attrMapEntity = logicalName;
+        }
+        return this.attrMap;
     }
 
     /**
@@ -2325,14 +2543,13 @@ export class WebApiExplorerTab extends BaseComponent {
      * @returns {Promise<string>}
      */
     async _buildGetOptionsString(logicalName) {
-        if (!this.attrMap) {
-            this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
-        }
+        await this._getAttrMap(logicalName);
 
         const rawSelect = this.ui.getSelectInput.value.trim();
         const select = rawSelect ? rawSelect.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
 
         const filterGroups = this.getFilterManager.extractFilterGroups(this.ui.getFiltersContainer);
+        this._warnOnConditionLimit(filterGroups);
 
         const orderAttr = this.ui.getOrderByAttrInput.value.trim();
         const orderDir = this.ui.getOrderByDirSelect.value;
@@ -2346,6 +2563,125 @@ export class WebApiExplorerTab extends BaseComponent {
             top,
             attrMap: this.attrMap
         });
+    }
+
+    /**
+     * Builds the query used to count the records matching the current GET filters.
+     *
+     * Counting pages through every match, so the query deliberately keeps only the filter. Reusing
+     * the GET query instead would carry `$top` along and cap the total at the page size the user
+     * asked for — reporting "Count: 10" for a table holding thousands — and would sort every page
+     * for an order that is never displayed. Selecting only the primary key keeps each page small.
+     * @private
+     * @param {string} logicalName - Table logical name
+     * @param {string} primaryKey - The table's primary id attribute
+     * @returns {Promise<string>} Query string for the count request
+     */
+    async _buildCountOptionsString(logicalName, primaryKey) {
+        await this._getAttrMap(logicalName);
+
+        const filterGroups = this.getFilterManager.extractFilterGroups(this.ui.getFiltersContainer);
+        this._warnOnConditionLimit(filterGroups);
+
+        return ODataQueryBuilder.build({
+            select: [primaryKey],
+            filterGroups,
+            attrMap: this.attrMap
+        });
+    }
+
+    /**
+     * Reads an attribute's type name, whatever shape the metadata arrived in.
+     *
+     * Different fetch paths normalise keys differently, so both `AttributeType` and the
+     * lower-cased `Attributetype` have to be accepted. Checking only one of them silently
+     * reports every column as a non-lookup and drops the `@odata.bind` suffix a create needs.
+     * @private
+     * @param {Object|null} attr - Attribute metadata
+     * @returns {string} Lower-cased type name, or '' when unknown
+     */
+    _getAttributeTypeName(attr) {
+        return String(
+            attr?.AttributeType
+            || attr?.Attributetype
+            || attr?.AttributeTypeName?.Value
+            || ''
+        ).toLowerCase();
+    }
+
+    /**
+     * Reports whether an attribute is one of the lookup family.
+     * @private
+     * @param {Object|null} attr - Attribute metadata
+     * @returns {boolean}
+     */
+    _isLookupAttribute(attr) {
+        return SmartValueInput.LOOKUP_TYPES.includes(this._getAttributeTypeName(attr));
+    }
+
+    /**
+     * Builds the request field name for an attribute.
+     *
+     * Lookups are written through their navigation property with an `@odata.bind` suffix, and the
+     * navigation property name does not always match the column's logical name.
+     * @private
+     * @param {Object} attr - Attribute metadata
+     * @param {Map<string, string>} navPropMap - Logical name to navigation property map
+     * @returns {string} The field name to send
+     */
+    _buildFieldName(attr, navPropMap) {
+        const logicalName = String(attr?.LogicalName || attr?.Logicalname || '').toLowerCase();
+        if (!this._isLookupAttribute(attr)) {
+            return logicalName;
+        }
+        return `${navPropMap?.get(logicalName) || logicalName}@odata.bind`;
+    }
+
+    /**
+     * Resolves an attribute's request field name, fetching the navigation property map.
+     * @private
+     * @param {Object} attr - Attribute metadata
+     * @param {string} entityName - Owning table's logical name
+     * @returns {Promise<string>} The field name to send
+     */
+    async _resolveFieldName(attr, entityName) {
+        const navPropMap = this._isLookupAttribute(attr)
+            ? await DataService.getNavigationPropertyMap(entityName)
+            : null;
+        return this._buildFieldName(attr, navPropMap);
+    }
+
+    /**
+     * Confirmation notice shown when a bulk operation covers only part of what matched.
+     * @private
+     * @returns {string} HTML paragraph, or '' when the whole match was returned
+     */
+    _partialMatchNoticeHtml() {
+        return this._bulkMatchHasMore
+            ? `<p class="pdt-text-error">${escapeHtml(Config.MESSAGES.WEB_API.bulkPartialMatch)}</p>`
+            : '';
+    }
+
+    /**
+     * Warns when a query carries more conditions than Dataverse accepts.
+     *
+     * The service rejects the whole query at 500 conditions (0x8004430C), so it is worth saying
+     * before the round-trip.
+     * @private
+     * @param {Array<{filters: Array}>} filterGroups - Extracted filter groups
+     */
+    _warnOnConditionLimit(filterGroups) {
+        const count = (filterGroups || []).reduce(
+            (total, group) => total + (group.filters?.length || 0),
+            0
+        );
+
+        if (count > MAX_ODATA_CONDITIONS) {
+            NotificationService.show(
+                Config.MESSAGES.WEB_API.tooManyConditions(MAX_ODATA_CONDITIONS, count),
+                'warn'
+            );
+        }
     }
 
     /**
@@ -2439,15 +2775,10 @@ export class WebApiExplorerTab extends BaseComponent {
                     const attr = attributes.find(a => a.LogicalName.toLowerCase() === cleanAttrName);
 
                     if (attr) {
-                        const attrType = (attr.AttributeType || attr.AttributeTypeName?.Value || '').toLowerCase();
-                        const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-
-                        // For lookups, ensure attribute input has @odata.bind suffix
-                        if (isLookup && !attributeInput.value.endsWith('@odata.bind')) {
-                            // Get navigation property name (may differ from logical name)
-                            const navPropMap = await DataService.getNavigationPropertyMap(entityName);
-                            const navPropName = navPropMap.get(attr.LogicalName.toLowerCase()) || attr.LogicalName;
-                            attributeInput.value = `${navPropName}@odata.bind`;
+                        // Lookups are written through their navigation property, so the typed
+                        // column name needs the @odata.bind form.
+                        if (this._isLookupAttribute(attr) && !attributeInput.value.endsWith('@odata.bind')) {
+                            attributeInput.value = await this._resolveFieldName(attr, entityName);
                         }
 
                         // Store metadata on row for later use
@@ -2544,21 +2875,11 @@ export class WebApiExplorerTab extends BaseComponent {
                 },
                 async (attr) => {
                     const attrInput = row.querySelector('[data-prop="field-attribute"]');
-                    const attrType = (attr.AttributeType || attr.AttributeTypeName?.Value || '').toLowerCase();
+                    const { logicalName: entityLogicalName } =
+                        await this._ensureEntityContext(entityInput.value);
 
-                    // For lookups, use navigation property name with @odata.bind
-                    const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-                    if (isLookup) {
-                        const { logicalName: entityLogicalName } = await this._ensureEntityContext(entityInput.value);
-                        const navPropMap = await DataService.getNavigationPropertyMap(entityLogicalName);
-                        const navPropName = navPropMap.get(attr.LogicalName.toLowerCase()) || attr.LogicalName;
-                        attrInput.value = `${navPropName}@odata.bind`;
-                        await this._renderValueInput(row, attr, entityLogicalName);
-                    } else {
-                        attrInput.value = attr.LogicalName;
-                        const { logicalName: entityLogicalName } = await this._ensureEntityContext(entityInput.value);
-                        await this._renderValueInput(row, attr, entityLogicalName);
-                    }
+                    attrInput.value = await this._resolveFieldName(attr, entityLogicalName);
+                    await this._renderValueInput(row, attr, entityLogicalName);
 
                     if (isFirst && row._updateRemoveButtonState) {
                         row._updateRemoveButtonState();
@@ -2669,6 +2990,10 @@ export class WebApiExplorerTab extends BaseComponent {
     _parseFieldValue(valueInput, rawValue) {
         const dataType = valueInput?.dataset?.type || 'text';
 
+        if (VERBATIM_TEXT_TYPES.has(dataType)) {
+            return rawValue;
+        }
+
         const parsers = {
             image: () => this._parseImageValue(valueInput, rawValue),
             file: () => undefined,
@@ -2743,15 +3068,28 @@ export class WebApiExplorerTab extends BaseComponent {
     }
 
     /**
-     * Parse date value.
+     * Parse date value for a date-only column.
+     *
+     * An already-plain date is returned untouched. Anything else is read in local time, because a
+     * date-only column should record the day that was picked: `toISOString` converts to UTC first,
+     * which lands on the previous day for any local time before the UTC offset.
      * @private
+     * @param {string} rawValue - Raw string value
+     * @returns {string|undefined} A yyyy-mm-dd date, or undefined when unparseable
      */
     _parseDateValue(rawValue) {
-        const date = new Date(rawValue);
-        if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
+        const trimmed = String(rawValue ?? '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+            return trimmed;
         }
-        return undefined;
+
+        const date = new Date(trimmed);
+        if (isNaN(date.getTime())) {
+            return undefined;
+        }
+
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
     /**
@@ -2772,12 +3110,24 @@ export class WebApiExplorerTab extends BaseComponent {
     }
 
     /**
-     * Parse default value (text/memo).
+     * Parse a value for a column whose type could not be resolved.
+     *
+     * Only an object or array literal is parsed, so a structured value pasted into the JSON body
+     * survives a round trip through the field builder. Parsing everything turned plain text into
+     * other types: "123" became a number, "true" a boolean, and "null" an actual null that cleared
+     * the column. Columns with a known text type never reach here — see {@link VERBATIM_TEXT_TYPES}.
      * @private
+     * @param {string} rawValue - Raw string value
+     * @returns {any} Parsed structure, or the string unchanged
      */
     _parseDefaultValue(rawValue) {
+        const trimmed = String(rawValue ?? '').trim();
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+            return rawValue;
+        }
+
         try {
-            return JSON.parse(rawValue);
+            return JSON.parse(trimmed);
         } catch {
             return rawValue;
         }
@@ -3034,7 +3384,7 @@ export class WebApiExplorerTab extends BaseComponent {
         } catch (error) {
             NotificationService.show(
                 Config.MESSAGES.WEB_API.requiredFieldsLoadFailed(ErrorParser.extract(error)),
-                'warning'
+                'warn'
             );
         }
     }
@@ -3071,17 +3421,8 @@ export class WebApiExplorerTab extends BaseComponent {
     async _populateRequiredFieldsJsonMode(requiredAttrs, navPropMap) {
         const template = {};
         for (const attr of requiredAttrs) {
-            const attrName = (attr.LogicalName || attr.Logicalname || '').toLowerCase();
-            const attrType = (attr.AttributeType || attr.Attributetype || attr.AttributeTypeName?.Value || '').toLowerCase();
-
-            const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-            let fieldName;
-            if (isLookup) {
-                const navPropName = navPropMap.get(attrName) || attrName;
-                fieldName = `${navPropName}@odata.bind`;
-            } else {
-                fieldName = attrName;
-            }
+            const attrType = this._getAttributeTypeName(attr);
+            const fieldName = this._buildFieldName(attr, navPropMap);
 
             template[fieldName] = await this._getPlaceholderForType(attrType, attr);
         }
@@ -3111,20 +3452,8 @@ export class WebApiExplorerTab extends BaseComponent {
             const lastRow = this.ui.postFieldsContainer.lastElementChild;
             if (lastRow) {
                 const attrInput = lastRow.querySelector('[data-prop="field-attribute"]');
-                const attrName = (attr.LogicalName || attr.Logicalname || '').toLowerCase();
-                const attrType = (attr.AttributeType || attr.Attributetype || attr.AttributeTypeName?.Value || '').toLowerCase();
-
-                const isLookup = SmartValueInput.LOOKUP_TYPES.includes(attrType);
-                let fieldName;
-                if (isLookup) {
-                    const navPropName = navPropMap.get(attrName) || attrName;
-                    fieldName = `${navPropName}@odata.bind`;
-                } else {
-                    fieldName = attrName;
-                }
-
                 if (attrInput) {
-                    attrInput.value = fieldName;
+                    attrInput.value = this._buildFieldName(attr, navPropMap);
                 }
 
                 await this._renderValueInput(lastRow, attr, logicalName);
@@ -3270,8 +3599,10 @@ export class WebApiExplorerTab extends BaseComponent {
             return;
         }
 
-        try {
-            for (const upload of fileUploads) {
+        const failures = [];
+
+        for (const upload of fileUploads) {
+            try {
                 await FileUploadService.uploadFile(
                     entityLogicalName,
                     entityId,
@@ -3280,13 +3611,21 @@ export class WebApiExplorerTab extends BaseComponent {
                     upload.fileName,
                     upload.mimeType
                 );
+            } catch (error) {
+                failures.push({ name: upload.fileName, reason: ErrorParser.extract(error) });
             }
-        } catch (error) {
-            NotificationService.show(
-                `File upload failed: ${ErrorParser.extract(error)}`,
-                'warning'
-            );
         }
+
+        if (failures.length === 0) {
+            return;
+        }
+
+        // Naming the file matters when only some of a batch failed, so a single failure reports the
+        // file and the reason rather than a count of one.
+        const message = failures.length === 1
+            ? Config.MESSAGES.WEB_API.fileUploadFailed(failures[0].name, failures[0].reason)
+            : Config.MESSAGES.WEB_API.fileUploadPartial(failures.length, fileUploads.length);
+        NotificationService.show(message, 'warn');
     }
 
     /**
@@ -3303,13 +3642,12 @@ export class WebApiExplorerTab extends BaseComponent {
             const filterGroups = this.patchFilterManager.extractFilterGroups(this.ui.patchFiltersContainer);
 
             if (filterGroups.length === 0) {
-                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warn');
                 return;
             }
 
-            if (!this.attrMap) {
-                this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
-            }
+            await this._getAttrMap(logicalName);
+            this._bulkMatchHasMore = false;
 
             const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
             const primaryKey = metadata.PrimaryIdAttribute;
@@ -3319,14 +3657,14 @@ export class WebApiExplorerTab extends BaseComponent {
             const records = await this._fetchMatchingRecords(entitySet, filterGroups, fieldsToSelect);
 
             if (records.length === 0) {
-                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warn');
                 return;
             }
 
             // Confirm bulk update
             const confirmed = await showConfirmDialog(
                 Config.MESSAGES.WEB_API.confirmBulkUpdate,
-                `<p>${Config.MESSAGES.WEB_API.bulkUpdateConfirm(records.length)}</p>`
+                `<p>${Config.MESSAGES.WEB_API.bulkUpdateConfirm(records.length)}</p>${this._partialMatchNoticeHtml()}`
             );
 
             if (!confirmed) {
@@ -3354,7 +3692,7 @@ export class WebApiExplorerTab extends BaseComponent {
             if (totalFailCount === 0) {
                 NotificationService.show(Config.MESSAGES.WEB_API.bulkUpdateSuccess(totalSuccessCount), 'success');
             } else {
-                NotificationService.show(Config.MESSAGES.WEB_API.bulkUpdateFailed(totalSuccessCount, totalFailCount, records.length), 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.bulkUpdateFailed(totalSuccessCount, totalFailCount, records.length), 'warn');
             }
 
             // Display summary in results with error details
@@ -3394,7 +3732,7 @@ export class WebApiExplorerTab extends BaseComponent {
      */
     async _handleBulkTouch(records) {
         if (!records || records.length === 0) {
-            NotificationService.show(Config.MESSAGES.WEB_API.noRecordsSelected, 'warning');
+            NotificationService.show(Config.MESSAGES.WEB_API.noRecordsSelected, 'warn');
             return;
         }
 
@@ -3483,9 +3821,7 @@ export class WebApiExplorerTab extends BaseComponent {
             this.allLoadedRecords = res.entities || [];
             this.lastResult = normalizeApiResponse(res);
 
-            if (this.resultPanel) {
-                this.resultPanel._selectedIndices.clear();
-            }
+            this.resultPanel?.clearSelection?.();
             this._displayResult();
 
             if (this.nextLink) {
@@ -3494,7 +3830,7 @@ export class WebApiExplorerTab extends BaseComponent {
         } catch (error) {
             NotificationService.show(
                 Config.MESSAGES.WEB_API.reloadRecordsFailed(ErrorParser.extract(error)),
-                'warning'
+                'warn'
             );
         }
     }
@@ -3506,7 +3842,7 @@ export class WebApiExplorerTab extends BaseComponent {
     _displayTouchErrors(successCount, failCount, errors) {
         const total = successCount + failCount;
         const message = Config.MESSAGES.WEB_API.bulkTouchFailed(successCount, failCount, total);
-        NotificationService.show(message, 'warning');
+        NotificationService.show(message, 'warn');
 
         this.lastResult = {
             entities: errors.map((e, idx) => ({
@@ -3533,13 +3869,12 @@ export class WebApiExplorerTab extends BaseComponent {
             const filterGroups = this.deleteFilterManager.extractFilterGroups(this.ui.deleteFiltersContainer);
 
             if (filterGroups.length === 0) {
-                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warn');
                 return;
             }
 
-            if (!this.attrMap) {
-                this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
-            }
+            await this._getAttrMap(logicalName);
+            this._bulkMatchHasMore = false;
 
             const metadata = await PowerAppsApiService.getEntityMetadata(logicalName);
             const primaryKey = metadata.PrimaryIdAttribute;
@@ -3549,13 +3884,15 @@ export class WebApiExplorerTab extends BaseComponent {
             const records = await this._fetchMatchingRecords(entitySet, filterGroups, fieldsToSelect);
 
             if (records.length === 0) {
-                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.noRecordsMatched, 'warn');
                 return;
             }
 
             const confirmed = await showConfirmDialog(
                 Config.MESSAGES.WEB_API.confirmBulkDelete,
-                `<p>${Config.MESSAGES.WEB_API.bulkDeleteConfirm(records.length)}</p><p class="pdt-text-error">This action cannot be undone!</p>`
+                `<p>${Config.MESSAGES.WEB_API.bulkDeleteConfirm(records.length)}</p>`
+                + this._partialMatchNoticeHtml()
+                + `<p class="pdt-text-error">${escapeHtml(Config.MESSAGES.WEB_API.cannotBeUndone)}</p>`
             );
 
             if (!confirmed) {
@@ -3581,7 +3918,7 @@ export class WebApiExplorerTab extends BaseComponent {
             if (totalFailCount === 0) {
                 NotificationService.show(Config.MESSAGES.WEB_API.bulkDeleteSuccess(totalSuccessCount), 'success');
             } else {
-                NotificationService.show(Config.MESSAGES.WEB_API.bulkDeleteFailed(totalSuccessCount, totalFailCount, records.length), 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.bulkDeleteFailed(totalSuccessCount, totalFailCount, records.length), 'warn');
             }
 
             this.lastResult = {
@@ -3654,9 +3991,7 @@ export class WebApiExplorerTab extends BaseComponent {
         try {
             const { entitySet, logicalName } = await EntityContextResolver.resolve(inputName);
             this.selectedEntityLogicalName = logicalName;
-            if (!this.attrMap) {
-                this.attrMap = await EntityContextResolver.getAttrMap(logicalName);
-            }
+            await this._getAttrMap(logicalName);
             const opts = await this._buildGetOptionsString(logicalName);
             this._setPreviewUrl(`${entitySet}${opts || ''}`);
         } catch {
@@ -4042,17 +4377,24 @@ export class WebApiExplorerTab extends BaseComponent {
     /** @private */
     _removeButtonHandlers() {
         const handlers = [
+            // These must match the elements bound in _bindBodyModeToggles, _bindEntityBrowsers and
+            // friends. Earlier entries still named merged post/patch elements that no longer
+            // exist, so their listeners survived every teardown.
             [this.ui.formatJsonBtn, this._formatJsonHandler],
-            [this.ui.bodyModeToggle, this._bodyModeToggleHandler, 'change'],
-            [this.ui.addFieldBtn, this._addFieldBtnHandler],
+            [this.ui.postBodyModeToggle, this._postBodyModeToggleHandler, 'change'],
+            [this.ui.patchBodyModeToggle, this._patchBodyModeToggleHandler, 'change'],
+            [this.ui.postAddFieldBtn, this._postAddFieldBtnHandler],
+            [this.ui.patchAddFieldBtn, this._patchAddFieldBtnHandler],
             [this.ui.browseGetEntityBtn, this._pickEntityHandler],
-            [this.ui.browsePostPatchEntityBtn, this._pickEntityHandler],
+            [this.ui.browsePostEntityBtn, this._pickEntityHandler],
+            [this.ui.browsePatchEntityBtn, this._pickEntityHandler],
             [this.ui.browseDeleteEntityBtn, this._pickEntityHandler],
             [this.ui.browseGetSelectBtn, this._browseGetSelectHandler],
             [this.ui.browseGetOrderByBtn, this._browseGetOrderByHandler],
             [this.ui.addGetFilterGroupBtn, this._addGetFilterGroupHandler],
             [this.ui.addPatchFilterGroupBtn, this._addPatchFilterGroupHandler],
             [this.ui.addDeleteFilterGroupBtn, this._addDeleteFilterGroupHandler],
+            [this.ui.getCurrentRecordBtn, this._getCurrentRecordHandler],
             [this.ui.patchCopyFromGetBtn, this._patchCopyFromGetHandler],
             [this.ui.deleteCopyFromGetBtn, this._deleteCopyFromGetHandler],
             [this.ui.getCountBtn, this._getCountHandler],
@@ -4067,12 +4409,8 @@ export class WebApiExplorerTab extends BaseComponent {
             return;
         }
 
-        [
-            this.ui.methodSelect, this.ui.getEntityInput, this.ui.getSelectInput, this.ui.getTopInput,
-            this.ui.getOrderByAttrInput, this.ui.getOrderByDirSelect,
-            this.ui.postPatchEntityInput, this.ui.patchIdInput, this.ui.bodyArea,
-            this.ui.deleteEntityInput, this.ui.deleteIdInput
-        ].forEach(n => n?.removeEventListener('input', this._livePreviewRefreshHandler));
+        this._livePreviewInputs()
+            .forEach(n => n.removeEventListener('input', this._livePreviewRefreshHandler));
 
         if (this.ui.getFiltersContainer) {
             this.ui.getFiltersContainer.removeEventListener('input', this._livePreviewRefreshHandler);

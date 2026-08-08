@@ -4,7 +4,8 @@
  */
 
 import { NotificationService } from './NotificationService.js';
-import { Config } from '../constants/index.js';
+import { WebApiService } from './WebApiService.js';
+import { DataService } from './DataService.js';
 
 /**
  * Maximum block size for chunked file uploads (4MB).
@@ -77,11 +78,11 @@ export class FileUploadService {
         const baseUrl = `${globalContext.getClientUrl()}/api/data/v9.2`;
         const url = `${baseUrl}/${actionName}`;
 
+        // The record PATCH around this upload is impersonated, so these blocks must be too —
+        // otherwise one logical operation is split across two identities.
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                ...Config.WEB_API_HEADERS.STANDARD
-            },
+            headers: WebApiService.buildHeaders({}, DataService.getImpersonationInfo().userId),
             body: JSON.stringify(parameters)
         });
 

@@ -350,7 +350,7 @@ export class BulkTouchService {
             const field = fieldInput.value.trim();
 
             if (!field) {
-                NotificationService.show(Config.MESSAGES.WEB_API.touchFieldNameRequired, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.touchFieldNameRequired, 'warn');
                 fieldInput.focus();
                 return;
             }
@@ -362,7 +362,7 @@ export class BulkTouchService {
             const customValue = useCustomValue ? customValueInput.value : null;
 
             if (useCustomValue && !customValue) {
-                NotificationService.show(Config.MESSAGES.WEB_API.touchCustomValueRequired, 'warning');
+                NotificationService.show(Config.MESSAGES.WEB_API.touchCustomValueRequired, 'warn');
                 customValueInput.focus();
                 return;
             }
@@ -371,7 +371,7 @@ export class BulkTouchService {
         }
 
         if (fields.length === 0) {
-            NotificationService.show(Config.MESSAGES.WEB_API.touchNoFieldsConfigured, 'warning');
+            NotificationService.show(Config.MESSAGES.WEB_API.touchNoFieldsConfigured, 'warn');
             return;
         }
 

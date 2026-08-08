@@ -20,6 +20,244 @@ describe('ODataQueryBuilder', () => {
         ]);
     });
 
+    describe('values that do not match the column type', () => {
+        const filterOn = (type, value) => ODataQueryBuilder.build({
+            filterGroups: [{ filterType: 'and', filters: [{ attr: 'col', op: 'eq', value }] }],
+            attrMap: new Map([['col', { type }]])
+        });
+
+        it('should not throw on an unparseable date', () => {
+            // new Date('not a date').toISOString() raises a RangeError.
+            expect(() => filterOn('date', 'not a date')).not.toThrow();
+        });
+
+        it('should quote an unparseable date rather than emitting an invalid literal', () => {
+            expect(filterOn('date', 'not a date')).toBe("?$filter=col eq 'not a date'");
+        });
+
+        it('should still format a valid date as an ISO literal', () => {
+            expect(filterOn('date', '2026-03-01')).toContain('2026-03-01T00:00:00.000Z');
+        });
+
+        it('should not emit NaN for a non-numeric value', () => {
+            const result = filterOn('number', 'abc');
+            expect(result).not.toContain('NaN');
+            expect(result).toBe("?$filter=col eq 'abc'");
+        });
+
+        it('should still format a valid number bare', () => {
+            expect(filterOn('number', '42')).toBe('?$filter=col eq 42');
+        });
+
+        it('should not emit a bare non-boolean for a boolean column', () => {
+            expect(filterOn('boolean', 'yes')).toBe("?$filter=col eq 'yes'");
+        });
+
+        it.each(['true', 'FALSE'])('should still format %s bare for a boolean column', (value) => {
+            expect(filterOn('boolean', value)).toBe(`?$filter=col eq ${value.toLowerCase()}`);
+        });
+
+        it('should emit a valid lookup guid unquoted', () => {
+            const guid = '00000000-0000-0000-0000-000000000001';
+            expect(filterOn('lookup', guid)).toBe(`?$filter=_col_value eq ${guid}`);
+        });
+
+        it('should quote a lookup value that is not a guid', () => {
+            // Previously interpolated bare, producing malformed OData.
+            expect(filterOn('lookup', 'not-a-guid')).toBe("?$filter=_col_value eq 'not-a-guid'");
+        });
+
+        it('should keep quote escaping intact for string values', () => {
+            expect(filterOn('string', "O'Brien")).toBe("?$filter=col eq 'O''Brien'");
+        });
+
+        // A primary key is Edm.Guid: a quoted literal is rejected as a type mismatch, and unlike a
+        // lookup it takes no _value suffix.
+        it('should emit a guid column value unquoted and unsuffixed', () => {
+            const guid = '00000000-0000-0000-0000-000000000001';
+            expect(filterOn('guid', guid)).toBe(`?$filter=col eq ${guid}`);
+        });
+
+        it('should quote a guid column value that is not a guid', () => {
+            expect(filterOn('guid', 'not-a-guid')).toBe("?$filter=col eq 'not-a-guid'");
+        });
+
+        // Dropping it would silently widen whatever the condition guards — including a bulk delete.
+        it('should still emit a string function on a guid column rather than dropping it', () => {
+            const result = ODataQueryBuilder.build({
+                filterGroups: [{ filterType: 'and', filters: [{ attr: 'col', op: 'contains', value: 'abc' }] }],
+                attrMap: new Map([['col', { type: 'guid' }]])
+            });
+            expect(result).toBe("?$filter=contains(col,'abc')");
+        });
+    });
+
+    describe('date query functions', () => {
+        const filterOn = (op, value) => ODataQueryBuilder.build({
+            filterGroups: [{ filterType: 'and', filters: [{ attr: 'createdon', op, value }] }],
+            attrMap: new Map([['createdon', { type: 'date' }]])
+        });
+
+        it('should emit On as a namespaced function call', () => {
+            expect(filterOn('fn:On', '2026-01-01')).toBe(
+                "?$filter=Microsoft.Dynamics.CRM.On(PropertyName='createdon',PropertyValue='2026-01-01')"
+            );
+        });
+
+        it('should emit a no-argument function without PropertyValue', () => {
+            expect(filterOn('fn:Today', '')).toBe(
+                "?$filter=Microsoft.Dynamics.CRM.Today(PropertyName='createdon')"
+            );
+        });
+
+        it('should ignore a stray value on a no-argument function', () => {
+            expect(filterOn('fn:Today', 'ignored')).toBe(
+                "?$filter=Microsoft.Dynamics.CRM.Today(PropertyName='createdon')"
+            );
+        });
+
+        it('should drop a function that needs a value but has none', () => {
+            expect(filterOn('fn:On', '')).toBe('');
+            expect(filterOn('fn:LastXDays', '')).toBe('');
+        });
+
+        it('should emit a numeric-argument function', () => {
+            expect(filterOn('fn:LastXDays', '30')).toBe(
+                "?$filter=Microsoft.Dynamics.CRM.LastXDays(PropertyName='createdon',PropertyValue='30')"
+            );
+        });
+
+        it('should escape and encode the function value', () => {
+            expect(filterOn('fn:On', "a&b'c")).toContain("PropertyValue='a%26b''c'");
+        });
+
+        it('should drop a malformed function marker', () => {
+            expect(filterOn('fn:', '2026-01-01')).toBe('');
+        });
+
+        it('should combine a function with a normal condition', () => {
+            const result = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [
+                        { attr: 'createdon', op: 'fn:Today', value: '' },
+                        { attr: 'name', op: 'eq', value: 'Contoso' }
+                    ]
+                }],
+                attrMap: new Map([
+                    ['createdon', { type: 'date' }],
+                    ['name', { type: 'string' }]
+                ])
+            });
+
+            expect(result).toBe(
+                "?$filter=(Microsoft.Dynamics.CRM.Today(PropertyName='createdon') and name eq 'Contoso')"
+            );
+        });
+    });
+
+    describe('empty filter values', () => {
+        const filterOn = (type, value) => ODataQueryBuilder.build({
+            filterGroups: [{ filterType: 'and', filters: [{ attr: 'col', op: 'eq', value }] }],
+            attrMap: new Map([['col', { type }]])
+        });
+
+        // `col eq ''` on a date made Dataverse reject the query outright:
+        // "Found operand types 'Edm.DateTimeOffset' and 'Edm.String' for operator kind 'Equal'".
+        it.each(['date', 'number', 'boolean', 'lookup', 'optionset'])(
+            'should drop an empty condition on a %s column',
+            (type) => {
+                expect(filterOn(type, '')).toBe('');
+            }
+        );
+
+        it('should drop a whitespace-only value', () => {
+            expect(filterOn('date', '   ')).toBe('');
+        });
+
+        it('should still allow an empty comparison on a string column', () => {
+            expect(filterOn('string', '')).toBe("?$filter=col eq ''");
+        });
+
+        it('should keep other conditions when one is dropped', () => {
+            const result = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [
+                        { attr: 'createdon', op: 'eq', value: '' },
+                        { attr: 'name', op: 'eq', value: 'Contoso' }
+                    ]
+                }],
+                attrMap: new Map([
+                    ['createdon', { type: 'date' }],
+                    ['name', { type: 'string' }]
+                ])
+            });
+
+            expect(result).toBe("?$filter=name eq 'Contoso'");
+        });
+
+        it('should still emit null operators with no value', () => {
+            const result = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [{ attr: 'createdon', op: 'eq null', value: '' }]
+                }],
+                attrMap: new Map([['createdon', { type: 'date' }]])
+            });
+
+            expect(result).toBe('?$filter=createdon eq null');
+        });
+    });
+
+    // The query string is concatenated into the request URL with no encoding downstream.
+    describe('url-breaking characters in values', () => {
+        const filterOn = (type, value) => ODataQueryBuilder.build({
+            filterGroups: [{ filterType: 'and', filters: [{ attr: 'col', op: 'eq', value }] }],
+            attrMap: new Map([['col', { type }]])
+        });
+
+        it('should encode an ampersand so it cannot split the query string', () => {
+            expect(filterOn('string', 'Smith & Sons')).toBe("?$filter=col eq 'Smith %26 Sons'");
+        });
+
+        it('should encode a hash so it cannot truncate the url', () => {
+            expect(filterOn('string', 'Suite #3')).toBe("?$filter=col eq 'Suite %233'");
+        });
+
+        it('should encode a plus so it is not read as a space', () => {
+            expect(filterOn('string', '+123')).toBe("?$filter=col eq '%2B123'");
+        });
+
+        it('should encode a question mark', () => {
+            expect(filterOn('string', 'why?')).toBe("?$filter=col eq 'why%3F'");
+        });
+
+        it('should encode percent first so encodings are not double-encoded', () => {
+            expect(filterOn('string', '50% & up')).toBe("?$filter=col eq '50%25 %26 up'");
+        });
+
+        it('should leave spaces and commas readable', () => {
+            expect(filterOn('string', 'Contoso, Ltd')).toBe("?$filter=col eq 'Contoso, Ltd'");
+        });
+
+        it('should encode inside string functions too', () => {
+            const result = ODataQueryBuilder.build({
+                filterGroups: [{
+                    filterType: 'and',
+                    filters: [{ attr: 'col', op: 'contains', value: 'A & B' }]
+                }],
+                attrMap: new Map([['col', { type: 'string' }]])
+            });
+            expect(result).toBe("?$filter=contains(col,'A %26 B')");
+        });
+
+        it('should not encode the operators or structure around the value', () => {
+            const result = filterOn('string', 'x');
+            expect(result.startsWith('?$filter=col eq ')).toBe(true);
+        });
+    });
+
     describe('build', () => {
         it('should build empty query when no parameters provided', () => {
             const result = ODataQueryBuilder.build({});

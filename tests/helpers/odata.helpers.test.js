@@ -351,8 +351,21 @@ describe('ODataHelpers', () => {
     });
 
     describe('FILTER_OPERATORS - extended', () => {
-        it('should have correct count of operators', () => {
-            expect(ODataHelpers.FILTER_OPERATORS.length).toBe(16);
+        it('should expose 16 type-agnostic operators', () => {
+            const untyped = ODataHelpers.FILTER_OPERATORS.filter(op => !op.types);
+            expect(untyped.length).toBe(16);
+        });
+
+        it('should mark every date function as date-only with a declared argument', () => {
+            const dateFns = ODataHelpers.FILTER_OPERATORS.filter(op => op.odata?.startsWith('fn:'));
+
+            expect(dateFns.length).toBeGreaterThan(0);
+            dateFns.forEach(op => {
+                expect(op.types).toEqual(['date']);
+                expect(['none', 'date', 'number']).toContain(op.arg);
+                // Query functions are OData-only; FetchXML has its own date operator names.
+                expect(op.fetch).toBeNull();
+            });
         });
 
         it('should have comparison operators with matching fetch/odata values', () => {

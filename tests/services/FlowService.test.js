@@ -48,8 +48,26 @@ describe('FlowService', () => {
                 createdOn: '1/1/2026',
                 modifiedOn: '1/5/2026',
                 createdBy: 'Jane Doe',
-                clientData: null
+                clientData: null,
+                modernFlowType: null,
+                isAgentFlow: false
             });
+        });
+
+        it('should flag Copilot Studio agent flows via modernflowtype=1', async () => {
+            const executeFetchXml = vi.fn().mockResolvedValue({
+                entities: [
+                    { workflowid: 'wf-agent', name: 'Agent Flow', modernflowtype: 1 },
+                    { workflowid: 'wf-classic', name: 'Classic Flow', modernflowtype: 0 }
+                ]
+            });
+
+            const result = await FlowService.getCloudFlows(executeFetchXml);
+
+            expect(result.find(f => f.id === 'wf-agent').isAgentFlow).toBe(true);
+            expect(result.find(f => f.id === 'wf-classic').isAgentFlow).toBe(false);
+            // The query must request the modernflowtype attribute.
+            expect(executeFetchXml.mock.calls[0][1]).toContain('modernflowtype');
         });
 
         it('should return empty array when no entities returned', async () => {
@@ -398,6 +416,25 @@ describe('FlowService', () => {
 
             expect(result).toEqual([]);
         });
+
+        it('should query workflow ids in chunks for large solutions and merge the results', async () => {
+            // 250 component ids → 3 chunks (100 / 100 / 50). A single query would blow the URL limit.
+            const componentIds = Array.from({ length: 250 }, (_, i) => ({ objectid: `flow-${i}` }));
+            const webApiFetch = vi.fn().mockResolvedValue({ value: componentIds });
+            const executeFetchXml = vi.fn().mockImplementation((_entity, fetchXml) => {
+                const count = (fetchXml.match(/<value>/g) || []).length;
+                return Promise.resolve({
+                    entities: Array.from({ length: count }, (_, i) => ({ workflowid: `w-${i}`, name: `Flow ${i}` }))
+                });
+            });
+
+            const result = await FlowService.getCloudFlowsBySolution(executeFetchXml, webApiFetch, 'sol-big');
+
+            expect(executeFetchXml).toHaveBeenCalledTimes(3);
+            expect(result).toHaveLength(250);
+            // Each chunk uses the compact `in` operator with <value> children, not one giant or-filter.
+            expect(executeFetchXml.mock.calls[0][1]).toContain('operator="in"');
+        });
     });
 
     describe('updateFlowDefinition', () => {
@@ -418,6 +455,171 @@ describe('FlowService', () => {
 
             await expect(FlowService.updateFlowDefinition(updateRecord, 'flow-err', '{}'))
                 .rejects.toThrow('Update failed');
+        });
+    });
+
+    describe('getFlowRuns', () => {
+        it('should query flowrun filtered by the workflow id and map the results', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({
+                value: [
+                    {
+                        flowrunid: 'run-1',
+                        name: '08580000000',
+                        status: 'Succeeded',
+                        triggertype: 'Automated',
+                        starttime: '2026-06-28T10:00:00Z',
+                        'starttime@OData.Community.Display.V1.FormattedValue': '6/28/2026 10:00 AM',
+                        endtime: '2026-06-28T10:00:02Z',
+                        duration: 2000,
+                        isprimary: 1,
+                        modernflowtype: 0
+                    }
+                ]
+            });
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(webApiFetch).toHaveBeenCalledTimes(1);
+            const [method, entity, query] = webApiFetch.mock.calls[0];
+            expect(method).toBe('GET');
+            expect(entity).toBe('flowrun');
+            expect(query).toContain('_workflow_value eq wf-1');
+            expect(query).toContain('$orderby=starttime desc');
+            expect(result).toHaveLength(1);
+            expect(result[0]).toMatchObject({
+                id: 'run-1',
+                runId: '08580000000',
+                status: 'Succeeded',
+                statusKey: 'succeeded',
+                triggerType: 'Automated',
+                startTimeLabel: '6/28/2026 10:00 AM',
+                durationMs: 2000,
+                durationText: '2.0s',
+                isPrimary: true
+            });
+        });
+
+        it('should add a status filter when provided and escape single quotes', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({ value: [] });
+
+            await FlowService.getFlowRuns(webApiFetch, 'wf-1', { status: 'Failed', top: 10 });
+
+            const query = webApiFetch.mock.calls[0][2];
+            expect(query).toContain("status eq 'Failed'");
+            expect(query).toContain('$top=10');
+        });
+
+        it('should fall back to ordering by createdon when starttime ordering is rejected', async () => {
+            const webApiFetch = vi.fn()
+                .mockRejectedValueOnce(new Error('orderby not supported'))
+                .mockResolvedValueOnce({ value: [{ flowrunid: 'r', name: 'r', status: 'Running' }] });
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(webApiFetch).toHaveBeenCalledTimes(2);
+            expect(webApiFetch.mock.calls[1][2]).toContain('$orderby=createdon desc');
+            expect(result[0].statusKey).toBe('running');
+        });
+
+        it('should normalize known status variants and default unknown to other', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({
+                value: [
+                    { flowrunid: '1', name: '1', status: 'Cancelled' },
+                    { flowrunid: '2', name: '2', status: 'Faulted' }
+                ]
+            });
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(result[0].statusKey).toBe('cancelled');
+            expect(result[1].statusKey).toBe('other');
+        });
+
+        it('should return an empty array when no runs exist', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({});
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(result).toEqual([]);
+        });
+
+        it('should parse the JSON rollup errormessage into a clean message + code, keeping the raw text', async () => {
+            const raw = '{\r\n  "code": "ActionFailed",\r\n  "message": "An action failed. No dependent actions succeeded.",\r\n  "messageTemplate": "An action failed. No dependent actions succeeded."\r\n}';
+            const webApiFetch = vi.fn().mockResolvedValue({
+                value: [{ flowrunid: 'run-x', name: 'run-x', status: 'Failed', errorcode: 'ActionFailed', errormessage: raw }]
+            });
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(result[0].errorCode).toBe('ActionFailed');
+            expect(result[0].errorMessage).toBe('An action failed. No dependent actions succeeded.');
+            expect(result[0].errorMessage).not.toContain('{');
+            expect(result[0].errorRaw).toBe(raw);
+        });
+
+        it('should keep a non-JSON errormessage as-is', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({
+                value: [{ flowrunid: 'r', name: 'r', status: 'Failed', errorcode: 'BadGateway', errormessage: 'Upstream timed out' }]
+            });
+
+            const result = await FlowService.getFlowRuns(webApiFetch, 'wf-1');
+
+            expect(result[0].errorCode).toBe('BadGateway');
+            expect(result[0].errorMessage).toBe('Upstream timed out');
+        });
+    });
+
+    describe('getFlowRunLogs', () => {
+        it('should query flowlog filtered by the run id and map the results', async () => {
+            const webApiFetch = vi.fn().mockResolvedValue({
+                value: [
+                    {
+                        flowlogid: 'log-1',
+                        name: 'Initialize variable',
+                        'type@OData.Community.Display.V1.FormattedValue': 'CustomLog',
+                        'level@OData.Community.Display.V1.FormattedValue': 'Info',
+                        duration: 500,
+                        logindex: 0,
+                        data: '{"ok":true}'
+                    }
+                ]
+            });
+
+            const result = await FlowService.getFlowRunLogs(webApiFetch, 'run-1');
+
+            const [method, entity, query] = webApiFetch.mock.calls[0];
+            expect(method).toBe('GET');
+            expect(entity).toBe('flowlog');
+            expect(query).toContain('_cloudflowrunid_value eq run-1');
+            expect(query).toContain('$orderby=logindex asc');
+            expect(result[0]).toMatchObject({
+                id: 'log-1',
+                name: 'Initialize variable',
+                typeLabel: 'CustomLog',
+                levelLabel: 'Info',
+                durationText: '500 ms',
+                logIndex: 0,
+                data: '{"ok":true}'
+            });
+        });
+
+        it('should retry without ordering when the ordered query fails', async () => {
+            const webApiFetch = vi.fn()
+                .mockRejectedValueOnce(new Error('orderby rejected'))
+                .mockResolvedValueOnce({ value: [{ flowlogid: 'l', name: 'l' }] });
+
+            const result = await FlowService.getFlowRunLogs(webApiFetch, 'run-1');
+
+            expect(webApiFetch).toHaveBeenCalledTimes(2);
+            expect(result).toHaveLength(1);
+        });
+
+        it('should degrade to an empty array when the table is not accessible', async () => {
+            const webApiFetch = vi.fn().mockRejectedValue(new Error('403 Forbidden'));
+
+            const result = await FlowService.getFlowRunLogs(webApiFetch, 'run-1');
+
+            expect(result).toEqual([]);
         });
     });
 });

@@ -91,8 +91,10 @@ vi.mock('../../src/helpers/file.helpers.js', () => ({
     FileHelpers: {
         readTextFile: vi.fn(() => Promise.resolve('function uploaded() { return true; }')),
         readJsonFile: vi.fn(() => Promise.resolve({})),
+        readBase64File: vi.fn(() => Promise.resolve('')),
         copyToClipboard: vi.fn(),
         downloadJson: vi.fn(),
+        downloadText: vi.fn(),
         downloadCsv: vi.fn(),
         createFileInputElement: vi.fn(() => document.createElement('input'))
     }
@@ -1372,7 +1374,9 @@ describe('AutomationTab', () => {
             expect(component.ui.eventsContainer.innerHTML).toContain('setadditionalparams');
         });
 
-        it('should not render Form Libraries section (removed feature)', () => {
+        // Reinstated once the parser started finding libraries at all — it previously read a FormXML
+        // element that doesn't exist, so the section had nothing to show.
+        it('should render the Form Libraries section with an editor button per script', () => {
             component._renderFormEvents(component.ui.eventsContainer, {
                 OnLoad: [],
                 OnSave: [],
@@ -1381,7 +1385,88 @@ describe('AutomationTab', () => {
                 Libraries: ['AppCommon/Contact/Contact_main_system_library.js']
             });
 
+            expect(component.ui.eventsContainer.innerHTML).toContain('Form Libraries');
+            expect(component.ui.eventsContainer.innerHTML).toContain('AppCommon/Contact/Contact_main_system_library.js');
+            const editBtn = component.ui.eventsContainer.querySelector('.pdt-handler-list [data-action="edit-webresource"]');
+            expect(editBtn.dataset.library).toBe('AppCommon/Contact/Contact_main_system_library.js');
+        });
+
+        it('should omit the Form Libraries section when no scripts are registered', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: []
+            });
+
             expect(component.ui.eventsContainer.innerHTML).not.toContain('Form Libraries');
+        });
+
+        it('should name the single form a handler is registered on', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, forms: ['Information'] }],
+                OnSave: [], OnChange: [], Other: [], Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.innerHTML).toContain('Information');
+        });
+
+        it('should collapse a handler shared by several forms into a count', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, forms: ['Information', 'Card', 'Quick Create'] }],
+                OnSave: [], OnChange: [], Other: [], Libraries: []
+            });
+
+            const badge = component.ui.eventsContainer.querySelector('.pdt-form-badge');
+            expect(badge.textContent).toBe('3 forms');
+            expect(badge.getAttribute('title')).toContain('Quick Create');
+        });
+
+        // Form names are free text; escapeHtml does not escape quotes, so a name containing one
+        // would otherwise close the title attribute and let the rest become live markup.
+        it('should not let a quote in a form name break out of the badge attribute', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{
+                    function: 'onLoad',
+                    library: 'test.js',
+                    enabled: true,
+                    forms: ['x" onmouseover="alert(1)']
+                }],
+                OnSave: [], OnChange: [], Other: [], Libraries: []
+            });
+
+            const badge = component.ui.eventsContainer.querySelector('.pdt-form-badge');
+            expect(badge.getAttribute('onmouseover')).toBeNull();
+            expect(badge.getAttribute('title')).toBe('Form: x" onmouseover="alert(1)');
+        });
+
+        it('should not let a quote in a scanned form name break out of the note attribute', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: [],
+                forms: [{ id: '1', name: 'x" onmouseover="alert(1)', type: 2, typeLabel: 'Main' }]
+            });
+
+            const note = component.ui.eventsContainer.querySelector('.pdt-note[title]');
+            expect(note.getAttribute('onmouseover')).toBeNull();
+            expect(note.getAttribute('title')).toContain('x" onmouseover="alert(1)');
+        });
+
+        it('should report which forms were scanned', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: [],
+                forms: [
+                    { id: '1', name: 'Information', type: 2, typeLabel: 'Main' },
+                    { id: '2', name: 'Contact Card', type: 11, typeLabel: 'Card' }
+                ]
+            });
+
+            expect(component.ui.eventsContainer.textContent).toContain('Scanned 2 forms');
+            expect(component.ui.eventsContainer.textContent).toContain('Main, Card');
+        });
+
+        it('should omit the scanned note when the caller gives no form summary', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [], OnSave: [], OnChange: [], Other: [], Libraries: []
+            });
+
+            expect(component.ui.eventsContainer.textContent).not.toContain('Scanned');
         });
 
         it('should show no handlers help when only Libraries exist but no event handlers', () => {
@@ -1408,30 +1493,46 @@ describe('AutomationTab', () => {
             expect(component.ui.eventsContainer.innerHTML).not.toContain('Other Events');
         });
 
-        it('should render managed badge for managed handlers', () => {
+        // The form definition says whether a handler is platform-internal, not whether it came from
+        // a managed solution — the badge has to claim only the former.
+        it('should badge a platform-internal handler as System', () => {
             component._renderFormEvents(component.ui.eventsContainer, {
-                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, managed: true }],
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, internal: true }],
                 OnSave: [],
                 OnChange: [],
                 Other: [],
                 Libraries: []
             });
 
-            expect(component.ui.eventsContainer.innerHTML).toContain('Managed');
-            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.managed')).not.toBeNull();
+            expect(component.ui.eventsContainer.innerHTML).toContain('System');
+            expect(component.ui.eventsContainer.innerHTML).not.toContain('Managed');
+            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.system')).not.toBeNull();
         });
 
-        it('should render custom badge for non-managed handlers', () => {
+        it('should badge a form-registered handler as Form', () => {
             component._renderFormEvents(component.ui.eventsContainer, {
-                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, managed: false }],
+                OnLoad: [{ function: 'onLoad', library: 'test.js', enabled: true, internal: false }],
                 OnSave: [],
                 OnChange: [],
                 Other: [],
                 Libraries: []
             });
 
-            expect(component.ui.eventsContainer.innerHTML).toContain('Custom');
-            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.customizable')).not.toBeNull();
+            expect(component.ui.eventsContainer.innerHTML).toContain('Form</span>');
+            expect(component.ui.eventsContainer.querySelector('.pdt-status-badge.form')).not.toBeNull();
+        });
+
+        it('should not double-escape the library name it hands the web resource editor', () => {
+            component._renderFormEvents(component.ui.eventsContainer, {
+                OnLoad: [{ function: 'onLoad', library: 'new_/a&b.js', enabled: true }],
+                OnSave: [],
+                OnChange: [],
+                Other: [],
+                Libraries: []
+            });
+
+            const editBtn = component.ui.eventsContainer.querySelector('[data-action="edit-webresource"]');
+            expect(editBtn.dataset.library).toBe('new_/a&b.js');
         });
     });
 

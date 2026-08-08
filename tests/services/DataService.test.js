@@ -79,6 +79,8 @@ vi.mock('../../src/services/WebApiService.js', () => ({
         executeFetchXml: vi.fn(() => Promise.resolve({ entities: [] })),
         executeBatch: vi.fn(() => Promise.resolve({ successCount: 1, failCount: 0, errors: [] })),
         getPluginTraceLogs: vi.fn(() => Promise.resolve({ entities: [] })),
+        fetchAbsolute: vi.fn(() => Promise.resolve({ value: [] })),
+        buildHeaders: vi.fn(() => ({})),
     }
 }));
 
@@ -220,6 +222,30 @@ describe('DataService', () => {
         it('should return not impersonating by default', () => {
             const info = DataService.getImpersonationInfo();
             expect(info.isImpersonating).toBe(false);
+        });
+
+        it('should send the impersonation header on a normal read', async () => {
+            DataService.setImpersonation('user-123', 'John Doe');
+            WebApiService.retrieveMultipleRecords.mockResolvedValueOnce({ entities: [] });
+
+            await DataService.retrieveMultipleRecords('systemuser', '?$top=1');
+
+            const fetchFn = WebApiService.retrieveMultipleRecords.mock.calls.at(-1)[0];
+            await fetchFn('GET', 'systemuser', '?$top=1');
+            expect(WebApiService.webApiFetch.mock.calls.at(-1).at(-1)).toBe('user-123');
+        });
+
+        it('should never send the impersonation header on an as-self read', async () => {
+            // The user picker and the "who am I impersonating" lookup run through this path; a user
+            // without prvReadUser must not be able to 403 the tool's own bookkeeping.
+            DataService.setImpersonation('user-123', 'John Doe');
+            WebApiService.retrieveMultipleRecords.mockResolvedValueOnce({ entities: [] });
+
+            await DataService.retrieveMultipleRecordsAsSelf('systemuser', '?$top=1');
+
+            const fetchFn = WebApiService.retrieveMultipleRecords.mock.calls.at(-1)[0];
+            await fetchFn('GET', 'systemuser', '?$top=1');
+            expect(WebApiService.webApiFetch.mock.calls.at(-1).at(-1)).toBeNull();
         });
     });
 
@@ -494,6 +520,35 @@ describe('DataService', () => {
         });
     });
 
+    describe('flow run history', () => {
+        it('should query the flowrun table for a flow\'s runs', async () => {
+            WebApiService.webApiFetch.mockResolvedValueOnce({
+                value: [{ flowrunid: 'r1', name: 'r1', status: 'Succeeded' }]
+            });
+
+            const result = await DataService.getFlowRuns('wf-1', { top: 5 });
+
+            const call = WebApiService.webApiFetch.mock.calls.at(-1);
+            expect(call[1]).toBe('flowrun');
+            expect(call[2]).toContain('_workflow_value eq wf-1');
+            expect(result).toHaveLength(1);
+            expect(result[0].statusKey).toBe('succeeded');
+        });
+
+        it('should query the flowlog table for a run\'s logs', async () => {
+            WebApiService.webApiFetch.mockResolvedValueOnce({
+                value: [{ flowlogid: 'l1', name: 'Compose', logindex: 0 }]
+            });
+
+            const result = await DataService.getFlowRunLogs('run-1');
+
+            const call = WebApiService.webApiFetch.mock.calls.at(-1);
+            expect(call[1]).toBe('flowlog');
+            expect(call[2]).toContain('_cloudflowrunid_value eq run-1');
+            expect(result).toHaveLength(1);
+        });
+    });
+
     describe('caching', () => {
         it('should clear all cache when key is null', () => {
             DataService.clearCache();
@@ -679,14 +734,10 @@ describe('DataService', () => {
 
     describe('fetchNextLink', () => {
         it('should fetch next page of records using nextLink', async () => {
-            const mockResponse = {
-                ok: true,
-                json: vi.fn().mockResolvedValue({
-                    value: [{ id: '1' }, { id: '2' }],
-                    '@odata.nextLink': 'https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=next'
-                })
-            };
-            global.fetch = vi.fn().mockResolvedValue(mockResponse);
+            WebApiService.fetchAbsolute.mockResolvedValueOnce({
+                value: [{ id: '1' }, { id: '2' }],
+                '@odata.nextLink': 'https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=next'
+            });
 
             const result = await DataService.fetchNextLink('https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=abc');
 
@@ -694,12 +745,30 @@ describe('DataService', () => {
             expect(result.nextLink).toBe('https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=next');
         });
 
+        it('should carry the impersonation header into every page', async () => {
+            // Page 1 arriving as the impersonated user and page 2 as the signed-in one produced a
+            // single result set containing two identities' data, with no warning.
+            DataService.setImpersonation('user-123', 'John Doe');
+            WebApiService.fetchAbsolute.mockResolvedValueOnce({ value: [] });
+
+            await DataService.fetchNextLink('https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=abc');
+
+            expect(WebApiService.fetchAbsolute).toHaveBeenLastCalledWith(
+                'https://org.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=abc',
+                'user-123'
+            );
+        });
+
+        it('should not impersonate paging when no user is impersonated', async () => {
+            WebApiService.fetchAbsolute.mockResolvedValueOnce({ value: [] });
+
+            await DataService.fetchNextLink('https://org.crm.dynamics.com/api/data/v9.2/accounts');
+
+            expect(WebApiService.fetchAbsolute.mock.calls.at(-1)[1]).toBeNull();
+        });
+
         it('should return empty entities when value is missing', async () => {
-            const mockResponse = {
-                ok: true,
-                json: vi.fn().mockResolvedValue({})
-            };
-            global.fetch = vi.fn().mockResolvedValue(mockResponse);
+            WebApiService.fetchAbsolute.mockResolvedValueOnce({});
 
             const result = await DataService.fetchNextLink('https://org.crm.dynamics.com/api/data/v9.2/accounts');
 
@@ -707,31 +776,20 @@ describe('DataService', () => {
             expect(result.nextLink).toBeUndefined();
         });
 
-        it('should throw error when HTTP response is not ok', async () => {
-            const mockResponse = {
-                ok: false,
-                status: 404,
-                statusText: 'Not Found'
-            };
-            global.fetch = vi.fn().mockResolvedValue(mockResponse);
+        it('should propagate transport errors', async () => {
+            WebApiService.fetchAbsolute.mockRejectedValueOnce(new Error('HTTP 404 Not Found'));
 
-            await expect(DataService.fetchNextLink('https://invalid-url')).rejects.toThrow('HTTP 404: Not Found');
+            await expect(DataService.fetchNextLink('https://invalid-url')).rejects.toThrow('HTTP 404 Not Found');
         });
 
         it('should throw error when fetch fails', async () => {
-            global.fetch = vi.fn().mockRejectedValue(new Error('Network failure'));
+            WebApiService.fetchAbsolute.mockRejectedValueOnce(new Error('Network failure'));
 
             await expect(DataService.fetchNextLink('https://org.crm.dynamics.com')).rejects.toThrow('Network failure');
         });
 
         it('should return undefined nextLink when not present in response', async () => {
-            const mockResponse = {
-                ok: true,
-                json: vi.fn().mockResolvedValue({
-                    value: [{ id: '1' }]
-                })
-            };
-            global.fetch = vi.fn().mockResolvedValue(mockResponse);
+            WebApiService.fetchAbsolute.mockResolvedValueOnce({ value: [{ id: '1' }] });
 
             const result = await DataService.fetchNextLink('https://org.crm.dynamics.com/api/data/v9.2/accounts');
 
@@ -2015,6 +2073,36 @@ describe('DataService', () => {
             const result = await DataService.getAttributeDefinitions('account');
 
             expect(result).toHaveLength(2);
+        });
+    });
+
+    describe('getEnvironmentId', () => {
+        it('should resolve the env id from RetrieveCurrentOrganization and cache it', async () => {
+            WebApiService.webApiFetch.mockResolvedValueOnce({ Detail: { EnvironmentId: 'env-xyz' } });
+
+            const first = await DataService.getEnvironmentId();
+            const second = await DataService.getEnvironmentId(); // served from cache, no second call
+
+            expect(first).toBe('env-xyz');
+            expect(second).toBe('env-xyz');
+            const orgCalls = WebApiService.webApiFetch.mock.calls
+                .filter(c => String(c[1]).includes('RetrieveCurrentOrganization'));
+            expect(orgCalls).toHaveLength(1);
+        });
+    });
+
+    describe('getDefaultSolutionId', () => {
+        it('should resolve the Default solution id by uniquename and cache it', async () => {
+            WebApiService.retrieveMultipleRecords.mockResolvedValueOnce({ entities: [{ solutionid: 'sol-default' }] });
+
+            const first = await DataService.getDefaultSolutionId();
+            const second = await DataService.getDefaultSolutionId(); // cached
+
+            expect(first).toBe('sol-default');
+            expect(second).toBe('sol-default');
+            const solCalls = WebApiService.retrieveMultipleRecords.mock.calls
+                .filter(c => String(c[2]).includes("uniquename eq 'Default'"));
+            expect(solCalls).toHaveLength(1);
         });
     });
 });

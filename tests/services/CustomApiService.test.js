@@ -15,7 +15,23 @@ vi.mock('../../src/services/DataService.js', () => ({
         retrieveRecord: vi.fn().mockResolvedValue({}),
         createRecord: vi.fn().mockResolvedValue({ id: 'new-id' }),
         updateRecord: vi.fn().mockResolvedValue({}),
-        deleteRecord: vi.fn().mockResolvedValue({})
+        deleteRecord: vi.fn().mockResolvedValue({}),
+        getImpersonationInfo: vi.fn(() => ({ isImpersonating: false, userId: null, userName: null }))
+    }
+}));
+
+// Mirrors the real header builder so a missing impersonation header shows up as a failing
+// assertion rather than an empty object that passes everything.
+vi.mock('../../src/services/WebApiService.js', () => ({
+    WebApiService: {
+        buildHeaders: vi.fn((customHeaders = {}, impersonatedUserId = null) => ({
+            'OData-MaxVersion': '4.0',
+            'OData-Version': '4.0',
+            Accept: 'application/json',
+            'Content-Type': 'application/json; charset=utf-8',
+            ...customHeaders,
+            ...(impersonatedUserId ? { MSCRMCallerID: impersonatedUserId } : {})
+        }))
     }
 }));
 
@@ -85,6 +101,9 @@ function createMockApi(overrides = {}) {
 describe('CustomApiService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        DataService.getImpersonationInfo.mockReturnValue({
+            isImpersonating: false, userId: null, userName: null
+        });
     });
 
     // ═══════════════════════════════════════════════════════════
@@ -388,6 +407,34 @@ describe('CustomApiService', () => {
 
             const fetchOpts = mockFetch.mock.calls[0][1];
             expect(fetchOpts.headers['X-Custom']).toBe('test');
+        });
+
+        it('should execute an action as the impersonated user', async () => {
+            // "Can this user run this API?" is the reason to execute one while impersonating;
+            // answering as the signed-in user is worse than not answering.
+            DataService.getImpersonationInfo.mockReturnValue({
+                isImpersonating: true, userId: 'user-123', userName: 'John Doe'
+            });
+
+            await CustomApiService.execute(createMockApi(), {});
+
+            expect(mockFetch.mock.calls[0][1].headers.MSCRMCallerID).toBe('user-123');
+        });
+
+        it('should execute a function as the impersonated user', async () => {
+            DataService.getImpersonationInfo.mockReturnValue({
+                isImpersonating: true, userId: 'user-123', userName: 'John Doe'
+            });
+
+            await CustomApiService.execute(createMockApi({ isfunction: true }), {});
+
+            expect(mockFetch.mock.calls[0][1].headers.MSCRMCallerID).toBe('user-123');
+        });
+
+        it('should send no impersonation header when not impersonating', async () => {
+            await CustomApiService.execute(createMockApi(), {});
+
+            expect(mockFetch.mock.calls[0][1].headers.MSCRMCallerID).toBeUndefined();
         });
 
         it('should include body for action with params', async () => {

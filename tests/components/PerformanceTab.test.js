@@ -59,7 +59,8 @@ const mockHighLoadMetrics = {
 // Mock dependencies
 vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
-        getPerformanceDetails: vi.fn(() => Promise.resolve(mockPerformanceMetrics))
+        getPerformanceDetails: vi.fn(() => Promise.resolve(mockPerformanceMetrics)),
+        getFormScriptSources: vi.fn(() => Promise.resolve({ scripts: [], skipped: [] }))
     }
 }));
 
@@ -94,6 +95,10 @@ describe('PerformanceTab', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         DataService.getPerformanceDetails.mockResolvedValue(mockPerformanceMetrics);
+        DataService.getFormScriptSources.mockResolvedValue({ scripts: [], skipped: [] });
+        // clearAllMocks wipes the return value set in the factory, so restore it here rather than
+        // letting a later suite inherit an undefined entity name.
+        PowerAppsApiService.getEntityName.mockReturnValue('account');
         document.body.innerHTML = '';
     });
 
@@ -134,15 +139,14 @@ describe('PerformanceTab', () => {
             expect(component.latestMetrics).toBeNull();
         });
 
-        it('should initialize thresholds with default values', () => {
+        it('should start with no scanned scripts so script rules stay disabled', () => {
             component = new PerformanceTab();
-            expect(component.thresholds).toBeDefined();
-            expect(component.thresholds.totalMsWarn).toBe(2000);
-            expect(component.thresholds.totalMsBad).toBe(4000);
-            expect(component.thresholds.controlsWarn).toBe(200);
-            expect(component.thresholds.onChangeWarn).toBe(25);
-            expect(component.thresholds.tabsWarn).toBe(8);
-            expect(component.thresholds.sectionsWarn).toBe(30);
+            expect(component.scannedScripts).toBeNull();
+        });
+
+        it('should start with an idle scan status', () => {
+            component = new PerformanceTab();
+            expect(component.scanStatus).toEqual({ state: 'idle', message: '' });
         });
     });
 
@@ -284,132 +288,86 @@ describe('PerformanceTab', () => {
         });
     });
 
-    describe('insights computation', () => {
+    describe('script scan', () => {
         beforeEach(() => {
             component = new PerformanceTab();
+            DataService.getFormScriptSources.mockResolvedValue({ scripts: [], skipped: [] });
         });
 
-        it('should return few or no warnings for good metrics', () => {
-            const goodMetrics = {
-                totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(goodMetrics);
-            // Good metrics should have minimal or no warnings
-            const warnings = insights.filter(i => i.type === 'warning');
-            expect(warnings.length).toBeLessThanOrEqual(1);
+        it('should read the current table\'s libraries', async () => {
+            await component._handleScanScripts();
+            expect(DataService.getFormScriptSources).toHaveBeenCalledWith('account');
         });
 
-        it('should warn about high total load time', () => {
-            const slowMetrics = {
-                totalLoadTime: 2500,
-                isApiAvailable: true,
-                breakdown: { server: 1000, network: 500, client: 1000 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(slowMetrics);
-            expect(insights.some(i => i.includes('load time'))).toBe(true);
+        it('should enable the script rules once the scan completes', async () => {
+            DataService.getFormScriptSources.mockResolvedValue({
+                scripts: [{ name: 'new_/a.js', source: 'console.log(1);' }],
+                skipped: []
+            });
+
+            await component._handleScanScripts();
+
+            expect(component.scannedScripts).toHaveLength(1);
+            expect(component.scanStatus.state).toBe('done');
         });
 
-        it('should warn about critical load time', () => {
-            const criticalMetrics = {
-                totalLoadTime: 5000,
-                isApiAvailable: true,
-                breakdown: { server: 2000, network: 1000, client: 2000 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(criticalMetrics);
-            expect(insights.some(i => i.includes('critical'))).toBe(true);
+        it('should strip comments so a commented-out call is not reported', async () => {
+            DataService.getFormScriptSources.mockResolvedValue({
+                scripts: [{ name: 'new_/a.js', source: '// console.log(1);' }],
+                skipped: []
+            });
+
+            await component._handleScanScripts();
+
+            expect(component.scannedScripts[0].code).not.toContain('console.log');
         });
 
-        it('should warn about too many controls', () => {
-            const manyControlsMetrics = {
-                totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
-                uiCounts: { tabs: 3, sections: 10, controls: 250, onChange: 5 }
-            };
-            const insights = component._computeInsights(manyControlsMetrics);
-            expect(insights.some(i => i.includes('controls'))).toBe(true);
+        it('should treat a table with no libraries as scanned, not unscanned', async () => {
+            await component._handleScanScripts();
+            expect(component.scannedScripts).toEqual([]);
+            expect(component.scanStatus.message).toContain('No unmanaged JavaScript libraries');
         });
 
-        it('should warn about too many onChange handlers', () => {
-            const manyOnChangeMetrics = {
-                totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 30 }
-            };
-            const insights = component._computeInsights(manyOnChangeMetrics);
-            expect(insights.some(i => i.includes('OnChange'))).toBe(true);
+        it('should report how many managed libraries it left out', async () => {
+            DataService.getFormScriptSources.mockResolvedValue({
+                scripts: [{ name: 'new_/a.js', source: 'var a = 1;' }],
+                skipped: [],
+                system: 4
+            });
+
+            await component._handleScanScripts();
+
+            expect(component.scanStatus.message).toContain('4 managed libraries skipped');
         });
 
-        it('should warn about too many tabs', () => {
-            const manyTabsMetrics = {
-                totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
-                uiCounts: { tabs: 10, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(manyTabsMetrics);
-            expect(insights.some(i => i.includes('tabs'))).toBe(true);
+        it('should name the libraries it could not read', async () => {
+            DataService.getFormScriptSources.mockResolvedValue({
+                scripts: [],
+                skipped: ['new_/missing.js']
+            });
+
+            await component._handleScanScripts();
+
+            expect(component.scanStatus.message).toContain('new_/missing.js');
         });
 
-        it('should warn about too many sections', () => {
-            const manySectionsMetrics = {
-                totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
-                uiCounts: { tabs: 3, sections: 35, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(manySectionsMetrics);
-            expect(insights.some(i => i.includes('sections'))).toBe(true);
+        it('should report a failure without claiming the scripts are clean', async () => {
+            DataService.getFormScriptSources.mockRejectedValue(new Error('403'));
+
+            await component._handleScanScripts();
+
+            expect(component.scanStatus.state).toBe('error');
+            expect(component.scanStatus.message).toContain('403');
+            expect(component.scannedScripts).toBeNull();
         });
 
-        it('should identify server-side bottleneck', () => {
-            const serverHeavyMetrics = {
-                totalLoadTime: 3000,
-                isApiAvailable: true,
-                breakdown: { server: 2000, network: 500, client: 500 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(serverHeavyMetrics);
-            expect(insights.some(i => i.includes('Server-side'))).toBe(true);
-        });
+        it('should explain when there is no table context', async () => {
+            PowerAppsApiService.getEntityName.mockReturnValueOnce('');
 
-        it('should identify client-side bottleneck', () => {
-            const clientHeavyMetrics = {
-                totalLoadTime: 3000,
-                isApiAvailable: true,
-                breakdown: { server: 500, network: 500, client: 2000 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(clientHeavyMetrics);
-            expect(insights.some(i => i.includes('Client'))).toBe(true);
-        });
+            await component._handleScanScripts();
 
-        it('should identify network bottleneck', () => {
-            const networkHeavyMetrics = {
-                totalLoadTime: 3000,
-                isApiAvailable: true,
-                breakdown: { server: 500, network: 2000, client: 500 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(networkHeavyMetrics);
-            expect(insights.some(i => i.includes('Network'))).toBe(true);
-        });
-
-        it('should not show breakdown insights when API is not available', () => {
-            const noApiMetrics = {
-                totalLoadTime: 3000,
-                isApiAvailable: false,
-                breakdown: { server: 2000, network: 500, client: 500 },
-                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
-            };
-            const insights = component._computeInsights(noApiMetrics);
-            expect(insights.every(i => !i.includes('Server-side') && !i.includes('Network time dominates') && !i.includes('Client rendering dominates'))).toBe(true);
+            expect(DataService.getFormScriptSources).not.toHaveBeenCalled();
+            expect(component.scanStatus.state).toBe('error');
         });
     });
 
@@ -604,42 +562,111 @@ describe('PerformanceTab', () => {
         });
     });
 
-    describe('insights section', () => {
+    describe('review section', () => {
         beforeEach(() => {
             component = new PerformanceTab();
         });
 
-        it('should build insights section', () => {
-            const section = component._buildInsightsSection(mockPerformanceMetrics);
+        it('should build the review section', () => {
+            const section = component._buildReviewSection(mockPerformanceMetrics);
             expect(section).toBeInstanceOf(HTMLElement);
-            expect(section.className).toContain('pdt-perf-section');
+            expect(section.className).toContain('pdt-perf-review');
         });
 
-        it('should have Insights title', () => {
-            const section = component._buildInsightsSection(mockPerformanceMetrics);
-            expect(section.textContent).toContain('Insights');
+        it('should title the section Performance Review', () => {
+            const section = component._buildReviewSection(mockPerformanceMetrics);
+            expect(section.textContent).toContain('Performance Review');
         });
 
-        it('should show "no issues" when no insights', () => {
+        it('should list a finding per rule that fired', () => {
+            const section = component._buildReviewSection(mockHighLoadMetrics);
+            expect(section.querySelectorAll('.pdt-review-finding').length).toBeGreaterThan(0);
+        });
+
+        it('should give every finding a Microsoft Learn link', () => {
+            const section = component._buildReviewSection(mockHighLoadMetrics);
+            const findings = section.querySelectorAll('.pdt-review-finding');
+            const links = section.querySelectorAll('.pdt-review-finding-doc');
+
+            expect(links.length).toBe(findings.length);
+            links.forEach(link => {
+                expect(link.href).toContain('learn.microsoft.com');
+                expect(link.rel).toContain('noopener');
+            });
+        });
+
+        it('should say how many rules it checked when nothing fires', () => {
+            // isApiAvailable false so the breakdown-dominance rules skip and nothing fires.
             const goodMetrics = {
                 totalLoadTime: 1000,
-                isApiAvailable: true,
-                breakdown: { server: 300, network: 300, client: 400 },
+                isApiAvailable: false,
+                breakdown: { server: 0, network: 0, client: 0 },
                 uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
             };
-            const section = component._buildInsightsSection(goodMetrics);
-            expect(section.querySelector('.pdt-note')).toBeTruthy();
+
+            const section = component._buildReviewSection(goodMetrics);
+
+            expect(section.querySelectorAll('.pdt-review-finding')).toHaveLength(0);
+            expect(section.textContent).toContain('rules checked');
         });
 
-        it('should show insights list when issues found', () => {
-            const section = component._buildInsightsSection(mockHighLoadMetrics);
-            expect(section.querySelector('ul')).toBeTruthy();
+        it('should count more rules once scripts have been scanned', () => {
+            // isApiAvailable false so the breakdown-dominance rules skip and nothing fires.
+            const goodMetrics = {
+                totalLoadTime: 1000,
+                isApiAvailable: false,
+                breakdown: { server: 0, network: 0, client: 0 },
+                uiCounts: { tabs: 3, sections: 10, controls: 50, onChange: 5 }
+            };
+            const before = component._buildReviewSection(goodMetrics).textContent;
+
+            component.scannedScripts = [];
+            const after = component._buildReviewSection(goodMetrics).textContent;
+
+            expect(before).not.toBe(after);
         });
 
-        it('should create list items for each insight', () => {
-            const section = component._buildInsightsSection(mockHighLoadMetrics);
-            const listItems = section.querySelectorAll('li');
-            expect(listItems.length).toBeGreaterThan(0);
+        it('should summarize the findings by severity', () => {
+            const section = component._buildReviewSection(mockHighLoadMetrics);
+            expect(section.querySelector('.pdt-perf-review-summary')).toBeTruthy();
+        });
+
+        it('should offer the script scan and a refresh', () => {
+            const section = component._buildReviewSection(mockPerformanceMetrics);
+            expect(section.querySelector('#perf-scan-scripts')).toBeTruthy();
+            expect(section.querySelector('#perf-refresh')).toBeTruthy();
+        });
+
+        it('should right-align the toolbar buttons', () => {
+            const bar = component._buildReviewSection(mockPerformanceMetrics)
+                .querySelector('.pdt-perf-scan-bar');
+
+            expect(bar.className).toContain('pdt-toolbar-end');
+            // Buttons come last so the status text can push them right.
+            expect(bar.lastElementChild.id).toBe('perf-refresh');
+        });
+
+        it('should disable both buttons while a scan is running', () => {
+            component.scanStatus = { state: 'busy', message: 'Reading...' };
+            const section = component._buildReviewSection(mockPerformanceMetrics);
+
+            expect(section.querySelector('#perf-scan-scripts').disabled).toBe(true);
+            expect(section.querySelector('#perf-refresh').disabled).toBe(true);
+        });
+
+        it('should escape a finding message rather than render markup from it', () => {
+            const section = component._buildReviewSection({
+                ...mockHighLoadMetrics,
+                defaultTab: {
+                    label: '<img src=x onerror="alert(1)">',
+                    controls: 50,
+                    dataControls: { subgrid: 4 },
+                    deferrable: {}
+                }
+            });
+
+            expect(section.querySelector('img')).toBeNull();
+            expect(section.textContent).toContain('<img src=x onerror="alert(1)">');
         });
     });
 
@@ -754,61 +781,154 @@ describe('PerformanceTab', () => {
         });
     });
 
-    describe('_buildInsightsSection no insights - lines 307-311 coverage', () => {
+    describe('review section all-clear', () => {
+        // Metrics below every threshold, with isApiAvailable false so the breakdown rules skip.
+        const cleanMetrics = {
+            totalLoadTime: 500,
+            isApiAvailable: false,
+            breakdown: { server: 0, network: 0, client: 0 },
+            uiCounts: { tabs: 2, sections: 5, controls: 20, onChange: 3 }
+        };
+
         beforeEach(() => {
             component = new PerformanceTab();
         });
 
-        it('should display no issues message when insights array is empty', () => {
-            // Create metrics that will produce NO insights at all:
-            // - totalLoadTime < 2000 (below warn threshold)
-            // - controls < 200
-            // - onChange < 25
-            // - tabs < 8
-            // - sections < 30
-            // - isApiAvailable = false (to skip breakdown checks)
-            const noInsightsMetrics = {
-                totalLoadTime: 500,
-                isApiAvailable: false,  // Skip breakdown-based insights
-                breakdown: { server: 0, network: 0, client: 0 },
-                uiCounts: { tabs: 2, sections: 5, controls: 20, onChange: 3 }
-            };
+        it('should render a note rather than a findings list', () => {
+            const section = component._buildReviewSection(cleanMetrics);
 
-            // First verify that _computeInsights returns empty array
-            const insights = component._computeInsights(noInsightsMetrics);
-            expect(insights.length).toBe(0);
-
-            // Now test _buildInsightsSection
-            const section = component._buildInsightsSection(noInsightsMetrics);
-
-            expect(section).toBeInstanceOf(HTMLElement);
-            expect(section.className).toBe('pdt-perf-section');
-
-            // Should have a p.pdt-note (not ul.pdt-note)
-            const note = section.querySelector('p.pdt-note');
-            expect(note).toBeTruthy();
-            expect(section.querySelector('ul')).toBeNull();
+            expect(section.querySelectorAll('.pdt-review-finding')).toHaveLength(0);
+            expect(section.querySelector('p.pdt-note')).toBeTruthy();
         });
 
-        it('should show header followed by note paragraph when no insights', () => {
-            const noInsightsMetrics = {
-                totalLoadTime: 100,
-                isApiAvailable: false,
-                breakdown: { server: 0, network: 0, client: 0 },
-                uiCounts: { tabs: 1, sections: 2, controls: 10, onChange: 1 }
-            };
-
-            // Verify no insights
-            expect(component._computeInsights(noInsightsMetrics).length).toBe(0);
-
-            const section = component._buildInsightsSection(noInsightsMetrics);
-
+        it('should keep the section header', () => {
+            const section = component._buildReviewSection(cleanMetrics);
             const header = section.querySelector('.section-title');
-            expect(header).toBeTruthy();
-            expect(header.textContent).toContain('Insights');
 
-            const note = section.querySelector('p.pdt-note');
-            expect(note).toBeTruthy();
+            expect(header).toBeTruthy();
+            expect(header.textContent).toContain('Performance Review');
+        });
+    });
+
+    describe('refresh', () => {
+        beforeEach(() => {
+            component = new PerformanceTab();
+        });
+
+        it('should re-read the metrics', async () => {
+            const element = await component.render();
+            await component.postRender(element);
+            DataService.getPerformanceDetails.mockClear();
+
+            element.querySelector('#perf-refresh').click();
+            await vi.waitFor(() => expect(DataService.getPerformanceDetails).toHaveBeenCalled());
+        });
+
+        it('should clear a previous scan so its findings do not survive', async () => {
+            const element = await component.render();
+            await component.postRender(element);
+            component.scannedScripts = [{ name: 'a.js', code: 'console.log(1);', text: '' }];
+            component.scanStatus = { state: 'done', message: '1 library scanned.' };
+
+            await component._loadAndRenderMetrics();
+
+            expect(component.scannedScripts).toBeNull();
+            expect(component.scanStatus).toEqual({ state: 'idle', message: '' });
+        });
+
+        it('should clear the scan when the tool-wide refresh re-runs postRender', async () => {
+            // The component is a registry singleton, so Refresh Tool reuses this instance.
+            const element = await component.render();
+            await component.postRender(element);
+            component.scannedScripts = [];
+
+            component.destroy();
+            const fresh = await component.render();
+            await component.postRender(fresh);
+
+            expect(component.scannedScripts).toBeNull();
+        });
+    });
+
+    describe('_refreshReview', () => {
+        beforeEach(() => {
+            component = new PerformanceTab();
+        });
+
+        it('should replace only the review section', async () => {
+            const element = await component.render();
+            document.body.appendChild(element);
+            await component.postRender(element);
+
+            const loadTimeBefore = element.querySelector('.pdt-perf-total-time');
+            component.scannedScripts = [];
+            component._refreshReview();
+
+            // The timing chart is the same node; only the review was rebuilt.
+            expect(element.querySelector('.pdt-perf-total-time')).toBe(loadTimeBefore);
+            expect(element.querySelectorAll('.pdt-perf-review')).toHaveLength(1);
+        });
+
+        it('should do nothing before the metrics have loaded', () => {
+            expect(() => component._refreshReview()).not.toThrow();
+        });
+    });
+
+    // The rule module is unit-tested against hand-built snapshots, which cannot catch the tab
+    // dropping a field on the way in. These drive the real load path with the exact shape
+    // FormInspectionService.getPerformanceDetails returns.
+    describe('composition data reaches the rules', () => {
+        /** The service payload, including the fields only the review reads. */
+        const richMetrics = {
+            totalLoadTime: 1200,
+            isApiAvailable: true,
+            breakdown: { server: 400, network: 300, client: 500 },
+            uiCounts: { tabs: 3, sections: 8, controls: 200, columns: 120, onChange: 5 },
+            controlTypes: { standard: 180, subgrid: 12, quickform: 2 },
+            defaultTab: {
+                name: 'general',
+                label: 'General',
+                controls: 60,
+                dataControls: { subgrid: 4, quickform: 1 },
+                deferrable: { iframe: 1 }
+            }
+        };
+
+        beforeEach(async () => {
+            DataService.getPerformanceDetails.mockResolvedValue(richMetrics);
+            component = new PerformanceTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            await component.postRender(element);
+        });
+
+        it('should keep the column count so the mobile-columns rule can fire', () => {
+            expect(component.latestMetrics.uiCounts.columns).toBe(120);
+            expect(document.body.textContent).toContain('below 75 columns for mobile — it has 120');
+        });
+
+        it('should keep controlTypes so the mobile-subgrids rule can fire', () => {
+            expect(component.latestMetrics.controlTypes).toEqual(richMetrics.controlTypes);
+            expect(document.body.textContent).toContain('to 10 subgrids for mobile — it has 12');
+        });
+
+        it('should keep the default tab so its rules can fire', () => {
+            expect(component.latestMetrics.defaultTab).toEqual(richMetrics.defaultTab);
+            const text = document.body.textContent;
+            expect(text).toContain('"General"');
+            expect(text).toContain('4 subgrids, 1 quick view form');
+        });
+
+        it('should not count columns as controls when the service omits them', async () => {
+            // A snapshot without `columns` must not fall back to the 200 controls and invent a
+            // mobile-columns finding the form has not earned.
+            DataService.getPerformanceDetails.mockResolvedValue({
+                ...richMetrics,
+                uiCounts: { tabs: 3, sections: 8, controls: 200, onChange: 5 }
+            });
+            await component._loadAndRenderMetrics();
+
+            expect(document.body.textContent).not.toContain('columns for mobile');
         });
     });
 });

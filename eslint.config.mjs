@@ -45,6 +45,9 @@ export default [
                 AbortController: 'readonly',
                 crypto: 'readonly',
                 CSS: 'readonly',
+                atob: 'readonly',
+                Response: 'readonly',
+                DecompressionStream: 'readonly',
                 // Power Apps/Dynamics 365 globals
                 Xrm: 'readonly',
                 GetGlobalContext: 'readonly',

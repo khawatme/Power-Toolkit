@@ -14,18 +14,43 @@ vi.mock('../../src/helpers/metadata.helpers.js', () => ({
 }));
 
 // Mock helpers/index.js to provide required exports
-vi.mock('../../src/helpers/index.js', () => ({
-    FILTER_OPERATORS: [
+// Declared inside the factory: vi.mock is hoisted above any top-level variable.
+vi.mock('../../src/helpers/index.js', () => {
+    const operators = [
         { text: 'Equals', fetch: 'eq', odata: 'eq' },
         { text: 'Not Equals', fetch: 'ne', odata: 'ne' },
         { text: 'Contains', fetch: 'like', odata: 'contains' },
         { text: 'Is Null', fetch: 'null', odata: 'null' },
         { text: 'Is Not Null', fetch: 'not-null', odata: 'not-null' },
         { text: 'Greater Than', fetch: 'gt', odata: 'gt' },
-        { text: 'Less Than', fetch: 'lt', odata: 'lt' }
-    ],
-    shouldShowOperatorValue: (op) => !['null', 'not-null'].includes(op)
-}));
+        { text: 'Less Than', fetch: 'lt', odata: 'lt' },
+        // Type-scoped, so these must only appear for date columns.
+        { text: 'On (whole day)', fetch: null, odata: 'fn:On', types: ['date'], arg: 'date' },
+        { text: 'On or After', fetch: null, odata: 'fn:OnOrAfter', types: ['date'], arg: 'date' },
+        { text: 'Today', fetch: null, odata: 'fn:Today', types: ['date'], arg: 'none' },
+        { text: 'Last X Days', fetch: null, odata: 'fn:LastXDays', types: ['date'], arg: 'number' }
+    ];
+
+    return {
+        FILTER_OPERATORS: operators,
+        findFilterOperator: (value, dialect = 'odata') =>
+            (value ? operators.find(op => op[dialect] === value) : undefined),
+        // Mirrors the real helper: untyped operators always apply, typed ones only for their type.
+        filterOperatorsFor: (dialect, attrType = null) => operators.filter(op => {
+            if (!op[dialect]) {
+                return false;
+            }
+            return op.types ? Boolean(attrType) && op.types.includes(attrType) : true;
+        }),
+        shouldShowOperatorValue: (op) => {
+            const found = operators.find(o => o.odata === op || o.fetch === op);
+            if (found?.arg === 'none') {
+                return false;
+            }
+            return !['null', 'not-null'].includes(op);
+        }
+    };
+});
 
 // Import after mocks
 import { FilterGroupManager } from '../../src/ui/FilterGroupManager.js';
@@ -74,6 +99,361 @@ describe('FilterGroupManager', () => {
         }
         mockHandlers.clear();
         vi.clearAllMocks();
+    });
+
+    describe('type-scoped operators', () => {
+        // The date functions are OData-only, so this block needs an OData-dialect manager; the
+        // shared one is configured for 'fetch', where they are correctly absent.
+        let odataManager;
+
+        beforeEach(() => {
+            odataManager = new FilterGroupManager({
+                handlers: mockHandlers,
+                getEntityContext: mockGetEntityContext,
+                renderValueInput: mockRenderValueInput,
+                getAttributeMetadata: mockGetAttributeMetadata,
+                showNotOperator: false,
+                operatorFilter: 'odata',
+                onUpdate: mockOnUpdate
+            });
+        });
+
+        const addCondition = () => {
+            odataManager.addFilterGroup(container, true);
+            return container.querySelector('.pdt-condition-grid');
+        };
+
+        const operatorValues = (condition) => [
+            ...condition.querySelectorAll('[data-prop="operator"] option')
+        ].map(o => o.value);
+
+        const type = (input, value) => {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        it('should hide date functions before a column is known', () => {
+            const values = operatorValues(addCondition());
+
+            expect(values).toContain('eq');
+            expect(values).not.toContain('fn:On');
+            expect(values).not.toContain('fn:Today');
+        });
+
+        it('should never offer the OData date functions in the FetchXML dialect', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            manager.addFilterGroup(container, true);
+            const condition = container.querySelector('.pdt-condition-grid');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(mockRenderValueInput).toHaveBeenCalled());
+
+            expect(operatorValues(condition)).not.toContain('fn:On');
+        });
+
+        it('should offer date functions once a date column resolves', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+
+            await vi.waitFor(() => {
+                expect(operatorValues(condition)).toContain('fn:On');
+            });
+            expect(operatorValues(condition)).toContain('eq');
+        });
+
+        it('should not offer date functions for a string column', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'string' });
+            const condition = addCondition();
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'name');
+
+            await vi.waitFor(() => expect(mockRenderValueInput).toHaveBeenCalled());
+            expect(operatorValues(condition)).not.toContain('fn:On');
+        });
+
+        it('should read the type from raw Dataverse metadata too', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({
+                AttributeTypeName: { Value: 'DateTimeType' }
+            });
+            const condition = addCondition();
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+
+            await vi.waitFor(() => {
+                expect(operatorValues(condition)).toContain('fn:Today');
+            });
+        });
+
+        it('should keep a still-valid selection when the list is rebuilt', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+            operatorSelect.value = 'gt';
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+
+            await vi.waitFor(() => {
+                expect(operatorValues(condition)).toContain('fn:On');
+            });
+            expect(operatorSelect.value).toBe('gt');
+        });
+
+        it('should drop a date function when the column becomes a string', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(attributeInput, 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+            operatorSelect.value = 'fn:On';
+
+            // A date function left selected on a text column would build an invalid query.
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'string' });
+            type(attributeInput, 'name');
+
+            await vi.waitFor(() => {
+                expect(operatorValues(condition)).not.toContain('fn:On');
+            });
+            expect(operatorSelect.value).toBe('eq');
+        });
+
+        it('should swap to a number editor for a count-style function', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:LastXDays'));
+
+            // A date column's picker cannot express "30 days".
+            operatorSelect.value = 'fn:LastXDays';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            const valueInput = condition.querySelector('[data-prop="value"]');
+            expect(valueInput.tagName).toBe('INPUT');
+            expect(valueInput.type).toBe('number');
+        });
+
+        it('should restore the column editor when leaving a count-style function', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:LastXDays'));
+
+            operatorSelect.value = 'fn:LastXDays';
+            operatorSelect.dispatchEvent(new Event('change'));
+            expect(condition.querySelector('[data-prop="value"]').type).toBe('number');
+
+            mockRenderValueInput.mockClear();
+            operatorSelect.value = 'eq';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            // Usable immediately, then upgraded once the column's editor renders.
+            expect(condition.querySelector('[data-prop="value"]').type).toBe('text');
+            await vi.waitFor(() => expect(mockRenderValueInput).toHaveBeenCalled());
+        });
+
+        it('should use a date-only editor for a whole-day function', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            operatorSelect.value = 'fn:On';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            // On ignores the time, so asking for one would be noise.
+            const valueInput = condition.querySelector('[data-prop="value"]');
+            expect(valueInput.type).toBe('date');
+        });
+
+        it('should keep the value when switching between date functions', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            operatorSelect.value = 'fn:On';
+            operatorSelect.dispatchEvent(new Event('change'));
+            condition.querySelector('[data-prop="value"]').value = '2026-01-01';
+
+            operatorSelect.value = 'fn:OnOrAfter';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            expect(condition.querySelector('[data-prop="value"]').value).toBe('2026-01-01');
+        });
+
+        it('should swap between date and number editors', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            operatorSelect.value = 'fn:On';
+            operatorSelect.dispatchEvent(new Event('change'));
+            expect(condition.querySelector('[data-prop="value"]').type).toBe('date');
+
+            operatorSelect.value = 'fn:LastXDays';
+            operatorSelect.dispatchEvent(new Event('change'));
+            expect(condition.querySelector('[data-prop="value"]').type).toBe('number');
+        });
+
+        it('should restore the column editor when leaving a date function', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            operatorSelect.value = 'fn:On';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            mockRenderValueInput.mockClear();
+            operatorSelect.value = 'gt';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            expect(condition.querySelector('[data-prop="value"]').type).toBe('text');
+            await vi.waitFor(() => expect(mockRenderValueInput).toHaveBeenCalled());
+        });
+
+        it('should leave a normal operator editor untouched', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const operatorSelect = condition.querySelector('[data-prop="operator"]');
+
+            type(condition.querySelector('[data-prop="attribute"]'), 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            mockRenderValueInput.mockClear();
+            operatorSelect.value = 'fn:On';
+            operatorSelect.dispatchEvent(new Event('change'));
+
+            // fn:On takes a date, so the column's own editor stays in place.
+            expect(mockRenderValueInput).not.toHaveBeenCalled();
+        });
+
+        it('should discard the date editor when the column no longer resolves', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+            const valueContainer = condition.querySelector('.pdt-value-container');
+
+            type(attributeInput, 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            // Stand in for the date picker the real renderer would have installed.
+            valueContainer.innerHTML = '<input type="datetime-local" data-prop="value">';
+
+            mockGetAttributeMetadata.mockResolvedValue(null);
+            type(attributeInput, 'test');
+
+            await vi.waitFor(() => {
+                const input = condition.querySelector('[data-prop="value"]');
+                expect(input.type).toBe('text');
+            });
+            expect(operatorValues(condition)).not.toContain('fn:On');
+        });
+
+        it('should not wipe a typed value on each keystroke of an unknown column', async () => {
+            mockGetAttributeMetadata.mockResolvedValue(null);
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+
+            type(attributeInput, 'abc');
+            await vi.waitFor(() => expect(mockGetAttributeMetadata).toHaveBeenCalled());
+
+            condition.querySelector('[data-prop="value"]').value = 'keep me';
+            type(attributeInput, 'abcd');
+            await new Promise(resolve => setTimeout(resolve, 400));
+
+            expect(condition.querySelector('[data-prop="value"]').value).toBe('keep me');
+        });
+
+        it('should drop date functions when the attribute is cleared', async () => {
+            mockGetAttributeMetadata.mockResolvedValue({ type: 'date' });
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+
+            type(attributeInput, 'createdon');
+            await vi.waitFor(() => expect(operatorValues(condition)).toContain('fn:On'));
+
+            type(attributeInput, '');
+
+            await vi.waitFor(() => {
+                expect(operatorValues(condition)).not.toContain('fn:On');
+            });
+        });
+    });
+
+    describe('clearing the attribute', () => {
+        const addCondition = () => {
+            manager.addFilterGroup(container, true);
+            return container.querySelector('.pdt-condition-grid');
+        };
+
+        const type = (input, value) => {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        it('should restore the plain value input after the attribute is cleared', async () => {
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+            const valueContainer = condition.querySelector('.pdt-value-container');
+
+            type(attributeInput, 'name');
+            await vi.waitFor(() => expect(mockRenderValueInput).toHaveBeenCalled());
+
+            // Stand in for a type-specific editor, e.g. a picklist dropdown.
+            valueContainer.innerHTML = '<select data-prop="value"><option>1</option></select>';
+
+            type(attributeInput, '');
+            await vi.waitFor(() => {
+                expect(valueContainer.querySelector('select')).toBeNull();
+            });
+
+            const restored = valueContainer.querySelector('[data-prop="value"]');
+            expect(restored.tagName).toBe('INPUT');
+            expect(restored.value).toBe('');
+        });
+
+        it('should not look up metadata for an emptied attribute', async () => {
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+
+            type(attributeInput, 'name');
+            await vi.waitFor(() => expect(mockGetAttributeMetadata).toHaveBeenCalled());
+            mockGetAttributeMetadata.mockClear();
+
+            type(attributeInput, '');
+            await new Promise(resolve => setTimeout(resolve, 400));
+
+            expect(mockGetAttributeMetadata).not.toHaveBeenCalled();
+        });
+
+        it('should reset the value input on blur with an empty attribute', () => {
+            const condition = addCondition();
+            const attributeInput = condition.querySelector('[data-prop="attribute"]');
+            const valueContainer = condition.querySelector('.pdt-value-container');
+
+            valueContainer.innerHTML = '<select data-prop="value"><option>1</option></select>';
+            attributeInput.value = '';
+            attributeInput.dispatchEvent(new Event('blur'));
+
+            expect(valueContainer.querySelector('input[data-prop="value"]')).toBeTruthy();
+        });
     });
 
     describe('constructor', () => {

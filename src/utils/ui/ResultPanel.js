@@ -122,6 +122,49 @@ export class ResultPanel {
     }
 
     /**
+     * Clears the current row selection. Call before rendering an unrelated result set, so
+     * stale indices cannot point at records that are no longer displayed.
+     * @returns {void}
+     */
+    clearSelection() {
+        this._selectedIndices.clear();
+    }
+
+    /**
+     * Re-renders the panel from the unfiltered source, re-deriving the current search view.
+     *
+     * Every internal re-render must come through here rather than feeding the displayed rows back
+     * into {@link ResultPanel#renderContent}: that entry point treats what it is given as the new
+     * source dataset, so re-rendering the search-filtered view replaced the full result set with
+     * the subset and the other records could never come back.
+     *
+     * Shell and content are both rebuilt, because the header carries the record count, the
+     * selection label and the Touch button. Rebuilding the shell recreates the search input, so
+     * focus and caret are put back to keep typing uninterrupted.
+     * @private
+     * @param {boolean} hideOdata - Whether OData system fields are hidden
+     * @returns {void}
+     */
+    _rerender(hideOdata) {
+        const previous = this.root.querySelector('#pdt-search');
+        const hadFocus = document.activeElement === previous;
+        const caret = previous?.selectionStart ?? null;
+
+        const matchCount = this._applySearchFilter(this._originalDataset).length;
+        this.renderShell(matchCount, this._currentView, hideOdata);
+        this._refreshContent(hideOdata);
+
+        const current = this.root.querySelector('#pdt-search');
+        if (!current || !hadFocus) {
+            return;
+        }
+        current.focus();
+        if (caret !== null) {
+            current.setSelectionRange(caret, caret);
+        }
+    }
+
+    /**
      * Builds the toolbar HTML with export and view controls.
      * @private
      * @param {number} count - Number of records
@@ -130,7 +173,8 @@ export class ResultPanel {
      * @returns {string} Toolbar HTML string
      */
     _buildToolbarHtml(count, view, hideOdata) {
-        if (count === 0) {
+        // A search that matches nothing still needs its input, or there is no way to clear the term.
+        if (count === 0 && !this._searchTerm) {
             return '';
         }
 
@@ -235,9 +279,16 @@ export class ResultPanel {
             this._handleSearchInput = (e) => {
                 clearTimeout(searchTimeout);
                 searchTimeout = setTimeout(() => {
-                    this._searchTerm = e.target.value.trim().toLowerCase();
+                    const term = e.target.value.trim().toLowerCase();
+                    if (term === this._searchTerm) {
+                        return;
+                    }
+                    this._searchTerm = term;
+                    // Filtering rebuilds the dataset the selection indexes into, so the same index
+                    // would silently come to mean a different record — and bulk edits act on it.
+                    this.clearSelection();
                     this.currentPage = 1; // Reset to first page on search
-                    this._refreshContent(hideOdata);
+                    this._rerender(hideOdata);
                 }, 300);
             };
             this._searchInput.addEventListener('input', this._handleSearchInput);
@@ -743,7 +794,7 @@ export class ResultPanel {
         this._handleContentScroll = () => {
             this._tableScrollLeft = host.scrollLeft;
         };
-        this._handleContentClick = (e) => this._handleTableClick(e, data, view, hideOdata);
+        this._handleContentClick = (e) => this._handleTableClick(e, hideOdata);
 
         host.addEventListener('click', this._handleContentClick);
         host.addEventListener('scroll', this._handleContentScroll);
@@ -753,11 +804,9 @@ export class ResultPanel {
      * Handles click events on table (sorting, selection, and open record links).
      * @private
      * @param {Event} e - Click event
-     * @param {Array<Object>} data - Full dataset
-     * @param {'table'|'json'} view - Current view mode
      * @param {boolean} hideOdata - Whether to hide OData fields
      */
-    _handleTableClick(e, data, view, hideOdata) {
+    _handleTableClick(e, hideOdata) {
         // Handle "Open Record" link clicks
         const openLink = e.target.closest('.pdt-open-record-link');
         if (openLink) {
@@ -773,7 +822,7 @@ export class ResultPanel {
         // Handle column sorting
         const th = e.target.closest('th[data-column]');
         if (th) {
-            this._handleColumnSort(th.getAttribute('data-column'), data, view, hideOdata);
+            this._handleColumnSort(th.getAttribute('data-column'), hideOdata);
             return;
         }
 
@@ -781,13 +830,13 @@ export class ResultPanel {
         if (this.enableSelection && e.target.id === 'pdt-select-all') {
             e.preventDefault();
             e.stopPropagation();
-            this._handleSelectAll(data, view, hideOdata);
+            this._handleSelectAll(hideOdata);
             return;
         }
 
         // Handle individual row selection
         if (this.enableSelection && e.target.classList.contains('pdt-row-select')) {
-            this._handleRowSelect(e.target, data, view, hideOdata);
+            this._handleRowSelect(e.target, hideOdata);
         }
     }
 
@@ -795,11 +844,9 @@ export class ResultPanel {
      * Handles column header click for sorting.
      * @private
      * @param {string} column - Column name
-     * @param {Array<Object>} data - Full dataset
-     * @param {'table'|'json'} view - Current view mode
      * @param {boolean} hideOdata - Whether to hide OData fields
      */
-    _handleColumnSort(column, data, view, hideOdata) {
+    _handleColumnSort(column, hideOdata) {
         const state = this.getSortState();
         if (state.column === column) {
             state.direction = state.direction === 'asc' ? 'desc' : 'asc';
@@ -808,40 +855,38 @@ export class ResultPanel {
             state.direction = 'asc';
         }
         this.setSortState(state);
-        this.renderContent({ data, view, hideOdata });
+        this._rerender(hideOdata);
     }
 
     /**
      * Handles select all checkbox.
+     *
+     * Selection indexes the displayed dataset, so the indices come from `_fullDataset` rather than
+     * from whatever array the click handler was bound with.
      * @private
-     * @param {Array<Object>} data - Full dataset
-     * @param {'table'|'json'} view - Current view mode
      * @param {boolean} hideOdata - Whether to hide OData fields
      */
-    _handleSelectAll(data, view, hideOdata) {
-        const shouldSelectAll = this._selectedIndices.size !== data.length;
+    _handleSelectAll(hideOdata) {
+        const displayedCount = this._fullDataset.length;
+        const shouldSelectAll = this._selectedIndices.size !== displayedCount;
 
+        this._selectedIndices.clear();
         if (shouldSelectAll) {
-            for (let i = 0; i < data.length; i++) {
+            for (let i = 0; i < displayedCount; i++) {
                 this._selectedIndices.add(i);
             }
-        } else {
-            this._selectedIndices.clear();
         }
 
-        this.renderShell(data.length, view, hideOdata);
-        this.renderContent({ data, view, hideOdata });
+        this._rerender(hideOdata);
     }
 
     /**
      * Handles individual row selection.
      * @private
      * @param {HTMLElement} checkbox - Checkbox element
-     * @param {Array<Object>} data - Full dataset
-     * @param {'table'|'json'} view - Current view mode
      * @param {boolean} hideOdata - Whether to hide OData fields
      */
-    _handleRowSelect(checkbox, data, view, hideOdata) {
+    _handleRowSelect(checkbox, hideOdata) {
         const index = parseInt(checkbox.dataset.index, 10);
         if (checkbox.checked) {
             this._selectedIndices.add(index);
@@ -849,8 +894,7 @@ export class ResultPanel {
             this._selectedIndices.delete(index);
         }
 
-        this.renderShell(data.length, view, hideOdata);
-        this.renderContent({ data, view, hideOdata });
+        this._rerender(hideOdata);
     }
 
     /**

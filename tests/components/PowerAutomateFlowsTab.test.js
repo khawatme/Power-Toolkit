@@ -77,6 +77,21 @@ const mockClientData = JSON.stringify({
     }
 });
 
+const mockRuns = [
+    {
+        id: 'run-1', runId: '08580001', status: 'Succeeded', statusKey: 'succeeded',
+        triggerType: 'Automated', startTime: '2026-06-28T10:00:00Z', startTimeLabel: '6/28/2026 10:00 AM',
+        endTime: '2026-06-28T10:00:02Z', endTimeLabel: '6/28/2026 10:00 AM', durationMs: 2000,
+        durationText: '2.0s', errorCode: '', errorMessage: '', isPrimary: true, parentRunId: '', modernFlowType: 0
+    },
+    {
+        id: 'run-2', runId: '08580002', status: 'Failed', statusKey: 'failed',
+        triggerType: 'Manual', startTime: '2026-06-28T09:00:00Z', startTimeLabel: '6/28/2026 9:00 AM',
+        endTime: '2026-06-28T09:00:01Z', endTimeLabel: '6/28/2026 9:00 AM', durationMs: 1000,
+        durationText: '1.0s', errorCode: 'ActionFailed', errorMessage: 'Something broke', isPrimary: true, parentRunId: '', modernFlowType: 0
+    }
+];
+
 // Mock dependencies
 vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
@@ -86,7 +101,14 @@ vi.mock('../../src/services/DataService.js', () => ({
         setFlowState: vi.fn(() => Promise.resolve()),
         deleteFlow: vi.fn(() => Promise.resolve()),
         getFlowDefinition: vi.fn(() => Promise.resolve(mockClientData)),
-        updateFlowDefinition: vi.fn(() => Promise.resolve())
+        updateFlowDefinition: vi.fn(() => Promise.resolve()),
+        getEnvironmentId: vi.fn(() => Promise.resolve('env-abc-123')),
+        getFlowRuns: vi.fn(() => Promise.resolve([])),
+        getFlowRunLogs: vi.fn(() => Promise.resolve([])),
+        getOrganizationDiagnostics: vi.fn(() => Promise.resolve({
+            pluginTraceLogSetting: null, transcriptRecordingBlocked: false,
+            transcriptAccessBlocked: false, flowRunRetentionSeconds: 2419200
+        }))
     }
 }));
 
@@ -185,6 +207,9 @@ describe('PowerAutomateFlowsTab', () => {
         DataService.getCloudFlowsBySolution.mockResolvedValue(JSON.parse(JSON.stringify(mockFlows)));
         DataService.getFlowDefinition.mockResolvedValue(mockClientData);
         DataService.setFlowState.mockResolvedValue(undefined);
+        DataService.getFlowRuns.mockResolvedValue(JSON.parse(JSON.stringify(mockRuns)));
+        DataService.getFlowRunLogs.mockResolvedValue([]);
+        localStorage.clear();
     });
 
     afterEach(() => {
@@ -807,6 +832,44 @@ describe('PowerAutomateFlowsTab', () => {
             expect(visual.querySelectorAll('.pdt-flow-connector').length).toBeGreaterThan(0);
         });
 
+        it('should reserve a right gutter and route join arrows as smooth lane curves (not over the nodes)', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { When: { type: 'Recurrence', inputs: {} } },
+                actions: {
+                    A: { runAfter: {}, type: 'Compose', inputs: {} },
+                    B: { runAfter: { A: ['Succeeded'] }, type: 'Compose', inputs: {} },
+                    Join: { runAfter: { A: ['Succeeded'], B: ['Succeeded'] }, type: 'Compose', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+
+            // One join → gutter = LANE_GAP * (1 + 1) + LANE_MARGIN = 22*2 + 28 = 72px.
+            expect(visual.style.paddingRight).toBe('72px');
+            // Two predecessors → two colour-matched edges, each a smooth curve (C) into a vertical lane (V).
+            const edges = visual.querySelectorAll('path.pdt-flow-edge');
+            expect(edges.length).toBe(2);
+            const d = edges[0].getAttribute('d');
+            expect(d).toContain('C');
+            expect(d).toContain('V');
+        });
+
+        it('should NOT reserve a right gutter for a linear flow with no join arrows', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { When: { type: 'Recurrence', inputs: {} } },
+                actions: {
+                    A: { runAfter: {}, type: 'Compose', inputs: {} },
+                    B: { runAfter: { A: ['Succeeded'] }, type: 'Compose', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+
+            expect(visual.style.paddingRight).toBe('');
+        });
+
         it('should render condition branches', () => {
             tab = new PowerAutomateFlowsTab();
             const definition = {
@@ -964,6 +1027,202 @@ describe('PowerAutomateFlowsTab', () => {
             const summary = tab._getInputSummary(step);
 
             expect(summary).toBe('Operation: GetItem');
+        });
+
+        it('should render each runAfter predecessor as editable status toggles', () => {
+            tab = new PowerAutomateFlowsTab();
+            const node = tab._createFlowNode('Respond', {
+                type: 'Response',
+                runAfter: {
+                    Create_a_Lead: ['Succeeded', 'Failed', 'TimedOut', 'Skipped'],
+                    Send_Email: ['Succeeded']
+                }
+            }, 'action', false);
+
+            const deps = node.querySelectorAll('.pdt-flow-node-runafter .pdt-flow-runafter-dep');
+            expect(deps).toHaveLength(2);
+
+            // Every predecessor shows all four status toggles; configured ones are checked.
+            expect(deps[0].querySelector('.pdt-flow-runafter-name').textContent).toBe('Create_a_Lead');
+            expect(deps[0].querySelectorAll('.pdt-runafter-toggle')).toHaveLength(4);
+            expect([...deps[0].querySelectorAll('.pdt-runafter-toggle')].every(cb => cb.checked)).toBe(true);
+
+            const sendToggles = [...deps[1].querySelectorAll('.pdt-runafter-toggle')];
+            expect(sendToggles).toHaveLength(4);
+            const checked = sendToggles.filter(cb => cb.checked);
+            expect(checked).toHaveLength(1);
+            expect(checked[0].dataset.status).toBe('Succeeded');
+            expect(checked[0].getAttribute('aria-label')).toBe('Send_Email — Is successful');
+        });
+
+        it('should flag a step with more than one predecessor as a join', () => {
+            tab = new PowerAutomateFlowsTab();
+            const single = tab._createFlowNode('A', { runAfter: { X: ['Succeeded'] } }, 'action', false);
+            const multi = tab._createFlowNode('B', { runAfter: { X: ['Succeeded'], Y: ['Failed'] } }, 'action', false);
+
+            expect(single.querySelector('.pdt-flow-node-runafter--join')).toBeNull();
+            expect(multi.querySelector('.pdt-flow-node-runafter--join')).toBeTruthy();
+            expect(multi.querySelector('.pdt-flow-runafter-join').textContent).toBe('joins 2 steps');
+        });
+
+        it('should apply staged runAfter toggle edits to the parsed definition on save', () => {
+            tab = new PowerAutomateFlowsTab();
+            const step = { runAfter: { Create_a_Lead: ['Succeeded', 'Failed'] } };
+            const node = tab._createFlowNode('Respond', step, 'action', false);
+            const toggles = node.querySelectorAll('.pdt-runafter-toggle');
+
+            [...toggles].find(cb => cb.dataset.status === 'Failed').checked = false;
+            [...toggles].find(cb => cb.dataset.status === 'Skipped').checked = true;
+            tab._applyRunAfterEdits(node);
+
+            expect(step.runAfter.Create_a_Lead).toEqual(['Succeeded', 'Skipped']);
+        });
+
+        it('should drop a predecessor when all its statuses are unchecked', () => {
+            tab = new PowerAutomateFlowsTab();
+            const step = { runAfter: { OnlyDep: ['Succeeded'] } };
+            const node = tab._createFlowNode('X', step, 'action', false);
+            node.querySelectorAll('.pdt-runafter-toggle').forEach(cb => {
+                cb.checked = false;
+            });
+            tab._applyRunAfterEdits(node);
+
+            expect(step.runAfter.OnlyDep).toBeUndefined();
+        });
+
+        it('should remove a predecessor via its × button and drop it on save', () => {
+            tab = new PowerAutomateFlowsTab();
+            const step = { runAfter: { A: ['Succeeded'], B: ['Failed'] } };
+            const node = tab._createFlowNode('C', step, 'action', false, ['A', 'B', 'C']);
+
+            const removeA = node.querySelector('.pdt-flow-runafter-dep[data-dep="A"] .pdt-runafter-remove');
+            tab._handleRunAfterRemove(removeA);
+            expect(node.querySelector('.pdt-flow-runafter-dep[data-dep="A"]')).toBeNull();
+
+            tab._applyRunAfterEdits(node);
+            expect(step.runAfter).toEqual({ B: ['Failed'] });
+        });
+
+        it('should add a predecessor (defaulting to Succeeded) from the dropdown and persist it', () => {
+            tab = new PowerAutomateFlowsTab();
+            const step = { runAfter: { A: ['Succeeded'] } };
+            const node = tab._createFlowNode('C', step, 'action', false, ['A', 'B', 'C']);
+            const addSelect = node.querySelector('.pdt-runafter-add');
+
+            // Only the other, not-yet-predecessor sibling (B) is offered.
+            expect([...addSelect.options].map(o => o.value)).toEqual(['', 'B']);
+
+            addSelect.value = 'B';
+            tab._handleRunAfterAdd(addSelect);
+            expect(node.querySelector('.pdt-flow-runafter-dep[data-dep="B"]')).toBeTruthy();
+            // B is no longer offered once added.
+            expect([...addSelect.options].map(o => o.value)).toEqual(['']);
+
+            tab._applyRunAfterEdits(node);
+            expect(step.runAfter).toEqual({ A: ['Succeeded'], B: ['Succeeded'] });
+        });
+
+        it('should offer only valid predecessors — never the trigger, never a cycle', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { Recurrence: { type: 'Recurrence', inputs: {} } },
+                actions: {
+                    A: { runAfter: {}, type: 'Compose', inputs: {} },
+                    B: { runAfter: { A: ['Succeeded'] }, type: 'Compose', inputs: {} },
+                    C: { runAfter: { B: ['Succeeded'] }, type: 'Compose', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+            const addOptions = (name) => {
+                const sec = visual.querySelector(`[data-flow-node="${name}"]`).querySelector('.pdt-flow-node-runafter');
+                return [...sec.querySelector('.pdt-runafter-add').options].map(o => o.value);
+            };
+
+            // C's options exclude the trigger (Recurrence) and its current predecessor (B) → only A.
+            expect(addOptions('C')).toEqual(['', 'A']);
+            // B's options exclude its descendant C (would create a cycle) and its predecessor A → none.
+            expect(addOptions('B')).toEqual(['']);
+        });
+
+        it('should revert added/removed predecessors on undo (re-render from the definition)', () => {
+            tab = new PowerAutomateFlowsTab();
+            const step = { runAfter: { A: ['Succeeded'] } };
+            const visualPanel = document.createElement('div');
+            visualPanel.appendChild(tab._createFlowNode('C', step, 'action', false, ['A', 'B', 'C']));
+
+            // Stage an add of B.
+            const addSelect = visualPanel.querySelector('.pdt-runafter-add');
+            addSelect.value = 'B';
+            tab._handleRunAfterAdd(addSelect);
+            expect(visualPanel.querySelector('.pdt-flow-runafter-dep[data-dep="B"]')).toBeTruthy();
+
+            // Undo re-renders from step.runAfter (still just A), discarding the staged add.
+            tab._handleDefinitionUndo({ activeTab: 'visual' }, document.createElement('textarea'), visualPanel, () => {});
+            expect(visualPanel.querySelector('.pdt-flow-runafter-dep[data-dep="B"]')).toBeNull();
+            expect(visualPanel.querySelector('.pdt-flow-runafter-dep[data-dep="A"]')).toBeTruthy();
+        });
+
+        it('should draw an SVG arrow from each predecessor into a join step', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { When_email: { type: 'OpenApiConnection', inputs: {} } },
+                actions: {
+                    Create_a_Lead: { runAfter: {}, type: 'Compose', inputs: {} },
+                    Send_Email: { runAfter: {}, type: 'Compose', inputs: {} },
+                    Respond: { runAfter: { Create_a_Lead: ['Succeeded'], Send_Email: ['Failed'] }, type: 'Response', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+            const edges = [...visual.querySelectorAll('.pdt-flow-edges path.pdt-flow-edge')];
+            // One arrow per predecessor, each from the predecessor to the join node.
+            expect(edges).toHaveLength(2);
+            expect(edges.map(e => `${e.dataset.from}->${e.dataset.to}`).sort())
+                .toEqual(['Create_a_Lead->Respond', 'Send_Email->Respond']);
+            // Arrows carry a colour-matched arrowhead marker, and the same colour into this target.
+            expect(edges[0].getAttribute('marker-end')).toContain('pdt-flow-arrowhead');
+            expect(edges[0].dataset.colorIndex).toBe(edges[1].dataset.colorIndex);
+            expect(edges[0].style.stroke).toBeTruthy();
+        });
+
+        it('should colour each target node\'s incoming arrows distinctly', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { T: { type: 'X', inputs: {} } },
+                actions: {
+                    A: { runAfter: {}, type: 'Compose', inputs: {} },
+                    B: { runAfter: {}, type: 'Compose', inputs: {} },
+                    C: { runAfter: {}, type: 'Compose', inputs: {} },
+                    Join1: { runAfter: { A: ['Succeeded'], B: ['Succeeded'] }, type: 'Compose', inputs: {} },
+                    Join2: { runAfter: { B: ['Succeeded'], C: ['Succeeded'] }, type: 'Compose', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+            const edges = [...visual.querySelectorAll('.pdt-flow-edge')];
+            const colorsInto = (to) => [...new Set(edges.filter(e => e.dataset.to === to).map(e => e.dataset.colorIndex))];
+
+            // Each target's incoming arrows share one colour…
+            expect(colorsInto('Join1')).toHaveLength(1);
+            expect(colorsInto('Join2')).toHaveLength(1);
+            // …and the two targets use different colours.
+            expect(colorsInto('Join1')[0]).not.toBe(colorsInto('Join2')[0]);
+        });
+
+        it('should not draw join edges for a single-predecessor step (keeps the inline connector)', () => {
+            tab = new PowerAutomateFlowsTab();
+            const definition = {
+                triggers: { T: { type: 'X', inputs: {} } },
+                actions: {
+                    A: { runAfter: {}, type: 'Compose', inputs: {} },
+                    B: { runAfter: { A: ['Succeeded'] }, type: 'Compose', inputs: {} }
+                }
+            };
+
+            const visual = tab._renderFlowVisual(definition);
+            expect(visual.querySelectorAll('.pdt-flow-edge')).toHaveLength(0);
+            expect(visual.querySelectorAll('.pdt-flow-connector').length).toBeGreaterThan(0);
         });
 
         it('should show HTTP method and URI', () => {
@@ -1154,6 +1413,35 @@ describe('PowerAutomateFlowsTab', () => {
             const input = panel.querySelector('.pdt-flow-edit-input');
 
             expect(input.value).toBe('["a","b","c"]');
+        });
+
+        it('should drill into arrays of objects so nested values are individually editable', () => {
+            tab = new PowerAutomateFlowsTab();
+            const inputs = { variables: [{ name: 'Endpoints', type: 'string', value: '"creates"' }] };
+
+            const rows = tab._flattenInputs(inputs);
+
+            expect(rows).toEqual([
+                { key: 'variables.0.name', value: 'Endpoints' },
+                { key: 'variables.0.type', value: 'string' },
+                { key: 'variables.0.value', value: '"creates"' }
+            ]);
+        });
+
+        it('should keep a primitive array as a single field (no drilling)', () => {
+            tab = new PowerAutomateFlowsTab();
+            expect(tab._flattenInputs({ tags: ['a', 'b', 'c'] })).toEqual([{ key: 'tags', value: ['a', 'b', 'c'] }]);
+        });
+
+        it('should save an edited nested array value to the right element without touching siblings', () => {
+            tab = new PowerAutomateFlowsTab();
+            const inputs = { variables: [{ name: 'Endpoints', type: 'string', value: '"creates"' }] };
+
+            tab._setNestedValue(inputs, 'variables.0.value', '"updated"');
+
+            expect(inputs.variables[0].value).toBe('"updated"');
+            expect(inputs.variables[0].name).toBe('Endpoints');
+            expect(inputs.variables[0].type).toBe('string');
         });
 
         it('should store step reference and original value on inputs', () => {
@@ -1416,7 +1704,7 @@ describe('PowerAutomateFlowsTab', () => {
         it('should open Power Automate URL with real environment ID', async () => {
             const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
             tab = new PowerAutomateFlowsTab();
-            tab._handleOpenInPortal('flow-123');
+            await tab._handleOpenInPortal('flow-123');
             expect(openSpy).toHaveBeenCalledWith(
                 'https://make.powerautomate.com/environments/env-abc-123/flows/flow-123/details',
                 '_blank'
@@ -1425,19 +1713,51 @@ describe('PowerAutomateFlowsTab', () => {
         });
 
         it('should use fallback URL when environment ID not available', async () => {
-            const { PowerAppsApiService } = await import('../../src/services/PowerAppsApiService.js');
-            PowerAppsApiService.getGlobalContext.mockReturnValue({
-                getClientUrl: () => 'https://org.crm.dynamics.com',
-                getCurrentAppProperties: () => null
-            });
-
+            DataService.getEnvironmentId.mockResolvedValueOnce(null);
             const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
             tab = new PowerAutomateFlowsTab();
-            tab._handleOpenInPortal('flow-456');
+            await tab._handleOpenInPortal('flow-456');
             expect(openSpy).toHaveBeenCalledWith(
                 'https://make.powerautomate.com/flows/flow-456/details',
                 '_blank'
             );
+            openSpy.mockRestore();
+        });
+    });
+
+    describe('agent flows (modernflowtype=1)', () => {
+        const agentFlow = {
+            id: 'af-1', name: 'Agent Flow', description: '', statecode: 1, stateLabel: 'Activated',
+            isManaged: false, isAgentFlow: true, owner: 'Owner', createdOn: '1/1/2026',
+            modifiedOn: '1/2/2026', createdBy: 'Owner'
+        };
+
+        it('should show an agent-flow badge only for Copilot Studio flows', () => {
+            tab = new PowerAutomateFlowsTab();
+            const agentCard = tab._createFlowCard(agentFlow);
+            const classicCard = tab._createFlowCard({ ...agentFlow, isAgentFlow: false });
+            expect(agentCard.querySelector('.pdt-capi-badge-agent-flow')).toBeTruthy();
+            expect(classicCard.querySelector('.pdt-capi-badge-agent-flow')).toBeNull();
+        });
+
+        it('should label the Open button "Open in Copilot Studio" for agent flows', () => {
+            tab = new PowerAutomateFlowsTab();
+            const agentBtn = tab._createFlowCard(agentFlow).querySelector('.flow-open-btn');
+            const classicBtn = tab._createFlowCard({ ...agentFlow, isAgentFlow: false }).querySelector('.flow-open-btn');
+            expect(agentBtn.textContent.trim()).toBe('Open in Copilot Studio');
+            expect(classicBtn.textContent.trim()).toBe('Open in Power Automate');
+        });
+
+        it('should open agent flows in Copilot Studio, not Power Automate', async () => {
+            const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+            tab = new PowerAutomateFlowsTab();
+            tab.allFlows = [agentFlow];
+            await tab._handleOpenInPortal('af-1');
+            expect(openSpy).toHaveBeenCalledWith(
+                expect.stringContaining('copilotstudio.microsoft.com'),
+                '_blank'
+            );
+            expect(openSpy).toHaveBeenCalledWith(expect.stringContaining('/agent-flows/af-1'), '_blank');
             openSpy.mockRestore();
         });
     });
@@ -1581,6 +1901,236 @@ describe('PowerAutomateFlowsTab', () => {
         it('should handle destroy when not rendered', () => {
             tab = new PowerAutomateFlowsTab();
             expect(() => tab.destroy()).not.toThrow();
+        });
+    });
+
+    describe('Run History sub-view', () => {
+        /**
+         * Renders the tab with a solution selected (shared dropdown), points the Run History flow
+         * picker at flow-1, loads the (mocked) runs, and switches to the Run History sub-view.
+         */
+        async function renderRunsView() {
+            const result = await renderWithFlows();
+            const t = result.tab;
+            t.ui.runFlowSelect.value = 'flow-1';
+            await t._onRunFlowSelected();
+            t._switchSubView('runs');
+            return t;
+        }
+
+        it('should render the sub-tab switcher and a hidden runs panel by default', async () => {
+            tab = new PowerAutomateFlowsTab();
+            const el = await tab.render();
+            expect(el.querySelector('.pdt-flow-subtabs')).not.toBeNull();
+            expect(el.querySelector('[data-subview-panel="runs"]')).not.toBeNull();
+            expect(el.querySelector('[data-subview-panel="runs"]').classList.contains('pdt-hidden')).toBe(true);
+        });
+
+        it('should keep the sub-tabs and Flows toolbar hidden until a solution is chosen', async () => {
+            tab = new PowerAutomateFlowsTab();
+            const el = await tab.render();
+            document.body.appendChild(el);
+            await tab.postRender(el);
+
+            // No solution chosen yet → sub-tabs and the Flows search/refresh toolbar are hidden.
+            expect(tab.ui.subTabs.classList.contains('pdt-hidden')).toBe(true);
+            expect(tab.ui.flowsToolbar.classList.contains('pdt-hidden')).toBe(true);
+
+            tab.ui.solutionSelect.value = 'sol-1';
+            await tab._onSolutionSelected();
+            expect(tab.ui.subTabs.classList.contains('pdt-hidden')).toBe(false);
+            expect(tab.ui.flowsToolbar.classList.contains('pdt-hidden')).toBe(false);
+
+            // Clearing the solution hides them again and returns to the Flows view.
+            tab.ui.solutionSelect.value = '';
+            await tab._onSolutionSelected();
+            expect(tab.ui.subTabs.classList.contains('pdt-hidden')).toBe(true);
+            expect(tab.ui.flowsToolbar.classList.contains('pdt-hidden')).toBe(true);
+            expect(tab.activeSubView).toBe('flows');
+        });
+
+        it('should have a single shared solution dropdown (none inside the runs panel)', async () => {
+            const result = await renderWithFlows();
+            tab = result.tab;
+
+            expect(tab.ui.runsPanel.querySelector('select#pdt-flow-solution-select')).toBeNull();
+            expect(tab.ui.runsPanel.querySelector('#pdt-run-solution-select')).toBeNull();
+            // The flow picker is populated from the already-loaded flows (no second solution choice).
+            expect(tab.ui.runFlowSelect.querySelectorAll('option').length).toBe(mockFlows.length + 1);
+        });
+
+        it('should reveal the runs panel when the Run History sub-tab is activated', async () => {
+            const result = await renderWithFlows();
+            tab = result.tab;
+
+            tab._switchSubView('runs');
+
+            expect(tab.activeSubView).toBe('runs');
+            expect(tab.ui.runsPanel.classList.contains('pdt-hidden')).toBe(false);
+            expect(tab.ui.flowsPanel.classList.contains('pdt-hidden')).toBe(true);
+        });
+
+        it('should load runs once a flow is selected', async () => {
+            tab = await renderRunsView();
+
+            expect(DataService.getFlowRuns).toHaveBeenCalledWith('flow-1', expect.objectContaining({ top: 50 }));
+            const rows = tab.ui.runList.querySelectorAll('.pdt-flow-run-row');
+            expect(rows).toHaveLength(2);
+            expect(rows[0].querySelector('.pdt-flow-run-status-badge').classList.contains('pdt-flow-run-status--succeeded')).toBe(true);
+            expect(rows[1].querySelector('.pdt-flow-run-status-badge').classList.contains('pdt-flow-run-status--failed')).toBe(true);
+        });
+
+        it('should render a summary bar with the success rate', async () => {
+            tab = await renderRunsView();
+
+            expect(tab.ui.runSummary.classList.contains('pdt-hidden')).toBe(false);
+            // 1 succeeded of 2 completed = 50%
+            expect(tab.ui.runSummary.textContent).toContain('50%');
+        });
+
+        it('should re-query with the chosen status filter', async () => {
+            tab = await renderRunsView();
+            DataService.getFlowRuns.mockClear();
+
+            tab.ui.runStatusFilter.value = 'Failed';
+            await tab._handleRunStatusFilter();
+
+            expect(DataService.getFlowRuns).toHaveBeenCalledWith('flow-1', expect.objectContaining({ status: 'Failed' }));
+        });
+
+        it('should lazily load action logs when a run row is expanded', async () => {
+            tab = await renderRunsView();
+            const row = tab.ui.runList.querySelector('.pdt-flow-run-row');
+
+            await tab._handleRunExpand(row);
+
+            expect(DataService.getFlowRunLogs).toHaveBeenCalledWith('run-1', expect.any(Object));
+            expect(row.querySelector('.pdt-flow-run-details').classList.contains('pdt-hidden')).toBe(false);
+        });
+
+        it('should explain the portal-only detail and make the open button primary for a failed run', async () => {
+            tab = await renderRunsView();
+            const failedRow = tab.ui.runList.querySelectorAll('.pdt-flow-run-row')[1]; // run-2 (failed)
+
+            await tab._handleRunExpand(failedRow);
+
+            const details = failedRow.querySelector('.pdt-flow-run-details');
+            expect(details.querySelector('.pdt-flow-run-portal-note')).toBeTruthy();
+            const openBtn = details.querySelector('.pdt-flow-run-open-btn');
+            expect(openBtn).toBeTruthy();
+            expect(openBtn.classList.contains('secondary')).toBe(false); // primary for failed runs
+        });
+
+        it('should not show the portal note and keep the open button secondary for a non-failed run', async () => {
+            tab = await renderRunsView();
+            const okRow = tab.ui.runList.querySelector('.pdt-flow-run-row'); // run-1 (succeeded)
+
+            await tab._handleRunExpand(okRow);
+
+            const details = okRow.querySelector('.pdt-flow-run-details');
+            expect(details.querySelector('.pdt-flow-run-portal-note')).toBeFalsy();
+            expect(details.querySelector('.pdt-flow-run-open-btn').classList.contains('secondary')).toBe(true);
+        });
+
+        it('should show the empty/disabled note when no runs are returned', async () => {
+            DataService.getFlowRuns.mockResolvedValue([]);
+            tab = await renderRunsView();
+
+            expect(tab.ui.runList.querySelector('.pdt-note')).not.toBeNull();
+            expect(tab.ui.runSummary.classList.contains('pdt-hidden')).toBe(true);
+        });
+
+        it('should upgrade to a definitive "disabled" note when org run retention is 0', async () => {
+            DataService.getFlowRuns.mockResolvedValue([]);
+            DataService.getOrganizationDiagnostics.mockResolvedValue({
+                pluginTraceLogSetting: null, transcriptRecordingBlocked: false,
+                transcriptAccessBlocked: false, flowRunRetentionSeconds: 0
+            });
+            tab = await renderRunsView();
+            // The retention read is best-effort (not awaited by _renderRuns) — let it resolve.
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(tab.ui.runList.textContent).toContain('turned OFF');
+        });
+
+        it('should open a specific run in the portal via deep link', async () => {
+            const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+            tab = await renderRunsView();
+
+            await tab._handleOpenRun('08580001');
+
+            expect(openSpy).toHaveBeenCalledWith(
+                expect.stringContaining('/flows/flow-1/runs/08580001'),
+                '_blank'
+            );
+            openSpy.mockRestore();
+        });
+
+        it('should poll for runs while Live is enabled and stop on destroy', async () => {
+            vi.useFakeTimers();
+            try {
+                tab = await renderRunsView();
+                DataService.getFlowRuns.mockClear();
+
+                tab.ui.runLiveToggle.checked = true;
+                tab._handleRunPolling(true);
+                // Immediate refresh on enabling Live.
+                expect(DataService.getFlowRuns).toHaveBeenCalledTimes(1);
+
+                await vi.advanceTimersByTimeAsync(10000);
+                expect(DataService.getFlowRuns).toHaveBeenCalledTimes(2);
+
+                tab.destroy();
+                await vi.advanceTimersByTimeAsync(20000);
+                // No further polling after destroy.
+                expect(DataService.getFlowRuns).toHaveBeenCalledTimes(2);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('should jump to the runs view for a specific flow via the card shortcut', async () => {
+            const result = await renderWithFlows();
+            tab = result.tab;
+
+            await tab._handleViewRunsForFlow('flow-1');
+
+            expect(tab.activeSubView).toBe('runs');
+            expect(tab.selectedRunFlowId).toBe('flow-1');
+            expect(DataService.getFlowRuns).toHaveBeenCalledWith('flow-1', expect.any(Object));
+        });
+
+        it('should auto-load the only flow\'s runs when the solution changes while on the runs view', async () => {
+            const result = await renderWithFlows();
+            tab = result.tab;
+            tab._switchSubView('runs');
+            DataService.getFlowRuns.mockClear();
+
+            // A solution with exactly one flow should auto-select and load it immediately.
+            DataService.getCloudFlowsBySolution.mockResolvedValue([JSON.parse(JSON.stringify(mockFlows[0]))]);
+            tab.ui.solutionSelect.value = 'sol-2';
+            await tab._onSolutionSelected();
+
+            expect(tab.selectedRunFlowId).toBe('flow-1');
+            expect(DataService.getFlowRuns).toHaveBeenCalledWith('flow-1', expect.any(Object));
+        });
+
+        it('should stop live polling and reset the toggle when leaving the runs view', async () => {
+            vi.useFakeTimers();
+            try {
+                tab = await renderRunsView();
+                tab.ui.runLiveToggle.checked = true;
+                tab._handleRunPolling(true);
+                DataService.getFlowRuns.mockClear();
+
+                tab._switchSubView('flows');
+
+                expect(tab.ui.runLiveToggle.checked).toBe(false);
+                await vi.advanceTimersByTimeAsync(20000);
+                expect(DataService.getFlowRuns).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 });

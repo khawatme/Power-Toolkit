@@ -44,7 +44,8 @@ describe('Store', () => {
             Store.init();
             const state = Store.getState();
 
-            expect(state.tabSettings).toContainEqual(savedSettings[0]);
+            // Restored settings gain a normalized `color` (null when the saved entry predates it).
+            expect(state.tabSettings).toContainEqual({ ...savedSettings[0], color: null });
         });
 
         it('should handle corrupted localStorage data gracefully', () => {
@@ -283,7 +284,7 @@ describe('Store', () => {
 
             expect(localStorageMock.setItem).toHaveBeenCalledWith(
                 'pdt-tab-settings',
-                JSON.stringify(newSettings)
+                JSON.stringify([{ ...newSettings[0], color: null }])
             );
         });
 
@@ -616,6 +617,64 @@ describe('Store', () => {
 
             expect(listener1).not.toHaveBeenCalled();
             expect(listener2).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    // Tab colors are written into a CSS custom property, and they arrive from localStorage and from
+    // imported settings files — so the store is the choke point that has to sanitize them.
+    describe('tab colors', () => {
+        it('should default every tab to no color', () => {
+            localStorageMock.getItem.mockReturnValue(null);
+            Store.init();
+
+            expect(Store.getState().tabSettings.every(s => s.color === null)).toBe(true);
+        });
+
+        it('should keep a valid color through setState', () => {
+            Store.setState({ tabSettings: [{ id: 'traces', visible: true, formOnly: false, color: '#1E90FF' }] });
+
+            expect(Store.getState().tabSettings[0].color).toBe('#1e90ff');
+        });
+
+        it('should expand shorthand hex', () => {
+            Store.setState({ tabSettings: [{ id: 'traces', visible: true, formOnly: false, color: '#abc' }] });
+
+            expect(Store.getState().tabSettings[0].color).toBe('#aabbcc');
+        });
+
+        it('should null out a color that is not a hex value', () => {
+            Store.setState({
+                tabSettings: [{ id: 'traces', visible: true, formOnly: false, color: 'url(https://evil.test/x)' }]
+            });
+
+            expect(Store.getState().tabSettings[0].color).toBeNull();
+        });
+
+        it('should persist the sanitized color, not the raw one', () => {
+            Store.setState({ tabSettings: [{ id: 'traces', visible: true, formOnly: false, color: 'red' }] });
+
+            const persisted = JSON.parse(localStorageMock.setItem.mock.calls.at(-1)[1]);
+            expect(persisted[0].color).toBeNull();
+        });
+
+        it('should sanitize colors restored from localStorage', () => {
+            localStorageMock.getItem.mockImplementation(key =>
+                key === 'pdt-tab-settings'
+                    ? JSON.stringify([{ id: 'inspector', visible: true, formOnly: true, color: 'expression(alert(1))' }])
+                    : null
+            );
+
+            Store.init();
+
+            expect(Store.getState().tabSettings.find(s => s.id === 'inspector').color).toBeNull();
+        });
+
+        it('should leave other settings untouched while sanitizing', () => {
+            Store.setState({ tabSettings: [{ id: 'traces', visible: false, formOnly: true, color: '#123456' }] });
+
+            expect(Store.getState().tabSettings[0]).toEqual({
+                id: 'traces', visible: false, formOnly: true, color: '#123456'
+            });
         });
     });
 });

@@ -13,6 +13,7 @@
  */
 
 import { DataService } from './DataService.js';
+import { WebApiService } from './WebApiService.js';
 import { PowerAppsApiService } from './PowerAppsApiService.js';
 import { MetadataService } from './MetadataService.js';
 import { Config } from '../constants/index.js';
@@ -277,10 +278,9 @@ export const CustomApiService = {
         const isFunction = api.isfunction;
         const method = isFunction ? 'GET' : 'POST';
 
-        const headers = {
-            ...Config.WEB_API_HEADERS.STANDARD,
-            ...customHeaders
-        };
+        // Honour impersonation: "can this user run this API?" is the whole point of executing one
+        // while impersonating, and answering it as the signed-in user is worse than not answering.
+        const headers = WebApiService.buildHeaders(customHeaders, DataService.getImpersonationInfo().userId);
 
         const fetchOptions = { method, headers };
 

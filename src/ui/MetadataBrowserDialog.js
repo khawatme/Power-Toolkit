@@ -89,9 +89,9 @@ export const MetadataBrowserDialog = {
             sortArrayByColumn(items, sortState.column, sortState.direction);
 
             const rows = items.map(item => `
-                <tr class="copyable-cell" data-logical-name="${item.LogicalName}" title="${Config.METADATA_BROWSER_DIALOG.clickToSelect}">
+                <tr class="copyable-cell" data-logical-name="${escapeHtml(item.LogicalName)}" title="${Config.METADATA_BROWSER_DIALOG.clickToSelect}">
                     <td>${escapeHtml(item._displayName)}</td>
-                    <td class="code-like">${item.LogicalName}</td>
+                    <td class="code-like">${escapeHtml(item.LogicalName)}</td>
                 </tr>
             `).join('');
 
@@ -154,7 +154,7 @@ export const MetadataBrowserDialog = {
         // Cleanup function to remove event listeners
         const cleanup = () => {
             if (searchInput && handleSearchKeyup) {
-                searchInput.removeEventListener('keyup', handleSearchKeyup);
+                searchInput.removeEventListener('input', handleSearchKeyup);
                 // Cancel any pending debounced search
                 if (handleSearchKeyup.cancel) {
                     handleSearchKeyup.cancel();
@@ -178,7 +178,8 @@ export const MetadataBrowserDialog = {
             originalClose();
         };
 
-        searchInput.addEventListener('keyup', handleSearchKeyup);
+        // 'input' rather than 'keyup' so a pasted name filters without a further keystroke.
+        searchInput.addEventListener('input', handleSearchKeyup);
         listContainer.addEventListener('click', handleListClick);
         listContainer.addEventListener('keydown', handleListKeydown);
 

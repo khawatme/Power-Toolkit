@@ -25,17 +25,6 @@ vi.mock('../../src/services/SecurityAnalysisService.js', () => ({
     }
 }));
 
-vi.mock('../../src/services/LiveImpersonationService.js', () => ({
-    LiveImpersonationService: {
-        enableImpersonation: vi.fn(),
-        disableImpersonation: vi.fn(),
-        isEnabled: vi.fn().mockReturnValue(false),
-        isActive: false,
-        start: vi.fn(),
-        stop: vi.fn()
-    }
-}));
-
 vi.mock('../../src/services/CommandBarAnalysisService.js', () => ({
     CommandBarAnalysisService: {
         compareCommandBarVisibility: vi.fn(),
@@ -56,13 +45,6 @@ vi.mock('../../src/services/PowerAppsApiService.js', () => ({
 vi.mock('../../src/services/NotificationService.js', () => ({
     NotificationService: {
         show: vi.fn()
-    }
-}));
-
-vi.mock('../../src/ui/LiveComparisonPanel.js', () => ({
-    LiveComparisonPanel: {
-        show: vi.fn(),
-        hide: vi.fn()
     }
 }));
 

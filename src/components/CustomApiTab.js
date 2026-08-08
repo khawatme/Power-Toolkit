@@ -79,7 +79,7 @@ export class CustomApiTab extends BaseComponent {
             <div class="section-title">${Config.MESSAGES.CUSTOM_API.title}</div>
 
             <!-- Solution Selector -->
-            <div class="pdt-toolbar" style="margin-bottom: 10px;">
+            <div class="pdt-toolbar">
                 <select id="capi-solution-select" class="pdt-select" style="flex: 2;">
                     <option value="">${Config.MESSAGES.CUSTOM_API.loadingSolutions}</option>
                 </select>
@@ -445,6 +445,7 @@ export class CustomApiTab extends BaseComponent {
         const frag = document.createDocumentFragment();
         this.allApis.forEach(api => frag.appendChild(this._createApiCard(api)));
         this.ui.listContainer.appendChild(frag);
+        this._filterCards();
     }
 
     /** @private Renders summary statistics. */
@@ -644,7 +645,7 @@ export class CustomApiTab extends BaseComponent {
         } else if (btn.matches('.capi-edit-btn')) {
             await this._openEditDialog(api);
         } else if (btn.matches('.capi-delete-btn')) {
-            await this._handleDelete(api);
+            await this._handleDelete(api, card);
         } else if (btn.matches('.capi-add-param-btn')) {
             await this._openAddParamDialog(api);
         } else if (btn.matches('.capi-add-prop-btn')) {
@@ -656,7 +657,7 @@ export class CustomApiTab extends BaseComponent {
                 await this._openEditParamDialog(param);
             }
         } else if (btn.matches('.capi-delete-param-btn')) {
-            await this._handleDeleteParam(btn.dataset.paramId, btn.dataset.paramName);
+            await this._handleDeleteParam(btn.dataset.paramId, btn.dataset.paramName, btn);
         } else if (btn.matches('.capi-edit-prop-btn')) {
             const propId = btn.dataset.propId;
             const prop = (api.CustomAPIResponseProperties || []).find(p => p.customapiresponsepropertyid === propId);
@@ -664,7 +665,7 @@ export class CustomApiTab extends BaseComponent {
                 await this._openEditPropDialog(prop);
             }
         } else if (btn.matches('.capi-delete-prop-btn')) {
-            await this._handleDeleteProp(btn.dataset.propId, btn.dataset.propName);
+            await this._handleDeleteProp(btn.dataset.propId, btn.dataset.propName, btn);
         }
     }
 
@@ -1075,8 +1076,9 @@ export class CustomApiTab extends BaseComponent {
      * Deletes a Custom API after confirmation.
      * @private
      * @param {CustomApiDefinition} api
+     * @param {HTMLElement} [card]
      */
-    async _handleDelete(api) {
+    async _handleDelete(api, card) {
         const contentEl = document.createElement('div');
         contentEl.innerHTML = `
             <div class="pdt-warning">
@@ -1092,8 +1094,16 @@ export class CustomApiTab extends BaseComponent {
             </div>
         `;
 
+        const cardBtns = card ? card.querySelectorAll('.capi-delete-btn, .capi-edit-btn') : [];
+        cardBtns.forEach(b => {
+            b.disabled = true;
+        });
+
         const confirmed = await showConfirmDialog(Config.MESSAGES.CUSTOM_API.deleteConfirmTitle, contentEl);
         if (!confirmed) {
+            cardBtns.forEach(b => {
+                b.disabled = false;
+            });
             return;
         }
 
@@ -1104,6 +1114,9 @@ export class CustomApiTab extends BaseComponent {
             await this._refreshData();
         } catch (err) {
             NotificationService.show(Config.MESSAGES.CUSTOM_API.deleteFailed(ErrorParser.extract(err)), 'error');
+            cardBtns.forEach(b => {
+                b.disabled = false;
+            });
         } finally {
             BusyIndicator.clear();
         }
@@ -1429,8 +1442,9 @@ export class CustomApiTab extends BaseComponent {
      * @private
      * @param {string} paramId
      * @param {string} paramName
+     * @param {HTMLElement} [triggerBtn]
      */
-    async _handleDeleteParam(paramId, paramName) {
+    async _handleDeleteParam(paramId, paramName, triggerBtn) {
         const contentEl = document.createElement('div');
         contentEl.innerHTML = `
             <div class="pdt-warning">
@@ -1444,8 +1458,16 @@ export class CustomApiTab extends BaseComponent {
             </div>
         `;
 
+        const rowBtns = triggerBtn ? triggerBtn.closest('tr')?.querySelectorAll('button') : [];
+        rowBtns?.forEach(b => {
+            b.disabled = true;
+        });
+
         const confirmed = await showConfirmDialog('Delete Request Parameter', contentEl);
         if (!confirmed) {
+            rowBtns?.forEach(b => {
+                b.disabled = false;
+            });
             return;
         }
 
@@ -1456,6 +1478,9 @@ export class CustomApiTab extends BaseComponent {
             await this._refreshData();
         } catch (err) {
             NotificationService.show(Config.MESSAGES.CUSTOM_API.paramDeleteFailed(ErrorParser.extract(err)), 'error');
+            rowBtns?.forEach(b => {
+                b.disabled = false;
+            });
         } finally {
             BusyIndicator.clear();
         }
@@ -1545,8 +1570,9 @@ export class CustomApiTab extends BaseComponent {
      * @private
      * @param {string} propId
      * @param {string} propName
+     * @param {HTMLElement} [triggerBtn]
      */
-    async _handleDeleteProp(propId, propName) {
+    async _handleDeleteProp(propId, propName, triggerBtn) {
         const contentEl = document.createElement('div');
         contentEl.innerHTML = `
             <div class="pdt-warning">
@@ -1560,8 +1586,16 @@ export class CustomApiTab extends BaseComponent {
             </div>
         `;
 
+        const rowBtns = triggerBtn ? triggerBtn.closest('tr')?.querySelectorAll('button') : [];
+        rowBtns?.forEach(b => {
+            b.disabled = true;
+        });
+
         const confirmed = await showConfirmDialog('Delete Response Property', contentEl);
         if (!confirmed) {
+            rowBtns?.forEach(b => {
+                b.disabled = false;
+            });
             return;
         }
 
@@ -1572,6 +1606,9 @@ export class CustomApiTab extends BaseComponent {
             await this._refreshData();
         } catch (err) {
             NotificationService.show(Config.MESSAGES.CUSTOM_API.propDeleteFailed(ErrorParser.extract(err)), 'error');
+            rowBtns?.forEach(b => {
+                b.disabled = false;
+            });
         } finally {
             BusyIndicator.clear();
         }
@@ -2266,6 +2303,7 @@ export class CustomApiTab extends BaseComponent {
         const btn = card?.querySelector('.capi-expand-btn');
         if (card && btn) {
             this._toggleExpand(card, btn);
+            card.scrollIntoView({ block: 'nearest' });
         }
     }
 

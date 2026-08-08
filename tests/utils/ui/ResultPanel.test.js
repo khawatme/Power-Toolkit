@@ -370,6 +370,145 @@ describe('ResultPanel', () => {
             selectionPanel._selectedIndices.clear();
             expect(selectionPanel._selectedIndices.size).toBe(0);
         });
+
+        it('should clear the selection via clearSelection()', () => {
+            selectionPanel._selectedIndices.add(3);
+            selectionPanel.clearSelection();
+            expect(selectionPanel._selectedIndices.size).toBe(0);
+        });
+
+        describe('header after a search', () => {
+            const DATA = [{ name: 'Alpha' }, { name: 'Beta' }, { name: 'Zeta' }];
+
+            /** Renders the panel, selects a row, then applies a search term. */
+            const searchAfterSelecting = (term) => {
+                selectionPanel.renderShell(DATA.length, 'table', false);
+                selectionPanel.renderContent({ data: DATA, view: 'table', hideOdata: false });
+                selectionPanel._selectedIndices.add(0);
+                selectionPanel.renderShell(DATA.length, 'table', false);
+
+                selectionPanel._handleSearchInput({ target: { value: term } });
+                vi.advanceTimersByTime(300);
+            };
+
+            beforeEach(() => {
+                vi.useFakeTimers();
+            });
+
+            afterEach(() => {
+                vi.useRealTimers();
+            });
+
+            it('should stop claiming rows are selected', () => {
+                searchAfterSelecting('Zeta');
+
+                expect(selectionPanel.root.textContent).not.toContain('selected');
+            });
+
+            it('should remove the Touch button once the selection is dropped', () => {
+                searchAfterSelecting('Zeta');
+
+                expect(selectionPanel.root.querySelector('#pdt-bulk-touch')).toBeNull();
+            });
+
+            it('should show the filtered record count', () => {
+                searchAfterSelecting('Zeta');
+
+                expect(selectionPanel.root.textContent).toContain('1 Record');
+            });
+
+            it('should keep the search input when nothing matches', () => {
+                searchAfterSelecting('nothing-matches-this');
+
+                expect(selectionPanel.root.querySelector('#pdt-search')).toBeTruthy();
+            });
+
+            it('should restore every record when the search term is cleared', () => {
+                searchAfterSelecting('Zeta');
+
+                selectionPanel._handleSearchInput({ target: { value: '' } });
+                vi.advanceTimersByTime(300);
+
+                expect(selectionPanel._fullDataset).toHaveLength(DATA.length);
+            });
+
+            it('should restore every record after selecting a row while filtered', () => {
+                searchAfterSelecting('Zeta');
+
+                // Selecting while filtered used to feed the filtered rows back in as the source
+                // dataset, discarding the other records for good.
+                const checkbox = selectionPanel.root.querySelector('.pdt-row-select');
+                checkbox.checked = true;
+                checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+
+                selectionPanel._handleSearchInput({ target: { value: '' } });
+                vi.advanceTimersByTime(300);
+
+                expect(selectionPanel._originalDataset).toHaveLength(DATA.length);
+                expect(selectionPanel._fullDataset).toHaveLength(DATA.length);
+            });
+
+            it('should restore every record after sorting while filtered', () => {
+                searchAfterSelecting('Zeta');
+
+                const header = selectionPanel.root.querySelector('th[data-column]');
+                header.dispatchEvent(new Event('click', { bubbles: true }));
+
+                selectionPanel._handleSearchInput({ target: { value: '' } });
+                vi.advanceTimersByTime(300);
+
+                expect(selectionPanel._originalDataset).toHaveLength(DATA.length);
+            });
+
+            it('should keep focus and caret in the search box while typing', () => {
+                selectionPanel.renderShell(DATA.length, 'table', false);
+                selectionPanel.renderContent({ data: DATA, view: 'table', hideOdata: false });
+
+                const input = selectionPanel.root.querySelector('#pdt-search');
+                input.value = 'Zeta';
+                input.focus();
+                input.setSelectionRange(2, 2);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                vi.advanceTimersByTime(300);
+
+                const rebuilt = selectionPanel.root.querySelector('#pdt-search');
+                expect(document.activeElement).toBe(rebuilt);
+                expect(rebuilt.selectionStart).toBe(2);
+            });
+
+            it('should not steal focus when the search box was not focused', () => {
+                selectionPanel.renderShell(DATA.length, 'table', false);
+                selectionPanel.renderContent({ data: DATA, view: 'table', hideOdata: false });
+
+                const input = selectionPanel.root.querySelector('#pdt-search');
+                input.value = 'Zeta';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                vi.advanceTimersByTime(300);
+
+                expect(document.activeElement).not.toBe(selectionPanel.root.querySelector('#pdt-search'));
+            });
+        });
+
+        it('should drop the selection when a search remaps the dataset', () => {
+            vi.useFakeTimers();
+            try {
+                const data = [{ name: 'Alpha' }, { name: 'Beta' }, { name: 'Zeta' }];
+                selectionPanel.renderShell(data.length, 'table', false);
+                selectionPanel.renderContent({ data, view: 'table', hideOdata: false });
+
+                selectionPanel._selectedIndices.add(0);
+                expect(selectionPanel._fullDataset[0]).toEqual({ name: 'Alpha' });
+
+                selectionPanel._handleSearchInput({ target: { value: 'Zeta' } });
+                vi.advanceTimersByTime(300);
+
+                // Index 0 now resolves to a different record, so keeping it would edit the wrong one.
+                expect(selectionPanel._fullDataset[0]).toEqual({ name: 'Zeta' });
+                expect(selectionPanel._selectedIndices.size).toBe(0);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
     });
 
     describe('removeBanner', () => {
@@ -930,10 +1069,13 @@ describe('ResultPanel', () => {
                 setSortState: mockSetSortState,
                 enableSelection: true
             });
+            // Select-all covers the rows on display, which is what _fullDataset holds.
+            selectionPanel.renderShell(testData.length, 'table', false);
+            selectionPanel.renderContent({ data: testData, view: 'table', hideOdata: false });
         });
 
         it('should select all rows when none selected', () => {
-            selectionPanel._handleSelectAll(testData, 'table', false);
+            selectionPanel._handleSelectAll(false);
 
             expect(selectionPanel._selectedIndices.size).toBe(3);
             expect(selectionPanel._selectedIndices.has(0)).toBe(true);
@@ -946,7 +1088,7 @@ describe('ResultPanel', () => {
             selectionPanel._selectedIndices.add(1);
             selectionPanel._selectedIndices.add(2);
 
-            selectionPanel._handleSelectAll(testData, 'table', false);
+            selectionPanel._handleSelectAll(false);
 
             expect(selectionPanel._selectedIndices.size).toBe(0);
         });
@@ -954,9 +1096,18 @@ describe('ResultPanel', () => {
         it('should select all when partially selected', () => {
             selectionPanel._selectedIndices.add(0);
 
-            selectionPanel._handleSelectAll(testData, 'table', false);
+            selectionPanel._handleSelectAll(false);
 
             expect(selectionPanel._selectedIndices.size).toBe(3);
+        });
+
+        it('should select only the filtered rows when a search is active', () => {
+            selectionPanel._searchTerm = '1';
+            selectionPanel.renderContent({ data: testData, view: 'table', hideOdata: false });
+
+            selectionPanel._handleSelectAll(false);
+
+            expect(selectionPanel._selectedIndices.size).toBe(1);
         });
     });
 

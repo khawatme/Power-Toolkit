@@ -8,7 +8,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // Mock dependencies before importing
 vi.mock('../../src/services/WebApiService.js', () => ({
     WebApiService: {
-        webApiFetch: vi.fn()
+        webApiFetch: vi.fn(),
+        buildHeaders: vi.fn((customHeaders = {}) => ({
+            'OData-MaxVersion': '4.0',
+            'OData-Version': '4.0',
+            Accept: 'application/json',
+            ...customHeaders
+        }))
     }
 }));
 
@@ -1781,7 +1787,7 @@ describe('CommandBarAnalysisService', () => {
             // NotificationService warning should have been called
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('Entity name'),
-                'warning'
+                'warn'
             );
         });
     });
@@ -3661,6 +3667,49 @@ describe('compareCommandBarVisibility modern commands processing', () => {
         expect(modernCmd.isModernCommand).toBe(true);
         expect(modernCmd.difference).toBe('same');
         expect(modernCmd.evaluationMethod).toBe('always-visible');
+    });
+
+    it('should report a rule-gated command as undetermined when roles match', async () => {
+        // Matching roles is not evidence that an unevaluable rule behaves the same for both users.
+        // Reporting 'same' here overstated what was actually measured.
+        PowerAppsApiService.getGlobalContext.mockReturnValue({
+            getClientUrl: () => 'https://test.crm.dynamics.com',
+            getUserId: () => '{current-user-id}',
+            // Roles for the comparison user resolve through userSettings; without it both users
+            // would look different and the command would land in 'potential-difference'.
+            userSettings: { userId: '{current-user-id}' }
+        });
+
+        const gatedCommand = {
+            appactionid: 'app2',
+            uniquename: 'modern.command.gated',
+            name: 'Gated',
+            buttonlabeltext: 'Gated Button',
+            visibilitytype: 1,
+            visibilityformulafunctionname: 'my_visibility',
+            hidden: false,
+            context: 0,
+            contextvalue: 'account',
+            solutionid: 'sol1',
+            ismanaged: false
+        };
+
+        WebApiService.webApiFetch.mockImplementation((method, url) => {
+            if (url.includes('appaction')) { return Promise.resolve({ value: [gatedCommand] }); }
+            if (url.includes('EntityDefinitions')) { return Promise.resolve({ HasActivities: true, IsActivity: false }); }
+            // Identical roles for both users, so the security contexts match.
+            if (url.includes('systemuserroles')) { return Promise.resolve({ value: [{ roleid: 'r1', name: 'Role' }] }); }
+            return Promise.resolve({ value: [] });
+        });
+        SecurityAnalysisService.getUserEntityPrivileges.mockResolvedValue({ write: { hasPrivilege: true } });
+
+        const result = await CommandBarAnalysisService.compareCommandBarVisibility('target-user-id', 'account', 'Form');
+
+        const cmd = result.commands.find(c => c.commandId === 'modern.command.gated');
+        expect(cmd.difference).toBe('undetermined');
+        expect(result.summary.undetermined).toBe(1);
+        // The OOTB commands alongside it were genuinely measured, so they stay in "same".
+        expect(result.commands.filter(c => c.difference === 'same')).not.toContain(cmd);
     });
 
     it('should process modern commands with visibility formula (type 1)', async () => {

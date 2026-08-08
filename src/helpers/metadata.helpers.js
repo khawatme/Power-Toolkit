@@ -43,7 +43,7 @@ export const MetadataHelpers = {
         } catch (e) {
             // Show user-friendly notification instead of error dialog
             const message = e.message || Config.MESSAGES.WEB_API?.enterValidTable || 'Please select a table first';
-            NotificationService.show(message, 'warning');
+            NotificationService.show(message, 'warn');
         }
     }
 };

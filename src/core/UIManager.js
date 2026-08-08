@@ -304,6 +304,14 @@ export const UIManager = {
             tabButton.dataset.tabId = component.id;
             tabButton.innerHTML = `${component.icon}<span>${component.label}</span>`;
             tabButton.onclick = () => this._showTab(component.id);
+
+            // Optional per-tab accent. The store guarantees this is `#rrggbb` or null; it paints an
+            // edge bar and the icon rather than text, so the tab stays readable in both themes.
+            if (setting.color) {
+                tabButton.classList.add('pdt-nav-tab--colored');
+                tabButton.style.setProperty('--pdt-tab-color', setting.color);
+            }
+
             tabsContainer.appendChild(tabButton);
         });
 
@@ -336,9 +344,10 @@ export const UIManager = {
 
             this.renderedTabs.get(this.activeTabId)?.remove();
             this.renderedTabs.delete(this.activeTabId);
-
-            this._showTab(this.activeTabId);
         }
+
+        this._updateHeaderButtons();
+        this.updateNavTabs();
     },
 
     /**

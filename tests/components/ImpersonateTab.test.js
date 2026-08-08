@@ -30,6 +30,7 @@ const mockUsers = [
 vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
         retrieveMultipleRecords: vi.fn(() => Promise.resolve({ entities: [] })),
+        retrieveMultipleRecordsAsSelf: vi.fn(() => Promise.resolve({ entities: [] })),
         setImpersonation: vi.fn(),
         clearImpersonation: vi.fn(),
         isImpersonating: vi.fn(() => false),
@@ -40,7 +41,9 @@ vi.mock('../../src/services/DataService.js', () => ({
 vi.mock('../../src/services/PowerAppsApiService.js', () => ({
     PowerAppsApiService: {
         isFormContextAvailable: true,
-        getEntityName: vi.fn(() => 'account')
+        getEntityName: vi.fn(() => 'account'),
+        getEntityId: vi.fn(() => 'rec-1'),
+        getFormId: vi.fn(() => 'form-1')
     }
 }));
 
@@ -62,15 +65,8 @@ vi.mock('../../src/services/SecurityAnalysisService.js', () => ({
             targetUserTeams: []
         })),
         generateAdminCenterLink: vi.fn(() => 'https://admin.example.com'),
-        generateEntraLink: vi.fn(() => 'https://entra.example.com')
-    }
-}));
-
-vi.mock('../../src/services/LiveImpersonationService.js', () => ({
-    LiveImpersonationService: {
-        isActive: false,
-        start: vi.fn(() => Promise.resolve()),
-        stop: vi.fn()
+        generateEntraLink: vi.fn(() => 'https://entra.example.com'),
+        hasAnySecurityRole: vi.fn(() => Promise.resolve(true))
     }
 }));
 
@@ -85,12 +81,19 @@ vi.mock('../../src/services/CommandBarAnalysisService.js', () => ({
     }
 }));
 
-vi.mock('../../src/ui/LiveComparisonPanel.js', () => ({
-    LiveComparisonPanel: {
-        show: vi.fn(),
-        hide: vi.fn()
+vi.mock('../../src/services/QuickCheckService.js', () => ({
+    QuickCheckService: {
+        buildCheck: vi.fn(() => Promise.resolve(null)),
+        clearCache: vi.fn()
     }
 }));
+
+// Keep the real helpers — an escapeHtml stub would hide escaping bugs — and spy only on the
+// clipboard call, which jsdom cannot perform.
+vi.mock('../../src/helpers/index.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return { ...actual, copyToClipboard: vi.fn() };
+});
 
 vi.mock('../../src/helpers/ui.helpers.js', () => ({
     UIHelpers: {
@@ -111,17 +114,20 @@ vi.mock('../../src/helpers/ui.helpers.js', () => ({
 import { DataService } from '../../src/services/DataService.js';
 import { NotificationService } from '../../src/services/NotificationService.js';
 import { SecurityAnalysisService } from '../../src/services/SecurityAnalysisService.js';
-import { LiveImpersonationService } from '../../src/services/LiveImpersonationService.js';
 import { CommandBarAnalysisService } from '../../src/services/CommandBarAnalysisService.js';
-import { LiveComparisonPanel } from '../../src/ui/LiveComparisonPanel.js';
+import { QuickCheckService } from '../../src/services/QuickCheckService.js';
 import { PowerAppsApiService } from '../../src/services/PowerAppsApiService.js';
+import { copyToClipboard } from '../../src/helpers/index.js';
+import { Config } from '../../src/constants/index.js';
 
 describe('ImpersonateTab', () => {
     let component;
 
     beforeEach(() => {
         vi.clearAllMocks();
+        DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: [] });
         DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [] });
+        SecurityAnalysisService.hasAnySecurityRole.mockResolvedValue(true);
         DataService.getImpersonationInfo.mockReturnValue({
             isImpersonating: false,
             userId: null,
@@ -338,28 +344,73 @@ describe('ImpersonateTab', () => {
         });
 
         it('should search for users with search term', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'john';
 
             await component._performSearch();
 
-            expect(DataService.retrieveMultipleRecords).toHaveBeenCalledWith(
+            expect(DataService.retrieveMultipleRecordsAsSelf).toHaveBeenCalledWith(
                 'systemuser',
                 expect.stringContaining('john')
             );
         });
 
+        it('should never search through the impersonation header', async () => {
+            // Impersonating a user without prvReadUser used to 403 this very search, leaving no way
+            // to pick a different user.
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
+            component.ui.searchInput.value = 'john';
+
+            await component._performSearch();
+
+            expect(DataService.retrieveMultipleRecords).not.toHaveBeenCalled();
+        });
+
+        it('should match the search term against email and sign-in name, not just full name', async () => {
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
+            component.ui.searchInput.value = 'john.doe@contoso.com';
+
+            await component._performSearch();
+
+            const [, options] = DataService.retrieveMultipleRecordsAsSelf.mock.calls[0];
+            expect(options).toContain("contains(fullname,'john.doe@contoso.com')");
+            expect(options).toContain("contains(domainname,'john.doe@contoso.com')");
+            expect(options).toContain("contains(internalemailaddress,'john.doe@contoso.com')");
+        });
+
+        it('should look up a bare GUID by id instead of as text', async () => {
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
+            component.ui.searchInput.value = 'fc8d6bd7-e775-f111-ab0e-0022486f5c26';
+
+            await component._performSearch();
+
+            const [, options] = DataService.retrieveMultipleRecordsAsSelf.mock.calls[0];
+            expect(options).toContain('systemuserid eq fc8d6bd7-e775-f111-ab0e-0022486f5c26');
+            expect(options).toContain('azureactivedirectoryobjectid eq fc8d6bd7-e775-f111-ab0e-0022486f5c26');
+            expect(options).not.toContain('contains(fullname');
+        });
+
+        it('should escape single quotes in the search term', async () => {
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: [] });
+            component.ui.searchInput.value = "O'Brien";
+
+            await component._performSearch();
+
+            const [, options] = DataService.retrieveMultipleRecordsAsSelf.mock.calls[0];
+            expect(options).toContain("contains(fullname,'O''Brien')");
+        });
+
         it('should search all users when no term provided', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = '';
 
             await component._performSearch();
 
-            expect(DataService.retrieveMultipleRecords).toHaveBeenCalled();
+            expect(DataService.retrieveMultipleRecordsAsSelf).toHaveBeenCalled();
         });
 
         it('should cache search results', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'user';
 
             await component._performSearch();
@@ -368,7 +419,7 @@ describe('ImpersonateTab', () => {
         });
 
         it('should show no results message when empty', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [] });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: [] });
             component.ui.searchInput.value = 'nonexistent';
 
             await component._performSearch();
@@ -386,7 +437,7 @@ describe('ImpersonateTab', () => {
 
         it('should disable search button while searching', async () => {
             let resolveSearch;
-            DataService.retrieveMultipleRecords.mockImplementation(() => new Promise(r => { resolveSearch = r; }));
+            DataService.retrieveMultipleRecordsAsSelf.mockImplementation(() => new Promise(r => { resolveSearch = r; }));
             component.ui.searchInput.value = 'test';
 
             const searchPromise = component._performSearch();
@@ -400,7 +451,7 @@ describe('ImpersonateTab', () => {
         });
 
         it('should handle search error gracefully', async () => {
-            DataService.retrieveMultipleRecords.mockRejectedValue(new Error('Network error'));
+            DataService.retrieveMultipleRecordsAsSelf.mockRejectedValue(new Error('Network error'));
             component.ui.searchInput.value = 'test';
 
             await component._performSearch();
@@ -410,7 +461,7 @@ describe('ImpersonateTab', () => {
 
         it('should reset sort state on new search', async () => {
             component.sortState = { column: 'domainname', direction: 'desc' };
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'test';
 
             await component._performSearch();
@@ -527,6 +578,34 @@ describe('ImpersonateTab', () => {
                 expect(updateSpy).toHaveBeenCalled();
             }
         });
+
+        it('should warn when the selected user holds no security role', async () => {
+            SecurityAnalysisService.hasAnySecurityRole.mockResolvedValue(false);
+
+            await component._warnIfUserHasNoRoles('user-1', 'John Doe');
+
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('no security roles'),
+                'warn'
+            );
+        });
+
+        it('should not warn when the role check itself fails', async () => {
+            // "Could not ask" is not "has none" — a false alarm here would be worse than silence.
+            SecurityAnalysisService.hasAnySecurityRole.mockRejectedValue(new Error('403'));
+
+            await component._warnIfUserHasNoRoles('user-1', 'John Doe');
+
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
+
+        it('should not warn when the selected user holds roles', async () => {
+            SecurityAnalysisService.hasAnySecurityRole.mockResolvedValue(true);
+
+            await component._warnIfUserHasNoRoles('user-1', 'John Doe');
+
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
     });
 
     describe('clear impersonation', () => {
@@ -562,22 +641,6 @@ describe('ImpersonateTab', () => {
             }
         });
 
-        it('should stop live impersonation when clearing with live active', async () => {
-            // Mock live impersonation as active
-            LiveImpersonationService.isActive = true;
-
-            const clearBtn = component.ui.statusContainer.querySelector('#impersonate-clear-btn');
-            if (clearBtn) {
-                clearBtn.click();
-
-                expect(LiveImpersonationService.stop).toHaveBeenCalled();
-                expect(LiveComparisonPanel.hide).toHaveBeenCalled();
-                expect(DataService.clearImpersonation).toHaveBeenCalled();
-            }
-
-            // Reset
-            LiveImpersonationService.isActive = false;
-        });
     });
 
     describe('destroy', () => {
@@ -627,11 +690,11 @@ describe('ImpersonateTab', () => {
         });
 
         it('should trim search input', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = '  john  ';
             await component._performSearch();
 
-            expect(DataService.retrieveMultipleRecords).toHaveBeenCalledWith(
+            expect(DataService.retrieveMultipleRecordsAsSelf).toHaveBeenCalledWith(
                 'systemuser',
                 expect.stringContaining('john')
             );
@@ -653,7 +716,7 @@ describe('ImpersonateTab', () => {
 
         it('should handle header click and re-render results', async () => {
             // First perform a search to get results with sortable headers
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'user';
             await component._performSearch();
 
@@ -688,7 +751,7 @@ describe('ImpersonateTab', () => {
         });
 
         it('should handle row click for impersonation', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'user';
             await component._performSearch();
 
@@ -716,7 +779,7 @@ describe('ImpersonateTab', () => {
         });
 
         it('should return early if header is clicked (not process row)', async () => {
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
             component.ui.searchInput.value = 'user';
             await component._performSearch();
 
@@ -889,46 +952,6 @@ describe('ImpersonateTab', () => {
         });
     });
 
-    describe('_updateLiveButtonState', () => {
-        it('should update button to active state', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            component._updateLiveButtonState(true);
-
-            expect(component.ui.liveBtn.classList.contains('pdt-live-active')).toBe(true);
-            expect(component.ui.liveBtn.textContent).toContain('Stop');
-        });
-
-        it('should update button to inactive state', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            // First set to active
-            component._updateLiveButtonState(true);
-            // Then set to inactive
-            component._updateLiveButtonState(false);
-
-            expect(component.ui.liveBtn.classList.contains('pdt-live-active')).toBe(false);
-            expect(component.ui.liveBtn.textContent).not.toContain('Stop');
-        });
-
-        it('should handle missing button gracefully', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            component.ui.liveBtn = null;
-
-            // Should not throw
-            expect(() => component._updateLiveButtonState(true)).not.toThrow();
-        });
-    });
 
     describe('_performSecurityAnalysis', () => {
         it('should return early if not impersonating', async () => {
@@ -1144,7 +1167,33 @@ describe('ImpersonateTab', () => {
 
             const html = component._renderTeamComparison('Target', 'Custom User', analysis);
 
-            expect(html).toContain("Custom User's Only Teams");
+            // Both columns use the same phrasing now, matching the "…Only You Have" self variant.
+            expect(html).toContain('Team Memberships Only Custom User Has');
+        });
+
+        it('should escape a comparison user name containing markup', async () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderTeamComparison(
+                '<img src=x onerror=alert(1)>',
+                '<script>alert(2)</script>',
+                { currentUserTeams: [], targetUserTeams: [] }
+            );
+
+            expect(html).not.toContain('<img');
+            expect(html).not.toContain('<script>');
+            expect(html).toContain('&lt;img');
+        });
+
+        it('should use the self label only when told it is the signed-in user', async () => {
+            component = new ImpersonateTab();
+            const analysis = { currentUserTeams: [], targetUserTeams: [] };
+
+            // A user genuinely named "You" must not be mistaken for the signed-in user.
+            expect(component._renderTeamComparison('Target', 'You', analysis, false))
+                .toContain('Team Memberships Only You Has');
+            expect(component._renderTeamComparison('Target', 'You', analysis, true))
+                .toContain(Config.MESSAGES.IMPERSONATE.teamMembershipsOnlyYou);
         });
     });
 
@@ -1215,7 +1264,20 @@ describe('ImpersonateTab', () => {
 
             const html = component._renderRoleComparison('Target', 'Admin User', analysis);
 
-            expect(html).toContain("Admin User's Only Roles");
+            expect(html).toContain('Roles Only Admin User Has');
+        });
+
+        it('should escape user names containing markup', async () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderRoleComparison(
+                '<img src=x onerror=alert(1)>',
+                '<script>alert(2)</script>',
+                { commonRoles: [], currentUserOnlyRoles: [], targetUserOnlyRoles: [] }
+            );
+
+            expect(html).not.toContain('<img');
+            expect(html).not.toContain('<script>');
         });
     });
 
@@ -1310,6 +1372,39 @@ describe('ImpersonateTab', () => {
             expect(html).toContain('Basic User');
             expect(html).toContain('pdt-priv-role');
             expect(html).toContain('pdt-priv-roles');
+        });
+
+        it('should report an unreadable side as unknown rather than denied', async () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderEntityPrivileges(
+                'account',
+                'Target User',
+                'You',
+                { unavailable: 'HTTP 403 Forbidden' },
+                { read: { hasPrivilege: true, depth: 'Global (Org)', roles: [] } }
+            );
+
+            expect(html).toContain('could not be read');
+            expect(html).toContain('Target User');
+            // One "Unknown" cell per privilege row, and only on the side that could not be read.
+            expect((html.match(/Unknown/g) || []).length).toBe(8);
+        });
+
+        it('should not claim a difference when one side is unknown', async () => {
+            component = new ImpersonateTab();
+
+            const html = component._renderEntityPrivileges(
+                'account',
+                'Target User',
+                'You',
+                { unavailable: 'HTTP 403 Forbidden' },
+                { read: { hasPrivilege: true, depth: 'Global (Org)', roles: [] } }
+            );
+
+            expect(html).not.toContain('pdt-priv-row--different');
+            expect(html).not.toContain('pdt-priv-row--both-have');
+            expect(html).not.toContain('pdt-priv-row--both-lack');
         });
     });
 
@@ -1631,13 +1726,13 @@ describe('ImpersonateTab', () => {
 
             component._renderCommandBarComparison(comparison, 'Target', 'You', 'account', 'Form');
 
-            // Find command ID element and verify click handler is added
+            // Copying is handled by one delegated listener on the panel, not per-element wiring.
             const cmdIdElement = component.ui.securityAnalysisContent.querySelector('.pdt-command-id');
             expect(cmdIdElement).toBeTruthy();
-            expect(cmdIdElement.style.cursor).toBe('pointer');
 
-            // Simulate click - should not throw
-            expect(() => cmdIdElement.click()).not.toThrow();
+            cmdIdElement.click();
+
+            expect(copyToClipboard).toHaveBeenCalledWith('Mscrm.SavePrimary', expect.any(String));
         });
 
         it('should render grid context correctly', async () => {
@@ -1820,147 +1915,467 @@ describe('ImpersonateTab', () => {
         });
     });
 
-    describe('_renderCommandWithCustomRules', () => {
-        it('should render evaluated custom rules', async () => {
+    describe('audit regressions', () => {
+        beforeEach(async () => {
             component = new ImpersonateTab();
-
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'CustomAction',
-                isStandardCommand: false,
-                solutionName: 'MySolution',
-                customRules: [
-                    { id: 'rule1', functionName: 'isEnabled', library: 'scripts.js', evaluated: true, result: true }
-                ]
-            };
-
-            const html = component._renderCommandWithCustomRules(cmd);
-
-            expect(html).toContain('isEnabled');
-            expect(html).toContain('true');
-            expect(html).toContain('Evaluated');
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
         });
 
-        it('should render unevaluated custom rules', async () => {
-            component = new ImpersonateTab();
+        it('should clear the previous user analysis when a different user is selected', async () => {
+            component.securityAnalysis = { commonRoles: [{ name: 'Stale' }] };
+            component.lastSearchResults = [...mockUsers];
+            component._renderResults();
 
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'CustomAction',
-                isStandardCommand: false,
-                customRules: [
-                    { id: 'rule1', functionName: 'checkPermission', evaluated: false, reason: 'Library not loaded' }
-                ]
-            };
+            component.ui.resultsContainer.querySelector('tr[data-user-id]').click();
 
-            const html = component._renderCommandWithCustomRules(cmd);
-
-            expect(html).toContain('checkPermission');
-            expect(html).toContain('Could Not Evaluate');
+            expect(component.securityAnalysis).toBeNull();
+            expect(component.ui.securityAnalysisContent.innerHTML).not.toContain('Stale');
         });
 
-        it('should show all passed badge when all rules pass', async () => {
-            component = new ImpersonateTab();
+        it('should let an older search be overtaken without clobbering the newer results', async () => {
+            let resolveFirst;
+            DataService.retrieveMultipleRecordsAsSelf
+                .mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }))
+                .mockResolvedValueOnce({ entities: [mockUsers[1]] });
 
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'Action',
-                isStandardCommand: true,
-                customRules: [
-                    { id: 'rule1', evaluated: true, result: true },
-                    { id: 'rule2', evaluated: true, result: true }
-                ]
-            };
+            component.ui.searchInput.value = 'slow';
+            const first = component._performSearch();
+            component.ui.searchInput.value = 'fast';
+            await component._performSearch();
 
-            const html = component._renderCommandWithCustomRules(cmd);
+            resolveFirst({ entities: mockUsers });
+            await first;
 
-            expect(html).toContain('All Rules Passed');
+            expect(component.lastSearchResults).toEqual([mockUsers[1]]);
         });
 
-        it('should show failed badge when a rule fails', async () => {
-            component = new ImpersonateTab();
+        it('should select a user from the keyboard', async () => {
+            component.lastSearchResults = [...mockUsers];
+            component._renderResults();
 
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'Action',
-                isStandardCommand: true,
-                customRules: [
-                    { id: 'rule1', evaluated: true, result: false }
-                ]
-            };
+            const row = component.ui.resultsContainer.querySelector('tr[data-user-id]');
+            expect(row.getAttribute('tabindex')).toBe('0');
 
-            const html = component._renderCommandWithCustomRules(cmd);
+            row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
-            expect(html).toContain('Rule Failed');
+            expect(DataService.setImpersonation).toHaveBeenCalled();
         });
 
-        it('should show partially evaluated badge when mix of evaluated and unevaluated', async () => {
-            component = new ImpersonateTab();
-
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'MixedRules',
-                isStandardCommand: false,
-                solutionName: 'MySolution',
-                customRules: [
-                    { id: 'rule1', evaluated: true, result: true },
-                    { id: 'rule2', evaluated: false, reason: 'Library not loaded' }
-                ]
+        it('should say why entity privileges are missing outside a form', async () => {
+            PowerAppsApiService.isFormContextAvailable = false;
+            component.securityAnalysis = {
+                commonRoles: [], currentUserOnlyRoles: [], targetUserOnlyRoles: [],
+                targetUserFieldProfiles: [], comparisonUserFieldProfiles: [],
+                currentUserTeams: [], targetUserTeams: [], entityPrivileges: null
             };
 
-            const html = component._renderCommandWithCustomRules(cmd);
+            component._renderSecurityAnalysis('Target', 'You', null);
 
-            expect(html).toContain('Partially Evaluated');
+            expect(component.ui.securityAnalysisContent.textContent).toContain('Open a record form');
+            PowerAppsApiService.isFormContextAvailable = true;
         });
 
-        it('should show custom rules badge when no rules are evaluated', async () => {
-            component = new ImpersonateTab();
+        it('should reset the comparison user when impersonation is cleared', async () => {
+            component.comparisonUser = { userId: 'user-2', userName: 'Jane Smith' };
+            component.ui.compareUserSelect.value = 'custom';
+            DataService.getImpersonationInfo.mockReturnValue({
+                isImpersonating: true, userId: 'user-1', userName: 'John Doe'
+            });
+            component._updateStatus();
 
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'NoEval',
-                isStandardCommand: false,
-                customRules: []
-            };
+            component.ui.statusContainer.querySelector('#impersonate-clear-btn').click();
 
-            const html = component._renderCommandWithCustomRules(cmd);
+            expect(component.comparisonUser).toBeNull();
+            expect(component.ui.compareUserSelect.value).toBe('current');
+        });
 
-            expect(html).toContain('Custom Rules');
+        it('should note when the search hit its result cap', async () => {
+            component.lastSearchResults = Array.from({ length: 250 }, (_, i) => ({
+                systemuserid: `user-${i}`, fullname: `User ${i}`, domainname: `user${i}@contoso.com`
+            }));
+
+            component._renderResults();
+
+            expect(component.ui.resultsContainer.textContent).toContain('Showing the first 250');
+        });
+
+        it('should copy a command id through the delegated handler', async () => {
+            component.ui.securityAnalysisContent.innerHTML = '<code class="pdt-command-id">mscrm.Delete</code>';
+
+            component.ui.securityAnalysisContent.querySelector('.pdt-command-id').click();
+
+            expect(copyToClipboard).toHaveBeenCalledWith('mscrm.Delete', expect.any(String));
         });
     });
 
-    describe('_renderCommandItemCompact', () => {
-        it('should render visible command', async () => {
+    describe('analysis in-flight guard', () => {
+        beforeEach(async () => {
+            DataService.getImpersonationInfo.mockReturnValue({
+                isImpersonating: true, userId: 'user-1', userName: 'John Doe'
+            });
             component = new ImpersonateTab();
-
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'Save',
-                visibleToCurrentUser: true,
-                isStandardCommand: true
-            };
-
-            const html = component._renderCommandItemCompact(cmd);
-
-            expect(html).toContain('pdt-visible');
-            expect(html).toContain('Save');
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
         });
 
-        it('should render hidden command with blocked reasons', async () => {
+        it('should ignore a second Analyze click while one is running', async () => {
+            let resolveAnalysis;
+            SecurityAnalysisService.compareUserSecurity.mockImplementationOnce(
+                () => new Promise(r => { resolveAnalysis = r; })
+            );
+
+            const first = component._performSecurityAnalysis();
+            await component._performSecurityAnalysis();
+
+            expect(SecurityAnalysisService.compareUserSecurity).toHaveBeenCalledTimes(1);
+
+            resolveAnalysis({
+                commonRoles: [], currentUserOnlyRoles: [], targetUserOnlyRoles: [],
+                targetUserFieldProfiles: [], comparisonUserFieldProfiles: [],
+                currentUserTeams: [], targetUserTeams: [], entityPrivileges: {}
+            });
+            await first;
+        });
+
+        it('should not let Compare Commands start while Analyze is running', async () => {
+            // Both render into the same panel, so overlapping runs would fight over it.
+            let resolveAnalysis;
+            SecurityAnalysisService.compareUserSecurity.mockImplementationOnce(
+                () => new Promise(r => { resolveAnalysis = r; })
+            );
+
+            const first = component._performSecurityAnalysis();
+            await component._performCommandBarAnalysis();
+
+            expect(CommandBarAnalysisService.compareCommandBarVisibility).not.toHaveBeenCalled();
+
+            resolveAnalysis({
+                commonRoles: [], currentUserOnlyRoles: [], targetUserOnlyRoles: [],
+                targetUserFieldProfiles: [], comparisonUserFieldProfiles: [],
+                currentUserTeams: [], targetUserTeams: [], entityPrivileges: {}
+            });
+            await first;
+        });
+
+        it('should re-enable both buttons after a run', async () => {
+            await component._performSecurityAnalysis();
+
+            expect(component.ui.analyzeBtn.disabled).toBe(false);
+            expect(component.ui.compareCommandsBtn.disabled).toBe(false);
+        });
+
+        it('should leave the buttons disabled when impersonation ended mid-run', async () => {
+            SecurityAnalysisService.compareUserSecurity.mockImplementationOnce(async () => {
+                DataService.getImpersonationInfo.mockReturnValue({
+                    isImpersonating: false, userId: null, userName: null
+                });
+                return {
+                    commonRoles: [], currentUserOnlyRoles: [], targetUserOnlyRoles: [],
+                    targetUserFieldProfiles: [], comparisonUserFieldProfiles: [],
+                    currentUserTeams: [], targetUserTeams: [], entityPrivileges: {}
+                };
+            });
+
+            await component._performSecurityAnalysis();
+
+            expect(component.ui.analyzeBtn.disabled).toBe(true);
+        });
+
+    });
+
+    describe('quick check', () => {
+        /** A benign result with every section present, so each test opts into one finding. */
+        const result = (overrides = {}) => ({
+            userId: 'user-1',
+            entityLogicalName: 'account',
+            form: { availableForms: [], matchesCurrent: true },
+            record: { checked: true, canRead: true, canWrite: true },
+            securedColumns: { columns: new Map() },
+            privileges: {
+                read: { hasPrivilege: true }, create: { hasPrivilege: true },
+                write: { hasPrivilege: true }, delete: { hasPrivilege: true },
+                append: { hasPrivilege: true }, appendto: { hasPrivilege: true },
+                assign: { hasPrivilege: true }, share: { hasPrivilege: true }
+            },
+            apps: { visible: [], hidden: [], undetermined: [] },
+            views: { restricted: [], hidden: [] },
+            ...overrides
+        });
+
+        beforeEach(async () => {
+            DataService.getImpersonationInfo.mockReturnValue({
+                isImpersonating: true, userId: 'user-1', userName: 'John Doe'
+            });
+            QuickCheckService.buildCheck.mockResolvedValue(result());
+            CommandBarAnalysisService.getCurrentEntity.mockReturnValue('account');
+            DataService.getEntitySetName = vi.fn(() => Promise.resolve('accounts'));
+            component = new ImpersonateTab();
+            const element = await component.render();
+            document.body.appendChild(element);
+            component.postRender(element);
+        });
+
+        it('should run a check for the impersonated user when switched on', async () => {
+            await component._runQuickCheck();
+
+            expect(QuickCheckService.buildCheck).toHaveBeenCalledWith('user-1', expect.objectContaining({
+                entityLogicalName: 'account'
+            }));
+        });
+
+        it('should never write to the host form', async () => {
+            // An earlier revision annotated the live form; touching a form context the UCI is
+            // tearing down during navigation is not worth the risk to a running app.
+            await component._runQuickCheck();
+
+            expect(PowerAppsApiService.setFormNotification).toBeUndefined();
+            expect(PowerAppsApiService.addControlNotification).toBeUndefined();
+        });
+
+        it('should ignore a second press while a check is running', async () => {
+            let resolveCheck;
+            QuickCheckService.buildCheck.mockImplementationOnce(() => new Promise(r => { resolveCheck = r; }));
+
+            const first = component._runQuickCheck();
+            // Let the first run get past reading the page context and into the service call.
+            await Promise.resolve();
+            await Promise.resolve();
+            await component._runQuickCheck();
+
+            expect(QuickCheckService.buildCheck).toHaveBeenCalledTimes(1);
+
+            resolveCheck(result());
+            await first;
+            expect(component.ui.quickCheckBtn.disabled).toBe(false);
+        });
+
+        it('should work on a list page, where there is no form or record', async () => {
+            PowerAppsApiService.isFormContextAvailable = false;
+            await component._runQuickCheck();
+
+            const [, pageContext] = QuickCheckService.buildCheck.mock.calls[0];
+            expect(pageContext.formId).toBeNull();
+            expect(pageContext.recordId).toBeNull();
+            PowerAppsApiService.isFormContextAvailable = true;
+        });
+
+        it('should say so when the page has no table at all', async () => {
+            CommandBarAnalysisService.getCurrentEntity.mockReturnValue(null);
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('Open a table form or list');
+            expect(QuickCheckService.buildCheck).not.toHaveBeenCalled();
+        });
+
+        it('should label the result with the page it was taken on', async () => {
+            // The result is a snapshot, not a live view, so a panel left on screen after navigating
+            // has to read as stale rather than as the answer for where you now are.
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('account, record on screen');
+        });
+
+        it('should label a list result as a list', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                form: { availableForms: [], notApplicable: true, matchesCurrent: true },
+                record: { checked: false }
+            }));
+
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('account list');
+        });
+
+        it('should still call a create form a form, not a list', async () => {
+            // An unsaved record has no id, so keying the heading off record access mislabelled
+            // every create form as a list.
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                form: { availableForms: [], matchesCurrent: true },
+                record: { checked: false }
+            }));
+
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('account, record on screen');
+        });
+
+        it('should discard a result whose user was switched away mid-run', async () => {
+            let resolveCheck;
+            QuickCheckService.buildCheck.mockImplementationOnce(() => new Promise(r => { resolveCheck = r; }));
+
+            const running = component._runQuickCheck();
+            // Let the run get past reading the page context and into the service call.
+            await Promise.resolve();
+            await Promise.resolve();
+            // Switching user resets Quick Check, which must invalidate the run already in flight.
+            component._resetQuickCheck();
+
+            resolveCheck(result());
+            await running;
+
+            expect(component.ui.quickCheckPanel.textContent).toBe('');
+        });
+
+        it('should not throw when the tab is destroyed mid-use', async () => {
+            await component._runQuickCheck();
+
+            expect(() => component.destroy()).not.toThrow();
+        });
+
+        it('should reset when impersonation is cleared', async () => {
+            await component._runQuickCheck();
+            component._updateStatus();
+
+            component.ui.statusContainer.querySelector('#impersonate-clear-btn').click();
+
+            expect(component.ui.quickCheckPanel.textContent).toBe('');
+            expect(QuickCheckService.clearCache).toHaveBeenCalled();
+        });
+
+        it('should reset when a different user is selected', async () => {
+            await component._runQuickCheck();
+            component.lastSearchResults = [...mockUsers];
+            component._renderResults();
+
+            component.ui.resultsContainer.querySelector('tr[data-user-id]').click();
+
+            expect(component.ui.quickCheckPanel.textContent).toBe('');
+        });
+
+        it('should list what the user can and cannot do on the table', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                privileges: {
+                    read: { hasPrivilege: true }, create: { hasPrivilege: false },
+                    write: { hasPrivilege: false }, delete: { hasPrivilege: false },
+                    append: { hasPrivilege: true }, appendto: { hasPrivilege: true },
+                    assign: { hasPrivilege: false }, share: { hasPrivilege: false }
+                }
+            }));
+            await component._runQuickCheck();
+
+            const text = component.ui.quickCheckPanel.textContent;
+            expect(text).toContain('Can read, append, append to.');
+            expect(text).toContain('Cannot create, write, delete, assign, share.');
+            expect(text).toContain('This table is read-only for John Doe.');
+        });
+
+        it('should not call a table read-only when the user can write', async () => {
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).not.toContain('read-only');
+        });
+
+        it('should report no privileges at all rather than an empty list', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                privileges: { read: { hasPrivilege: false }, write: { hasPrivilege: false } }
+            }));
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('John Doe has no privileges on this table.');
+        });
+
+        it('should name the apps the user can open', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                apps: {
+                    visible: [{ name: 'Sales Hub' }, { name: 'Customer Service Hub' }],
+                    hidden: [{ name: 'Field Service' }],
+                    undetermined: []
+                }
+            }));
+
+            await component._runQuickCheck();
+
+            // Sorted, so the list reads the same way twice.
+            expect(component.ui.quickCheckPanel.textContent)
+                .toContain('2 of 3 apps visible: Customer Service Hub, Sales Hub');
+        });
+
+        it('should summarise a long app list rather than printing all of it', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                apps: {
+                    visible: 'ABCDEFGH'.split('').map(letter => ({ name: `App ${letter}` })),
+                    hidden: [],
+                    undetermined: []
+                }
+            }));
+
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('+2 more');
+        });
+
+        it('should say plainly when no app is visible', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                apps: { visible: [], hidden: [{ name: 'Sales Hub' }], undetermined: [] }
+            }));
+
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('None of the 1 apps are visible');
+        });
+
+        it('should name the columns field security restricts', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                securedColumns: { columns: new Map([['creditlimit', {}], ['revenue', {}]]) }
+            }));
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('2 columns restricted by field security: creditlimit, revenue');
+        });
+
+        it('should omit the form fact on a list page', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                form: { availableForms: [], notApplicable: true, matchesCurrent: true }
+            }));
+            await component._runQuickCheck();
+
+            const text = component.ui.quickCheckPanel.textContent;
+            expect(text).not.toContain('Same form as you');
+            expect(text).not.toContain('would open a different form');
+        });
+
+        it('should name the form the user would get instead', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                form: { matchesCurrent: false, availableForms: [{ name: 'Account (Sales)' }] }
+            }));
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('Account (Sales)');
+        });
+
+        it('should report an unreadable section as unavailable, not as a restriction', async () => {
+            QuickCheckService.buildCheck.mockResolvedValue(result({
+                privileges: { unavailable: 'HTTP 403' }
+            }));
+            await component._runQuickCheck();
+
+            const text = component.ui.quickCheckPanel.textContent;
+            expect(text).toContain('Table privileges could not be read');
+            expect(text).not.toContain('has no privileges');
+        });
+
+        it('should surface a failed check without leaving the panel spinning', async () => {
+            QuickCheckService.buildCheck.mockRejectedValue(new Error('HTTP 500'));
+            await component._runQuickCheck();
+
+            expect(component.ui.quickCheckPanel.textContent).toContain('HTTP 500');
+        });
+    });
+
+    describe('_getDepthBadgeHtml', () => {
+        // The badge parses the depth label the service produces, so the two must stay in step.
+        it.each([
+            ['Global (Org)', 'Organization'],
+            ['Deep (BU + Child)', 'Deep'],
+            ['Local (BU)', 'Business Unit'],
+            ['Basic (User)', 'User']
+        ])('should badge %s as %s', (depth, expected) => {
             component = new ImpersonateTab();
 
-            const cmd = {
-                commandId: 'cmd1',
-                commandName: 'Delete',
-                visibleToCurrentUser: false,
-                isStandardCommand: true,
-                currentUserBlockedBy: ['Mscrm.DeletePrivilege', 'Mscrm.WritePrivilege', 'Mscrm.AdminOnly']
-            };
-
-            const html = component._renderCommandItemCompact(cmd);
-
-            expect(html).toContain('pdt-hidden');
-            expect(html).toContain('Mscrm.DeletePrivilege');
+            expect(component._getDepthBadgeHtml(depth)).toContain(expected);
         });
     });
 
@@ -2034,11 +2449,11 @@ describe('ImpersonateTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: [] });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: [] });
 
             await component._showComparisonUserPicker();
 
-            expect(NotificationService.show).toHaveBeenCalledWith('No users found', 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith('No users found', 'warn');
         });
 
         it('should handle error when fetching users fails', async () => {
@@ -2047,7 +2462,7 @@ describe('ImpersonateTab', () => {
             document.body.appendChild(element);
             component.postRender(element);
 
-            DataService.retrieveMultipleRecords.mockRejectedValue(new Error('Network error'));
+            DataService.retrieveMultipleRecordsAsSelf.mockRejectedValue(new Error('Network error'));
 
             await component._showComparisonUserPicker();
 
@@ -2068,7 +2483,7 @@ describe('ImpersonateTab', () => {
                 { systemuserid: 'user-1', fullname: 'John Doe', domainname: 'john@test.com' },
                 { systemuserid: 'user-2', fullname: 'Jane Smith', domainname: 'jane@test.com' }
             ];
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
 
             // Start the picker but don't await (it waits for user interaction)
             const pickerPromise = component._showComparisonUserPicker();
@@ -2097,7 +2512,7 @@ describe('ImpersonateTab', () => {
                 { systemuserid: 'user-1', fullname: 'John Doe', domainname: 'john@test.com' },
                 { systemuserid: 'user-2', fullname: 'Jane Smith', domainname: 'jane@test.com' }
             ];
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
 
             const pickerPromise = component._showComparisonUserPicker();
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -2128,7 +2543,7 @@ describe('ImpersonateTab', () => {
             const mockUsers = [
                 { systemuserid: 'user-1', fullname: 'John Doe', domainname: 'john@test.com' }
             ];
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
 
             const pickerPromise = component._showComparisonUserPicker();
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -2160,7 +2575,7 @@ describe('ImpersonateTab', () => {
             const mockUsers = [
                 { systemuserid: 'user-1', fullname: 'John Doe', domainname: 'john@test.com' }
             ];
-            DataService.retrieveMultipleRecords.mockResolvedValue({ entities: mockUsers });
+            DataService.retrieveMultipleRecordsAsSelf.mockResolvedValue({ entities: mockUsers });
 
             const pickerPromise = component._showComparisonUserPicker();
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -2177,97 +2592,6 @@ describe('ImpersonateTab', () => {
         });
     });
 
-    describe('_toggleLiveImpersonation', () => {
-        it('should stop live impersonation when active', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            // Mock as active
-            LiveImpersonationService.isActive = true;
-
-            await component._toggleLiveImpersonation();
-
-            expect(LiveImpersonationService.stop).toHaveBeenCalled();
-            expect(LiveComparisonPanel.hide).toHaveBeenCalled();
-            expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.any(String),
-                'info'
-            );
-
-            // Reset
-            LiveImpersonationService.isActive = false;
-        });
-
-        it('should show warning when trying to start without impersonation', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            LiveImpersonationService.isActive = false;
-            DataService.getImpersonationInfo.mockReturnValue({
-                isImpersonating: false,
-                userId: null,
-                userName: null
-            });
-
-            await component._toggleLiveImpersonation();
-
-            expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.any(String),
-                'warning'
-            );
-            expect(LiveImpersonationService.start).not.toHaveBeenCalled();
-        });
-
-        it('should start live impersonation when user is selected', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            LiveImpersonationService.isActive = false;
-            DataService.getImpersonationInfo.mockReturnValue({
-                isImpersonating: true,
-                userId: 'user-123',
-                userName: 'Test User'
-            });
-
-            await component._toggleLiveImpersonation();
-
-            expect(LiveImpersonationService.start).toHaveBeenCalledWith('user-123', 'Test User');
-            expect(LiveComparisonPanel.show).toHaveBeenCalled();
-            expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.any(String),
-                'success'
-            );
-        });
-
-        it('should handle start error gracefully', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            LiveImpersonationService.isActive = false;
-            DataService.getImpersonationInfo.mockReturnValue({
-                isImpersonating: true,
-                userId: 'user-123',
-                userName: 'Test User'
-            });
-
-            LiveImpersonationService.start.mockRejectedValue(new Error('Start failed'));
-
-            await component._toggleLiveImpersonation();
-
-            expect(NotificationService.show).toHaveBeenCalledWith(
-                expect.stringContaining('Start failed'),
-                'error'
-            );
-        });
-    });
 
     describe('_enableSecurityAnalysis', () => {
         it('should enable all buttons when enabled is true', async () => {
@@ -2280,7 +2604,6 @@ describe('ImpersonateTab', () => {
 
             expect(component.ui.analyzeBtn.disabled).toBe(false);
             expect(component.ui.compareCommandsBtn.disabled).toBe(false);
-            expect(component.ui.liveBtn.disabled).toBe(false);
         });
 
         it('should disable all buttons when enabled is false', async () => {
@@ -2293,7 +2616,6 @@ describe('ImpersonateTab', () => {
 
             expect(component.ui.analyzeBtn.disabled).toBe(true);
             expect(component.ui.compareCommandsBtn.disabled).toBe(true);
-            expect(component.ui.liveBtn.disabled).toBe(true);
         });
 
         it('should show/hide comparison user selector', async () => {
@@ -2377,30 +2699,6 @@ describe('ImpersonateTab', () => {
             compareSpy.mockRestore();
         });
 
-        it('should handle live-impersonation-btn click', async () => {
-            component = new ImpersonateTab();
-            const element = await component.render();
-            document.body.appendChild(element);
-            component.postRender(element);
-
-            const liveSpy = vi.spyOn(component, '_toggleLiveImpersonation').mockResolvedValue();
-
-            const mockEvent = {
-                target: {
-                    closest: (selector) => {
-                        if (selector === 'button') {
-                            return { id: 'live-impersonation-btn' };
-                        }
-                        return null;
-                    }
-                }
-            };
-
-            component._onSecurityActionClick(mockEvent);
-
-            expect(liveSpy).toHaveBeenCalled();
-            liveSpy.mockRestore();
-        });
 
         it('should handle open-admin-center-btn click', async () => {
             component = new ImpersonateTab();

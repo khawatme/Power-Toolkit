@@ -264,4 +264,54 @@ describe('DialogService', () => {
             expect(cancelBtn?.textContent).toBe('Cancel');
         });
     });
+
+    describe('onClose hook', () => {
+        it('should fire onClose when the Cancel/Close button is clicked', () => {
+            const onClose = vi.fn();
+            DialogService.show('Title', '<p>Content</p>', null, { onClose });
+            document.querySelector('.pdt-dialog-cancel').dispatchEvent(new MouseEvent('click'));
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('should fire onClose when the X button is clicked', () => {
+            const onClose = vi.fn();
+            DialogService.show('Title', '<p>Content</p>', null, { onClose });
+            document.querySelector('.pdt-close-btn').dispatchEvent(new MouseEvent('click'));
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('should fire onClose on Escape', () => {
+            const onClose = vi.fn();
+            DialogService.show('Title', '<p>Content</p>', null, { onClose });
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('should fire onClose after a confirming OK', () => {
+            const onClose = vi.fn();
+            DialogService.show('Title', '<p>Content</p>', () => true, { onClose });
+            document.querySelector('.pdt-dialog-ok').dispatchEvent(new MouseEvent('click'));
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('should NOT fire onClose when the OK callback keeps the dialog open (returns false)', () => {
+            const onClose = vi.fn();
+            DialogService.show('Title', '<p>Content</p>', () => false, { onClose });
+            document.querySelector('.pdt-dialog-ok').dispatchEvent(new MouseEvent('click'));
+            expect(onClose).not.toHaveBeenCalled();
+        });
+
+        it('should fire onClose on a programmatic close, exactly once even if closed twice', () => {
+            const onClose = vi.fn();
+            const controller = DialogService.show('Title', '<p>Content</p>', null, { onClose });
+            controller.close();
+            controller.close();
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it('should not throw when no onClose is provided', () => {
+            const controller = DialogService.show('Title', '<p>Content</p>');
+            expect(() => controller.close()).not.toThrow();
+        });
+    });
 });

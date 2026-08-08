@@ -1,6 +1,6 @@
 {
     "name": "power-toolkit",
-    "version": "4.3.0",
+    "version": "5.0.0",
     "type": "module",
     "description": "A comprehensive, client-side toolkit for Power Apps Model-Driven App developers.",
     "private": true,

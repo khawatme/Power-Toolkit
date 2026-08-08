@@ -6,6 +6,86 @@
 import { describe, it, expect } from 'vitest';
 import { ErrorParser } from '../../../src/utils/parsers/ErrorParser.js';
 
+describe('ErrorParser noise stripping', () => {
+    // Verbatim shape of a real Dataverse rejection for an unknown property.
+    const invalidPropertyBody = {
+        error: {
+            code: '0x80048d19',
+            message: "Error identified in Payload provided by the user for Entity :'accounts', "
+                + 'For more information on this error please follow this help link '
+                + 'https://go.microsoft.com/fwlink/?linkid=2195293  ---->  InnerException : '
+                + "Microsoft.Crm.CrmException: Invalid property 'gendercode' was found in entity "
+                + "'Microsoft.Dynamics.CRM.account'. ---> Microsoft.OData.ODataException: The property "
+                + "'gendercode' does not exist on type 'Microsoft.Dynamics.CRM.account'. Make sure to "
+                + 'only use property names that are defined by the type.\r\n   at '
+                + 'Microsoft.AspNet.OData.Formatter.Deserialization.DeserializationHelpers.ApplyProperty'
+                + '(ODataProperty property, IEdmStructuredTypeReference resourceType)\r\n   at '
+                + 'Microsoft.Crm.Extensibility.CrmODataResourceDeserializer.ApplyStructuralProperty()\r\n'
+                + '   --- End of inner exception stack trace ---\r\n   at Microsoft.Crm.Foo()'
+        }
+    };
+
+    const parse = () => ErrorParser.extract({
+        status: 400,
+        response: { data: invalidPropertyBody }
+    });
+
+    it('should keep the sentence naming the offending property', () => {
+        expect(parse()).toContain("Invalid property 'gendercode'");
+    });
+
+    it('should drop the .NET stack frames', () => {
+        const result = parse();
+        expect(result).not.toContain('Microsoft.AspNet.OData.Formatter');
+        expect(result).not.toContain('IEdmStructuredTypeReference');
+        expect(result).not.toContain('End of inner exception');
+    });
+
+    it('should drop the generic help link', () => {
+        const result = parse();
+        expect(result).not.toContain('go.microsoft.com/fwlink');
+        expect(result).not.toContain('For more information on this error');
+    });
+
+    it('should keep the exception chain, where the detail lives', () => {
+        const result = parse();
+        expect(result).toContain('InnerException');
+        expect(result).toContain('does not exist on type');
+    });
+
+    it('should still prefix the status', () => {
+        expect(parse()).toContain('(Status 400)');
+    });
+
+    it('should not repeat the whole response body after the message', () => {
+        // The message is extracted from the body; appending the body restates all of it.
+        const result = ErrorParser.extract({
+            status: 400,
+            response: { data: JSON.stringify(invalidPropertyBody) }
+        });
+
+        expect(result).not.toContain('"code"');
+        expect(result.split("Invalid property 'gendercode'").length - 1).toBe(1);
+    });
+
+    it('should shrink a real error to something readable', () => {
+        const raw = invalidPropertyBody.error.message.length;
+        const parsed = parse().length;
+
+        expect(parsed).toBeLessThan(raw / 2);
+    });
+
+    it('should still surface a raw body when no message could be extracted', () => {
+        const result = ErrorParser.extract({ status: 500, response: { data: 'Gateway exploded' } });
+        expect(result).toContain('Gateway exploded');
+    });
+
+    it('should leave a clean message untouched', () => {
+        const result = ErrorParser.extract({ error: { message: 'Record not found.' } });
+        expect(result).toBe('Record not found.');
+    });
+});
+
 describe('ErrorParser', () => {
     describe('extract', () => {
         it('should extract message from simple string error', () => {

@@ -532,6 +532,22 @@ describe('CustomApiTab', () => {
             const visibleCards = Array.from(cards).filter(c => c.style.display !== 'none');
             expect(visibleCards).toHaveLength(2);
         });
+
+        it('should preserve the active search filter across a re-render (data refresh)', async () => {
+            tab = new CustomApiTab();
+            const element = await tab.render();
+            document.body.appendChild(element);
+            tab.postRender(element);
+            tab.allApis = [...mockApis];
+
+            // The user has an active search; a data refresh (e.g. after adding a parameter) re-renders.
+            tab.ui.searchInput.value = 'TestFunction';
+            tab._renderBrowser();
+
+            const cards = element.querySelectorAll('.pdt-capi-card');
+            const visibleCards = Array.from(cards).filter(c => c.style.display !== 'none');
+            expect(visibleCards).toHaveLength(1); // filter still applied, not reset to "show all"
+        });
     });
 
     // ═══════════════════════════════════════════════════════════

@@ -24,7 +24,8 @@ if (typeof globalThis.Option === 'undefined') {
 vi.mock('../../src/services/DataService.js', () => ({
     DataService: {
         executeFetchXml: vi.fn(() => Promise.resolve({ entities: [], pagingCookie: null })),
-        webApiFetch: vi.fn(() => Promise.resolve({}))
+        webApiFetch: vi.fn(() => Promise.resolve({})),
+        getAttributeDefinitions: vi.fn(() => Promise.resolve([]))
     }
 }));
 
@@ -71,6 +72,7 @@ vi.mock('../../src/utils/ui/ResultPanel.js', () => {
         this.dispose = vi.fn();
         this.currentPage = 1;
         this._selectedIndices = new Set();
+        this.clearSelection = vi.fn(() => this._selectedIndices.clear());
     });
     return { ResultPanel: MockResultPanel };
 });
@@ -107,7 +109,19 @@ vi.mock('../../src/services/BulkTouchService.js', () => ({
 vi.mock('../../src/helpers/index.js', () => ({
     formatXml: vi.fn((xml) => xml),
     normalizeApiResponse: vi.fn((res) => res || { entities: [] }),
-    showColumnBrowser: vi.fn()
+    showColumnBrowser: vi.fn(),
+    // Mirrors the real helpers - identity stubs would hide escaping regressions.
+    escapeHtml: vi.fn((str) => {
+        const p = document.createElement('p');
+        p.textContent = String(str ?? '');
+        return p.innerHTML;
+    }),
+    escapeXml: vi.fn((str) => String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;'))
 }));
 
 describe('FetchXmlTesterTab', () => {
@@ -644,7 +658,7 @@ describe('FetchXmlTesterTab', () => {
             component._handleAddFilterGroup();
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
 
@@ -696,7 +710,7 @@ describe('FetchXmlTesterTab', () => {
             component._handleAddJoin();
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -746,6 +760,26 @@ describe('FetchXmlTesterTab', () => {
             await setupComponent();
             const options = component._buildJoinParentOptions();
             expect(options).toContain('Select Parent');
+        });
+
+        it('should escape the primary table name', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = '<img src=x onerror=alert(1)>';
+
+            const select = document.createElement('select');
+            select.innerHTML = component._buildJoinParentOptions();
+
+            expect(select.querySelector('img')).toBeNull();
+            expect(select.textContent).toContain('<img src=x onerror=alert(1)>');
+        });
+
+        it('should exclude the given join group so it cannot parent itself', async () => {
+            await setupComponent();
+            component._addLinkEntityUI();
+
+            const group = component.ui.joinsContainer.querySelector('.link-entity-group');
+            expect(component._buildJoinParentOptions()).toContain(group.dataset.joinId);
+            expect(component._buildJoinParentOptions(group)).not.toContain(group.dataset.joinId);
         });
     });
 
@@ -934,7 +968,7 @@ describe('FetchXmlTesterTab', () => {
             component.ui.builderEntityInput.value = '';
             const addJoinBtn = element.querySelector('#fetch-add-join-btn');
             addJoinBtn.click();
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should ignore click events on non-button elements', async () => {
@@ -960,7 +994,7 @@ describe('FetchXmlTesterTab', () => {
             await setupComponent();
             component.ui.builderEntityInput.value = '';
             await component._buildFetchXmlFromInputs();
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should generate valid FetchXML with all inputs', async () => {
@@ -1163,7 +1197,8 @@ describe('FetchXmlTesterTab', () => {
                 linkType: 'inner',
                 alias: 'c',
                 joinId: 'join_1',
-                attributesValue: 'fullname'
+                attributesValue: 'fullname',
+                intersect: false
             });
         });
     });
@@ -1426,7 +1461,7 @@ describe('FetchXmlTesterTab', () => {
             component.ui.builderEntityInput.value = '';
             const result = component._getParentEntityName('primary');
             expect(result).toBeNull();
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should return join entity name for join parent', async () => {
@@ -1470,7 +1505,7 @@ describe('FetchXmlTesterTab', () => {
             const removeBtn = firstJoin.querySelector('.remove-join');
             component._handleRemoveJoin(removeBtn);
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
             expect(component.ui.joinsContainer.children.length).toBe(2);
         });
 
@@ -1502,7 +1537,7 @@ describe('FetchXmlTesterTab', () => {
             component.ui.builderContent.querySelector('#builder-entity').value = '';
             const result = await component._resolveAndValidateEntity();
             expect(result).toBeNull();
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should resolve and return logical entity name', async () => {
@@ -1855,8 +1890,33 @@ describe('FetchXmlTesterTab', () => {
             const fetchXml = '<fetch top="10" distinct="true"><entity name="account"></entity></fetch>';
             const result = component._injectPagingCookie(fetchXml, '', 2);
             expect(result).toContain('page="2"');
-            expect(result).toContain('top="10"');
             expect(result).toContain('distinct="true"');
+        });
+
+        // Dataverse documents top as incompatible with paging, so paging must drop it.
+        it('should strip top when paging without a cookie', () => {
+            const fetchXml = '<fetch top="10"><entity name="account"></entity></fetch>';
+            const result = component._injectPagingCookie(fetchXml, '', 2);
+
+            expect(result).not.toContain('top=');
+            expect(result).toContain('page="2"');
+        });
+
+        it('should strip top when paging with a cookie', () => {
+            const fetchXml = '<fetch top="10"><entity name="account"></entity></fetch>';
+            const result = component._injectPagingCookie(fetchXml, '<cookie pagingcookie="abc" />', 3);
+
+            expect(result).not.toContain('top=');
+            expect(result).toContain('page="3"');
+            expect(result).toContain('paging-cookie=');
+        });
+
+        it('should leave a fetch without top untouched apart from paging', () => {
+            const fetchXml = '<fetch distinct="true"><entity name="account"></entity></fetch>';
+            const result = component._injectPagingCookie(fetchXml, '', 2);
+
+            expect(result).toContain('distinct="true"');
+            expect(result).toContain('page="2"');
         });
     });
 
@@ -2057,7 +2117,7 @@ describe('FetchXmlTesterTab', () => {
             const result = await component._resolveAndValidateEntity();
 
             expect(result).toBe('badentity'); // Should still return the original name
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
     });
 
@@ -2073,7 +2133,7 @@ describe('FetchXmlTesterTab', () => {
 
             component._formatXml();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('Invalid XML') || expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.stringContaining('Invalid XML') || expect.any(String), 'warn');
         });
 
         it('should handle formatXml with valid XML', async () => {
@@ -2261,7 +2321,7 @@ describe('FetchXmlTesterTab', () => {
             const browseFromBtn = joinGroup.querySelector('.browse-join-from');
             browseFromBtn.click();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should handle browse join to without parent selection', async () => {
@@ -2275,7 +2335,7 @@ describe('FetchXmlTesterTab', () => {
             const browseToBtn = joinGroup.querySelector('.browse-join-to');
             browseToBtn.click();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should handle browse join attributes without entity name', async () => {
@@ -2289,7 +2349,7 @@ describe('FetchXmlTesterTab', () => {
             const browseAttrsBtn = joinGroup.querySelector('.browse-join-attrs');
             browseAttrsBtn.click();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
     });
 
@@ -2749,7 +2809,7 @@ describe('FetchXmlTesterTab', () => {
             const browseToBtn = secondJoin.querySelector('.browse-join-to');
             component._handleBrowseJoinTo(browseToBtn);
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
     });
 
@@ -2792,11 +2852,11 @@ describe('FetchXmlTesterTab', () => {
             const addFilterGroupBtn = joinGroup.querySelector('.add-join-filter-group');
             addFilterGroupBtn.click();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
     });
 
-    describe('_removeJoinGroup comprehensive', () => {
+    describe('_handleRemoveJoin comprehensive', () => {
         it('should clean up all handlers when removing join', async () => {
             await setupComponent();
             component.ui.builderEntityInput.value = 'account';
@@ -2890,7 +2950,7 @@ describe('FetchXmlTesterTab', () => {
             await component._buildFetchXmlFromInputs();
 
             // Should show warning but still generate XML with original name
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should include order in generated XML', async () => {
@@ -2959,6 +3019,994 @@ describe('FetchXmlTesterTab', () => {
             const result = component._buildPrimaryFilterXml();
 
             expect(result).toBe('');
+        });
+    });
+
+    describe('join nesting integrity', () => {
+        const addJoins = (count) => {
+            const groups = [];
+            for (let i = 0; i < count; i++) {
+                component._addLinkEntityUI();
+            }
+            component.ui.joinsContainer.querySelectorAll('.link-entity-group')
+                .forEach(g => groups.push(g));
+            return groups;
+        };
+
+        const setParent = (group, value) => {
+            const select = group.querySelector('[data-prop="parent"]');
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+        };
+
+        it('should reindent descendants when an ancestor is reparented', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second, third] = addJoins(3);
+
+            setParent(second, first.dataset.joinId);
+            setParent(third, second.dataset.joinId);
+            expect(second.dataset.depth).toBe('1');
+            expect(third.dataset.depth).toBe('2');
+
+            // Moving the middle join up must pull its child up with it.
+            setParent(second, 'primary');
+
+            expect(second.dataset.depth).toBe('0');
+            expect(third.dataset.depth).toBe('1');
+        });
+
+        it('should not offer a descendant as a parent', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second] = addJoins(2);
+
+            setParent(second, first.dataset.joinId);
+
+            const firstOptions = [...first.querySelectorAll('[data-prop="parent"] option')]
+                .map(o => o.value);
+            expect(firstOptions).not.toContain(second.dataset.joinId);
+            expect(firstOptions).toContain('primary');
+        });
+
+        it('should still offer an unrelated join as a parent', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second] = addJoins(2);
+
+            const firstOptions = [...first.querySelectorAll('[data-prop="parent"] option')]
+                .map(o => o.value);
+            expect(firstOptions).toContain(second.dataset.joinId);
+        });
+
+        it('should reject a join that never chains back to the primary table', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second] = addJoins(2);
+
+            // Force a cycle past the dropdown guard, as stale markup could.
+            first.querySelector('[data-prop="parent"]').value = second.dataset.joinId;
+            second.querySelector('[data-prop="parent"]').value = first.dataset.joinId;
+
+            expect(component._validateJoinParents()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('primary table'),
+                'warn'
+            );
+        });
+
+        it('should accept a deep chain that reaches the primary table', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second, third] = addJoins(3);
+
+            setParent(second, first.dataset.joinId);
+            setParent(third, second.dataset.joinId);
+
+            expect(component._validateJoinParents()).toBe(true);
+        });
+
+        it('should not hang computing depth for a cyclic chain', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const [first, second] = addJoins(2);
+
+            first.querySelector('[data-prop="parent"]').value = second.dataset.joinId;
+            second.querySelector('[data-prop="parent"]').value = first.dataset.joinId;
+
+            expect(() => component._refreshAllJoinIndentation()).not.toThrow();
+        });
+    });
+
+    describe('paging stops when the tab is destroyed', () => {
+        it('should stop requesting pages once destroyed mid Load All', async () => {
+            await setupComponent();
+            component.lastEntityName = 'account';
+            component.lastExecutedFetchXml = '<fetch><entity name="account"></entity></fetch>';
+            component.pagingCookie = '<cookie pagingcookie="a" />';
+
+            let calls = 0;
+            DataService.executeFetchXml.mockImplementation(() => {
+                calls++;
+                if (calls === 2) {
+                    component.destroy();
+                }
+                // Always report another page, so only the destroy flag can end the loop.
+                return Promise.resolve({ entities: [{ id: calls }], pagingCookie: '<cookie pagingcookie="a" />' });
+            });
+
+            await component._loadAllRecords();
+
+            expect(calls).toBe(2);
+        });
+
+        it('should not apply a Load More response after destroy', async () => {
+            await setupComponent();
+            component.lastEntityName = 'account';
+            component.lastExecutedFetchXml = '<fetch><entity name="account"></entity></fetch>';
+            component.pagingCookie = '<cookie pagingcookie="a" />';
+            component.allLoadedRecords = [{ id: 1 }];
+
+            DataService.executeFetchXml.mockImplementation(() => {
+                component.destroy();
+                return Promise.resolve({ entities: [{ id: 2 }], pagingCookie: null });
+            });
+
+            await component._loadMoreRecords();
+
+            expect(component.allLoadedRecords).toEqual([{ id: 1 }]);
+        });
+    });
+
+    describe('join parent labels stay in sync', () => {
+        const parentLabelsOf = (index) => {
+            const groups = component.ui.joinsContainer.querySelectorAll('.link-entity-group');
+            return [...groups[index].querySelectorAll('[data-prop="parent"] option')]
+                .map(o => o.textContent);
+        };
+
+        it('should relabel other joins when a table name is typed', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._addLinkEntityUI();
+            const first = component.ui.joinsContainer.querySelector('.link-entity-group');
+            const nameInput = first.querySelector('[data-prop="name"]');
+            nameInput.value = 'test1';
+            nameInput.dispatchEvent(new Event('blur'));
+
+            component._addLinkEntityUI();
+            expect(parentLabelsOf(1).join(' ')).toContain('test1');
+
+            nameInput.value = 'test2';
+            nameInput.dispatchEvent(new Event('blur'));
+
+            expect(parentLabelsOf(1).join(' ')).toContain('test2');
+            expect(parentLabelsOf(1).join(' ')).not.toContain('test1');
+        });
+
+        it('should relabel other joins when the table is picked from the browser', async () => {
+            const { MetadataBrowserDialog } = await import('../../src/ui/MetadataBrowserDialog.js');
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._addLinkEntityUI();
+            const first = component.ui.joinsContainer.querySelector('.link-entity-group');
+            const nameInput = first.querySelector('[data-prop="name"]');
+            nameInput.value = 'test1';
+            nameInput.dispatchEvent(new Event('blur'));
+
+            component._addLinkEntityUI();
+            expect(parentLabelsOf(1).join(' ')).toContain('test1');
+
+            // Browsing assigns the value directly, which raises no blur event.
+            MetadataBrowserDialog.show.mockImplementationOnce(
+                (type, callback) => callback({ LogicalName: 'test2' })
+            );
+            component._handleBrowseJoinTable(first.querySelector('.browse-join-table'));
+
+            expect(nameInput.value).toBe('test2');
+            expect(parentLabelsOf(1).join(' ')).toContain('test2');
+            expect(parentLabelsOf(1).join(' ')).not.toContain('test1');
+        });
+
+        it('should keep the selected parent while relabelling', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._addLinkEntityUI();
+            const first = component.ui.joinsContainer.querySelector('.link-entity-group');
+            const firstId = first.dataset.joinId;
+            const nameInput = first.querySelector('[data-prop="name"]');
+            nameInput.value = 'test1';
+            nameInput.dispatchEvent(new Event('blur'));
+
+            component._addLinkEntityUI();
+            const second = component.ui.joinsContainer.querySelectorAll('.link-entity-group')[1];
+            const parentSelect = second.querySelector('[data-prop="parent"]');
+            parentSelect.value = firstId;
+
+            nameInput.value = 'test2';
+            nameInput.dispatchEvent(new Event('blur'));
+
+            expect(parentSelect.value).toBe(firstId);
+        });
+    });
+
+    describe('join parent defaulting', () => {
+        it('should default a new join to the primary table', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            const parentSelect = component.ui.joinsContainer
+                .querySelector('.link-entity-group [data-prop="parent"]');
+            expect(parentSelect.value).toBe('primary');
+        });
+
+        it('should include the join in generated XML without touching the parent', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            const joinGroup = component.ui.joinsContainer.querySelector('.link-entity-group');
+            joinGroup.querySelector('[data-prop="name"]').value = 'contact';
+            joinGroup.querySelector('[data-prop="from"]').value = 'parentcustomerid';
+            joinGroup.querySelector('[data-prop="to"]').value = 'accountid';
+
+            const xml = component._buildNestedJoins('primary');
+
+            expect(xml).toContain('<link-entity');
+            expect(xml).toContain('name="contact"');
+        });
+
+        it('should leave the placeholder selected when no primary table is set', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = '';
+            component._addLinkEntityUI();
+
+            const parentSelect = component.ui.joinsContainer
+                .querySelector('.link-entity-group [data-prop="parent"]');
+            expect(parentSelect.value).toBe('');
+        });
+    });
+
+    describe('_validateJoinParents', () => {
+        it('should pass when every join names a parent', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            expect(component._validateJoinParents()).toBe(true);
+        });
+
+        it('should warn rather than silently drop a parentless join', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            component.ui.joinsContainer
+                .querySelector('.link-entity-group [data-prop="parent"]').value = '';
+
+            expect(component._validateJoinParents()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
+        });
+
+        it('should pass when there are no joins', async () => {
+            await setupComponent();
+            expect(component._validateJoinParents()).toBe(true);
+        });
+    });
+
+    describe('contextual template primary key', () => {
+        it('should use the real primary key rather than the name convention', async () => {
+            PowerAppsApiService.getEntityName.mockReturnValue('activitypointer');
+            PowerAppsApiService.getEntityId.mockReturnValue('abc');
+
+            const templates = component._getFetchTemplates('activityid');
+            const contextual = templates.find(t => t.label.includes('Contextual'));
+
+            expect(contextual.xml).toContain('attribute="activityid"');
+            expect(contextual.xml).not.toContain('activitypointerid');
+        });
+
+        it('should fall back to the convention when metadata is unavailable', () => {
+            PowerAppsApiService.getEntityName.mockReturnValue('account');
+            PowerAppsApiService.getEntityId.mockReturnValue('abc');
+
+            const contextual = component._getFetchTemplates()
+                .find(t => t.label.includes('Contextual'));
+
+            expect(contextual.xml).toContain('attribute="accountid"');
+        });
+    });
+
+    describe('documented FetchXML options', () => {
+        const parse = (xml) => new DOMParser().parseFromString(`<root>${xml}</root>`, 'application/xml');
+
+        it('should offer every link-type valid as a child of entity', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            const values = [...component.ui.joinsContainer
+                .querySelectorAll('.link-entity-group [data-prop="link-type"] option')]
+                .map(o => o.value);
+
+            expect(values).toEqual(['inner', 'outer', 'exists', 'in', 'matchfirstrowusingcrossapply']);
+        });
+
+        it('should emit distinct only for countcolumn', () => {
+            const xml = component._buildAggregateAttributesXml([
+                { column: 'numberofemployees', func: 'countcolumn', alias: 'Unique', distinct: true },
+                { column: 'revenue', func: 'sum', alias: 'Total', distinct: false }
+            ]);
+
+            const attrs = [...parse(xml).querySelectorAll('attribute')];
+            expect(attrs[0].getAttribute('distinct')).toBe('true');
+            expect(attrs[1].getAttribute('distinct')).toBeNull();
+        });
+
+        it('should disable distinct when the function is not countcolumn', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const distinct = row.querySelector('[data-prop="distinct"]');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+
+            expect(distinct.disabled).toBe(true);
+
+            funcSelect.value = 'countcolumn';
+            funcSelect.dispatchEvent(new Event('change'));
+            expect(distinct.disabled).toBe(false);
+        });
+
+        it('should clear a stale distinct tick when switching away from countcolumn', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            const distinct = row.querySelector('[data-prop="distinct"]');
+
+            funcSelect.value = 'countcolumn';
+            funcSelect.dispatchEvent(new Event('change'));
+            distinct.checked = true;
+
+            funcSelect.value = 'sum';
+            funcSelect.dispatchEvent(new Event('change'));
+
+            expect(distinct.checked).toBe(false);
+        });
+
+        it('should emit usertimezone="false" when UTC grouping is chosen', () => {
+            const xml = component._buildGroupByAttributesXml([
+                { column: 'createdon', alias: 'Month', dategrouping: 'month', utc: true },
+                { column: 'address1_city', alias: 'City', dategrouping: '', utc: false }
+            ]);
+
+            const attrs = [...parse(xml).querySelectorAll('attribute')];
+            expect(attrs[0].getAttribute('usertimezone')).toBe('false');
+            expect(attrs[1].getAttribute('usertimezone')).toBeNull();
+        });
+
+        it('should emit intersect and omit all-attributes for a join-only link', async () => {
+            await setupComponent();
+            const joinData = {
+                name: 'teammembership', from: 'systemuserid', to: 'systemuserid',
+                linkType: 'inner', alias: '', joinId: 'join_1',
+                attributesValue: '', intersect: true
+            };
+            const xml = component._buildLinkEntityXml(joinData, document.createElement('div'), '    ', 4);
+
+            expect(xml).toContain('intersect="true"');
+            expect(xml).not.toContain('all-attributes');
+        });
+
+        it('should omit an empty alias rather than emitting alias=""', async () => {
+            await setupComponent();
+            const joinData = {
+                name: 'contact', from: 'contactid', to: 'primarycontactid',
+                linkType: 'inner', alias: '', joinId: 'join_1',
+                attributesValue: 'fullname', intersect: false
+            };
+            const xml = component._buildLinkEntityXml(joinData, document.createElement('div'), '    ', 4);
+
+            expect(xml).not.toContain('alias=""');
+            expect(parse(xml).querySelector('link-entity').getAttribute('alias')).toBeNull();
+        });
+
+        it('should escape link-entity values', async () => {
+            await setupComponent();
+            const joinData = {
+                name: 'contact', from: 'a&b', to: 'c<d',
+                linkType: 'inner', alias: 'x"y', joinId: 'join_1',
+                attributesValue: '', intersect: false
+            };
+            const xml = component._buildLinkEntityXml(joinData, document.createElement('div'), '    ', 4);
+
+            const doc = parse(xml);
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.querySelector('link-entity').getAttribute('from')).toBe('a&b');
+            expect(doc.querySelector('link-entity').getAttribute('alias')).toBe('x"y');
+        });
+    });
+
+    describe('typed and pasted aggregate column names', () => {
+        // A context-menu paste fires 'input' but never a key event.
+        const paste = (input, value) => {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        beforeEach(() => {
+            DataService.getAttributeDefinitions.mockResolvedValue([
+                { LogicalName: 'm8_agencynetamount', AttributeTypeName: { Value: 'MoneyType' } },
+                { LogicalName: 'createdon', AttributeTypeName: { Value: 'DateTimeType' } },
+                { LogicalName: 'numberofemployees', AttributeTypeName: { Value: 'IntegerType' } }
+            ]);
+        });
+
+        it('should generate the alias immediately, without waiting on metadata', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            paste(row.querySelector('[data-prop="column"]'), 'm8_agencynetamount');
+
+            // No awaiting: the alias must be set synchronously so Generate cannot race it.
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('count_m8_agencynetamount');
+        });
+
+        it('should filter functions by type after the value settles', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            paste(row.querySelector('[data-prop="column"]'), 'm8_agencynetamount');
+
+            await vi.waitFor(() => {
+                expect(funcSelect.querySelector('option[value="count"]').disabled).toBe(true);
+            });
+            expect(funcSelect.querySelector('option[value="sum"]').disabled).toBe(false);
+        });
+
+        it('should not restrict functions for an unrecognised column name', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            funcSelect.querySelector('option[value="count"]').disabled = true;
+
+            paste(row.querySelector('[data-prop="column"]'), 'nosuchcolumn');
+
+            await vi.waitFor(() => {
+                expect(funcSelect.querySelector('option[value="count"]').disabled).toBe(false);
+            });
+        });
+
+        it('should auto-enable month grouping for a typed DateTime column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const row = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            paste(row.querySelector('[data-prop="column"]'), 'createdon');
+
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('group_createdon');
+            await vi.waitFor(() => {
+                expect(row.querySelector('[data-prop="dategrouping"]').value).toBe('month');
+            });
+        });
+
+        it('should not look up metadata when no table is selected', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            component.ui.builderEntityInput.value = '';
+            DataService.getAttributeDefinitions.mockClear();
+
+            paste(row.querySelector('[data-prop="column"]'), 'anything');
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            expect(DataService.getAttributeDefinitions).not.toHaveBeenCalled();
+        });
+
+        it('should survive a metadata lookup failure', async () => {
+            DataService.getAttributeDefinitions.mockRejectedValueOnce(new Error('boom'));
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            paste(row.querySelector('[data-prop="column"]'), 'numberofemployees');
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('count_numberofemployees');
+        });
+
+        it('should clear the derived alias when the column is emptied', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+
+            paste(columnInput, 'm8_agencynetamount');
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('count_m8_agencynetamount');
+
+            paste(columnInput, '');
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('');
+        });
+
+        it('should re-enable every function when the column is emptied', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+
+            paste(columnInput, 'm8_agencynetamount');
+            await vi.waitFor(() => {
+                expect(funcSelect.querySelector('option[value="count"]').disabled).toBe(true);
+            });
+
+            paste(columnInput, '');
+
+            expect([...funcSelect.options].every(o => !o.disabled)).toBe(true);
+        });
+
+        it('should clear date grouping when the group-by column is emptied', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            el.querySelector('#fetch-add-groupby-btn').click();
+
+            const row = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+
+            paste(columnInput, 'createdon');
+            await vi.waitFor(() => {
+                expect(row.querySelector('[data-prop="dategrouping"]').value).toBe('month');
+            });
+            row.querySelector('[data-prop="utc"]').checked = true;
+
+            paste(columnInput, '');
+
+            expect(row.querySelector('[data-prop="dategrouping"]').value).toBe('');
+            expect(row.querySelector('[data-prop="utc"]').checked).toBe(false);
+            expect(row.querySelector('[data-prop="alias"]').value).toBe('');
+        });
+
+        it('should drop a stale distinct tick when the column is emptied', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            const distinct = row.querySelector('[data-prop="distinct"]');
+
+            paste(row.querySelector('[data-prop="column"]'), 'numberofemployees');
+            funcSelect.value = 'countcolumn';
+            funcSelect.dispatchEvent(new Event('change'));
+            distinct.checked = true;
+
+            funcSelect.value = 'sum';
+            funcSelect.dispatchEvent(new Event('change'));
+            paste(row.querySelector('[data-prop="column"]'), '');
+
+            expect(distinct.checked).toBe(false);
+        });
+
+        it('should discard a pending lookup once the row is removed', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const columnInput = row.querySelector('[data-prop="column"]');
+            paste(columnInput, 'numberofemployees');
+            row.remove();
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            expect(columnInput.isConnected).toBe(false);
+        });
+    });
+
+    describe('aggregate order alias resolution', () => {
+        const setOrder = (el, value, descending = 'false') => {
+            el.querySelector('#builder-order-attribute').value = value;
+            el.querySelector('#builder-order-direction').value = descending;
+        };
+
+        const addAggregate = (el, { column, func, alias }) => {
+            el.querySelector('#fetch-add-aggregate-btn').click();
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row:last-child');
+            row.querySelector('[data-prop="column"]').value = column;
+            row.querySelector('[data-prop="function"]').value = func;
+            row.querySelector('[data-prop="alias"]').value = alias;
+            return row;
+        };
+
+        it('should translate a column name in the order box to its alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            addAggregate(el, { column: 'm8_agencynetamount', func: 'min', alias: 'min_m8_agencynetamount' });
+            setOrder(el, 'm8_agencynetamount');
+
+            const xml = component._buildAggregateOrderXml();
+
+            expect(xml).toContain('alias="min_m8_agencynetamount"');
+            expect(xml).not.toContain('alias="m8_agencynetamount"');
+        });
+
+        it('should accept an alias entered directly', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            addAggregate(el, { column: 'revenue', func: 'sum', alias: 'Total' });
+            setOrder(el, 'Total', 'true');
+
+            const xml = component._buildAggregateOrderXml();
+
+            expect(xml).toContain('alias="Total"');
+            expect(xml).toContain('descending="true"');
+        });
+
+        it('should resolve against group-by aliases too', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            addAggregate(el, { column: 'revenue', func: 'sum', alias: 'Total' });
+
+            el.querySelector('#fetch-add-groupby-btn').click();
+            const groupRow = component.ui.groupByContainer.querySelector('.pdt-groupby-row');
+            groupRow.querySelector('[data-prop="column"]').value = 'address1_city';
+            groupRow.querySelector('[data-prop="alias"]').value = 'City';
+
+            setOrder(el, 'address1_city');
+
+            expect(component._buildAggregateOrderXml()).toContain('alias="City"');
+        });
+
+        it('should warn and omit the order when it matches no alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            addAggregate(el, { column: 'revenue', func: 'sum', alias: 'Total' });
+            setOrder(el, 'nosuchcolumn');
+
+            const xml = component._buildAggregateOrderXml();
+
+            expect(xml).not.toContain('<order');
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('nosuchcolumn'),
+                'warn'
+            );
+        });
+
+        it('should not emit a duplicate order when the row already orders by that alias', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            const row = addAggregate(el, { column: 'revenue', func: 'sum', alias: 'Total' });
+            row.querySelector('[data-prop="order"]').value = 'true';
+            setOrder(el, 'revenue');
+
+            const matches = component._buildAggregateOrderXml().match(/<order/g) || [];
+            expect(matches).toHaveLength(1);
+        });
+    });
+
+    describe('aggregate function compatibility', () => {
+        it('should not offer the counting functions for a Money column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            component._filterAggregateFunctionsByType(funcSelect, {
+                AttributeTypeName: { Value: 'MoneyType' }
+            });
+
+            const disabled = [...funcSelect.options].filter(o => o.disabled).map(o => o.value);
+            expect(disabled).toContain('count');
+            expect(disabled).toContain('countcolumn');
+            expect(disabled).not.toContain('sum');
+            expect(disabled).not.toContain('min');
+        });
+
+        it('should still offer the counting functions for an Integer column', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const row = component.ui.aggregatesContainer.querySelector('.pdt-aggregate-row');
+            const funcSelect = row.querySelector('[data-prop="function"]');
+            component._filterAggregateFunctionsByType(funcSelect, {
+                AttributeTypeName: { Value: 'IntegerType' }
+            });
+
+            const disabled = [...funcSelect.options].filter(o => o.disabled).map(o => o.value);
+            expect(disabled).not.toContain('count');
+            expect(disabled).not.toContain('countcolumn');
+        });
+
+        it('should explain the aggregate type mismatch error', () => {
+            const result = component._explainQueryError(
+                'The property provided was of type System.Int32, when the expected was of type Microsoft.Xrm.Sdk.Money'
+            );
+            expect(result).toContain('returns a whole number');
+            expect(result).not.toContain('System.Int32');
+        });
+
+        it('should explain the type mismatch identified only by code', () => {
+            expect(component._explainQueryError('Code: 0x80060888'))
+                .toContain('returns a whole number');
+        });
+
+        it('should still offer count for a Decimal column, which Dataverse accepts', async () => {
+            const el = await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            el.querySelector('#fetch-add-aggregate-btn').click();
+
+            const funcSelect = component.ui.aggregatesContainer
+                .querySelector('.pdt-aggregate-row [data-prop="function"]');
+            component._filterAggregateFunctionsByType(funcSelect, {
+                AttributeTypeName: { Value: 'DecimalType' }
+            });
+
+            // Verified live: count on a decimal column works, so it must not be restricted.
+            expect(funcSelect.querySelector('option[value="count"]').disabled).toBe(false);
+            expect(funcSelect.querySelector('option[value="countcolumn"]').disabled).toBe(false);
+        });
+    });
+
+    // Every expectation below reflects a verified live Dataverse response.
+    describe('advanced link types', () => {
+        const buildLink = (linkType, attributesValue = '') => component._buildLinkEntityXml(
+            {
+                name: 'm8_manufacturer', from: 'm8_manufacturerid', to: 'm8_manufacturer',
+                linkType, alias: '', joinId: 'join_1', attributesValue, intersect: false
+            },
+            document.createElement('div'), '    ', 4
+        );
+
+        it.each(['exists', 'in'])('should emit no columns at all for %s', async (linkType) => {
+            await setupComponent();
+            // 0x80041121: "Exists doesn't support attribute inside linkentity expression."
+            expect(buildLink(linkType)).not.toContain('all-attributes');
+            expect(buildLink(linkType, 'm8_name')).not.toContain('<attribute');
+        });
+
+        it('should not fall back to all-attributes for matchfirstrowusingcrossapply', async () => {
+            await setupComponent();
+            // 0x80041130: unprefixed column names clash with the primary table's own.
+            expect(buildLink('matchfirstrowusingcrossapply')).not.toContain('all-attributes');
+        });
+
+        it('should keep explicit columns for matchfirstrowusingcrossapply', async () => {
+            await setupComponent();
+            const xml = buildLink('matchfirstrowusingcrossapply', 'm8_name');
+
+            expect(xml).toContain('<attribute name="m8_name" />');
+            expect(xml).not.toContain('all-attributes');
+        });
+
+        it('should still use all-attributes for a plain inner join', async () => {
+            await setupComponent();
+            expect(buildLink('inner')).toContain('all-attributes');
+        });
+
+        it('should warn that columns were dropped from an exists join', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            component._addLinkEntityUI();
+
+            const group = component.ui.joinsContainer.querySelector('.link-entity-group');
+            group.querySelector('[data-prop="link-type"]').value = 'exists';
+            group.querySelector('[data-prop="attributes"]').value = 'm8_name';
+
+            expect(component._validateJoinParents()).toBe(true);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('exists'),
+                'warn'
+            );
+        });
+
+        it('should warn when matchfirstrowusingcrossapply has no columns', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            component._addLinkEntityUI();
+
+            const group = component.ui.joinsContainer.querySelector('.link-entity-group');
+            group.querySelector('[data-prop="link-type"]').value = 'matchfirstrowusingcrossapply';
+
+            expect(component._validateJoinParents()).toBe(true);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('List the columns'),
+                'warn'
+            );
+        });
+
+        it('should not warn for an inner join without columns', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'm8_vehicle';
+            component._addLinkEntityUI();
+
+            NotificationService.show.mockClear();
+            expect(component._validateJoinParents()).toBe(true);
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
+
+        it('should reject more joins than Dataverse allows', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            for (let i = 0; i < 16; i++) {
+                component._addLinkEntityUI();
+            }
+
+            expect(component._validateJoinParents()).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalledWith(
+                expect.stringContaining('16'),
+                'warn'
+            );
+        });
+
+        it('should explain the unsupported-attribute error from hand-written XML', () => {
+            expect(component._explainQueryError(
+                "Exists doesn't support attribute inside linkentity expression."
+            )).toContain('cannot return columns');
+        });
+
+        it('should explain the alias clash error', () => {
+            expect(component._explainQueryError(
+                'CreatedBy is not a unique alias. It clashes with an autogenerated alias or user provided alias'
+            )).toContain('same name');
+        });
+
+        // Reachable from the XML editor, which bypasses the builder's own join-count check.
+        it('should explain the link-entity limit using the live wording', () => {
+            expect(component._explainQueryError(
+                'Number of link entity: 16 exceed limit 15. isReport=False.'
+            )).toContain('at most 15 joins');
+        });
+
+        it('should explain the link-entity limit by code', () => {
+            expect(component._explainQueryError('Code: 0x8004430d')).toContain('at most 15 joins');
+        });
+    });
+
+    describe('_validateAggregateLimit', () => {
+        it('should accept an empty value', () => {
+            expect(component._validateAggregateLimit('')).toBe(true);
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
+
+        it('should accept a value at the documented maximum', () => {
+            expect(component._validateAggregateLimit('50000')).toBe(true);
+        });
+
+        it.each(['0', '-1', '2.5', '50001', 'abc'])('should reject %s', (value) => {
+            expect(component._validateAggregateLimit(value)).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
+        });
+    });
+
+    describe('_explainQueryError', () => {
+        it('should explain the aggregate record limit error', () => {
+            const result = component._explainQueryError('AggregateQueryRecordLimit exceeded. Cannot perform this operation.');
+            expect(result).toContain('aggregate limit');
+            // Formatted per locale, so compare against the same formatting.
+            expect(result).toContain((50000).toLocaleString());
+        });
+
+        it('should explain the error identified only by code', () => {
+            expect(component._explainQueryError('Code: 8004E023')).toContain('aggregate limit');
+        });
+
+        // The live Web API returns a lower-case code and different wording to the docs, which
+        // is what made the original case-sensitive markers miss it entirely.
+        it('should explain the wording the Web API actually returns', () => {
+            const result = component._explainQueryError(
+                'The maximum record limit of 50000 is exceeded. Reduce the number of aggregated or grouped records.'
+            );
+            expect(result).toContain('aggregate limit');
+        });
+
+        it('should match the code case-insensitively', () => {
+            expect(component._explainQueryError('Code: 0x8004e023')).toContain('aggregate limit');
+            expect(component._explainQueryError('Code: 0x8004E023')).toContain('aggregate limit');
+        });
+
+        it('should pass other errors through unchanged', () => {
+            expect(component._explainQueryError('Boom')).toBe('Boom');
+        });
+
+        it('should tolerate a null message', () => {
+            expect(component._explainQueryError(null)).toBe('');
+        });
+    });
+
+    describe('_validateTopCount', () => {
+        it('should accept an empty value as "all records"', () => {
+            expect(component._validateTopCount('')).toBe(true);
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
+
+        it('should accept a positive whole number', () => {
+            expect(component._validateTopCount('50')).toBe(true);
+            expect(NotificationService.show).not.toHaveBeenCalled();
+        });
+
+        it.each(['0', '-5', '2.5', '1e3', 'abc'])('should reject %s', (value) => {
+            expect(component._validateTopCount(value)).toBe(false);
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
+        });
+    });
+
+    describe('_buildFilterGroupsXml value escaping', () => {
+        const parse = (xml) => new DOMParser().parseFromString(xml, 'application/xml');
+
+        it('should keep the fetch parseable when a value contains an ampersand', () => {
+            const result = component._buildFilterGroupsXml([{
+                filterType: 'and',
+                interGroupOperator: 'and',
+                filters: [{ attr: 'name', op: 'eq', value: 'Smith & Sons' }]
+            }], '    ');
+
+            const doc = parse(result[0].xml);
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.querySelector('condition').getAttribute('value')).toBe('Smith & Sons');
+        });
+
+        it('should keep the fetch parseable when a value contains angle brackets', () => {
+            const result = component._buildFilterGroupsXml([{
+                filterType: 'and',
+                interGroupOperator: 'and',
+                filters: [{ attr: 'revenue', op: 'lt', value: '<1000' }]
+            }], '    ');
+
+            const doc = parse(result[0].xml);
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.querySelector('condition').getAttribute('value')).toBe('<1000');
+        });
+
+        it('should not let a quoted value inject extra attributes', () => {
+            const result = component._buildFilterGroupsXml([{
+                filterType: 'and',
+                interGroupOperator: 'and',
+                filters: [{ attr: 'name', op: 'eq', value: 'x" operator="like' }]
+            }], '    ');
+
+            const doc = parse(result[0].xml);
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.querySelector('condition').getAttribute('operator')).toBe('eq');
+        });
+
+        it('should escape each value of an in condition', () => {
+            const result = component._buildFilterGroupsXml([{
+                filterType: 'and',
+                interGroupOperator: 'and',
+                filters: [{ attr: 'name', op: 'in', value: 'A & B, C < D' }]
+            }], '    ');
+
+            const doc = parse(result[0].xml);
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect([...doc.querySelectorAll('value')].map(v => v.textContent))
+                .toEqual(['A & B', 'C < D']);
         });
     });
 
@@ -3563,7 +4611,7 @@ describe('FetchXmlTesterTab', () => {
             await component._handleBuildXml();
 
             // Should call _buildFetchXmlFromInputs which shows warning for empty entity
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should change button text during generation', async () => {
@@ -3775,7 +4823,7 @@ describe('FetchXmlTesterTab', () => {
 
             component._handleAddFilterGroup();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should validate entity input before adding join', async () => {
@@ -3784,7 +4832,7 @@ describe('FetchXmlTesterTab', () => {
 
             component._handleAddJoin();
 
-            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warning');
+            expect(NotificationService.show).toHaveBeenCalledWith(expect.any(String), 'warn');
         });
 
         it('should trim entity name before validation', async () => {
@@ -4133,8 +5181,11 @@ describe('FetchXmlTesterTab', () => {
 
             const result = component._buildPrimaryFilterXml();
 
+            // FetchXML's `in` operator requires <value> child elements, not a value attribute.
             expect(result).toContain('operator="in"');
-            expect(result).toContain('value="0,1,2"');
+            expect(result).toContain('<value>0</value>');
+            expect(result).toContain('<value>1</value>');
+            expect(result).toContain('<value>2</value>');
         });
 
         it('should build filter with between operator', async () => {
@@ -4950,7 +6001,7 @@ describe('FetchXmlTesterTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -4976,7 +6027,7 @@ describe('FetchXmlTesterTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -5002,7 +6053,7 @@ describe('FetchXmlTesterTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -5033,7 +6084,7 @@ describe('FetchXmlTesterTab', () => {
             expect(result).toBeNull();
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
 
@@ -5073,7 +6124,7 @@ describe('FetchXmlTesterTab', () => {
             expect(result).toBeNull();
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
     });
@@ -5094,7 +6145,7 @@ describe('FetchXmlTesterTab', () => {
 
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
         });
 
@@ -5194,8 +6245,43 @@ describe('FetchXmlTesterTab', () => {
         });
     });
 
-    describe('_removeJoinGroup via click handler - lines 970, 1000-1028', () => {
-        it('should remove join group when remove button is clicked via _setupJoinButtonHandlers', async () => {
+    describe('join removal via the delegated click route', () => {
+        it('should warn exactly once when the join has dependents', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+
+            component._addLinkEntityUI();
+            const firstJoin = component.ui.joinsContainer.querySelector('.link-entity-group');
+            const firstJoinId = firstJoin.dataset.joinId;
+
+            component._addLinkEntityUI();
+            const secondJoin = component.ui.joinsContainer.querySelectorAll('.link-entity-group')[1];
+            secondJoin.querySelector('[data-prop="parent"]').value = firstJoinId;
+
+            NotificationService.show.mockClear();
+            firstJoin.querySelector('.remove-join').click();
+
+            // Two removal paths used to fire on one click, stacking duplicate toasts.
+            expect(NotificationService.show).toHaveBeenCalledTimes(1);
+            expect(component.ui.joinsContainer.children.length).toBe(2);
+        });
+
+        it('should discard the join filter manager on removal', async () => {
+            await setupComponent();
+            component.ui.builderEntityInput.value = 'account';
+            component._addLinkEntityUI();
+
+            const joinGroup = component.ui.joinsContainer.querySelector('.link-entity-group');
+            const joinIdNum = parseInt(joinGroup.dataset.joinId.split('_')[1], 10);
+            component._createJoinFilterManager(joinGroup, joinIdNum);
+            expect(component.joinFilterManagers.has(joinIdNum)).toBe(true);
+
+            joinGroup.querySelector('.remove-join').click();
+
+            expect(component.joinFilterManagers.has(joinIdNum)).toBe(false);
+        });
+
+        it('should remove join group when remove button is clicked via the delegated route', async () => {
             await setupComponent();
             component.ui.builderEntityInput.value = 'account';
 
@@ -5256,7 +6342,7 @@ describe('FetchXmlTesterTab', () => {
             // Should show warning and not remove
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.any(String),
-                'warning'
+                'warn'
             );
             expect(component.ui.joinsContainer.children.length).toBe(2);
         });
@@ -5711,7 +6797,7 @@ describe('FetchXmlTesterTab', () => {
             expect(rows.length).toBe(0);
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('select a table'),
-                'warning'
+                'warn'
             );
         });
 
@@ -5735,7 +6821,7 @@ describe('FetchXmlTesterTab', () => {
             expect(rows.length).toBe(0);
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('aggregate'),
-                'warning'
+                'warn'
             );
         });
 
@@ -5896,7 +6982,7 @@ describe('FetchXmlTesterTab', () => {
             expect(component.ui.aggregatesSection.style.display).toBe('none');
             expect(NotificationService.show).toHaveBeenCalledWith(
                 expect.stringContaining('select a table'),
-                'warning'
+                'warn'
             );
         });
 
@@ -5964,7 +7050,9 @@ describe('FetchXmlTesterTab', () => {
             row.querySelector('[data-prop="order"]').value = 'true';
 
             const result = component._extractAggregateRows();
-            expect(result).toEqual([{ column: 'revenue', func: 'sum', alias: 'TotalRevenue', order: 'true' }]);
+            expect(result).toEqual([{
+                column: 'revenue', func: 'sum', alias: 'TotalRevenue', order: 'true', distinct: false
+            }]);
         });
 
         it('should skip rows with empty column or alias', async () => {
@@ -5992,7 +7080,9 @@ describe('FetchXmlTesterTab', () => {
             row.querySelector('[data-prop="dategrouping"]').value = 'month';
 
             const result = component._extractGroupByRows();
-            expect(result).toEqual([{ column: 'createdon', alias: 'CreatedMonth', dategrouping: 'month' }]);
+            expect(result).toEqual([{
+                column: 'createdon', alias: 'CreatedMonth', dategrouping: 'month', utc: false
+            }]);
         });
     });
 
@@ -6171,7 +7261,7 @@ describe('FetchXmlTesterTab', () => {
             expect(countOption.disabled).toBe(false);
         });
 
-        it('should allow all numeric aggregates for MoneyType', async () => {
+        it('should allow the value aggregates but not the counting ones for MoneyType', async () => {
             const el = await setupComponent();
             component.ui.builderEntityInput.value = 'account';
 
@@ -6182,8 +7272,18 @@ describe('FetchXmlTesterTab', () => {
             const moneyAttr = { LogicalName: 'revenue', AttributeTypeName: { Value: 'MoneyType' } };
             component._filterAggregateFunctionsByType(funcSelect, moneyAttr);
 
-            Array.from(funcSelect.options).forEach(o => {
-                expect(o.disabled).toBe(false);
+            const state = Object.fromEntries(
+                Array.from(funcSelect.options).map(o => [o.value, o.disabled])
+            );
+
+            // count/countcolumn return Int32 and Dataverse rejects that for a Money column.
+            expect(state).toEqual({
+                count: true,
+                countcolumn: true,
+                sum: false,
+                avg: false,
+                min: false,
+                max: false
             });
         });
 

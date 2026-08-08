@@ -4,7 +4,13 @@
  * @module utils/builders/ODataQueryBuilder
  */
 
-import { isValidGuid } from '../../helpers/index.js';
+import { isValidGuid, findFilterOperator } from '../../helpers/index.js';
+
+/** @private Marks an operator value as a Dataverse query function rather than a binary operator. */
+const QUERY_FUNCTION_PREFIX = 'fn:';
+
+/** @private Namespace every Dataverse query function must be called through. */
+const QUERY_FUNCTION_NAMESPACE = 'Microsoft.Dynamics.CRM';
 
 /**
  * ODataQueryBuilder class for constructing OData query strings.
@@ -31,13 +37,41 @@ export class ODataQueryBuilder {
     }
 
     /**
-     * Escapes a string value for OData query (doubles single quotes).
+     * Escapes a string value for use inside an OData query string.
+     *
+     * Two separate escapes are needed. OData requires a single quote to be doubled, and the URL
+     * requires characters like `&`, `+`, `#` and `?` to be percent-encoded — the query string is
+     * concatenated straight into the request URL, so an unencoded `&` would split it into a
+     * different parameter and a `#` would truncate everything after it.
+     *
+     * Only the value is touched; the surrounding quotes and the OData operators around it stay
+     * literal.
      * @param {string} s - String to escape
-     * @returns {string} Escaped string wrapped in single quotes
+     * @returns {string} Escaped, encoded string wrapped in single quotes
      * @private
      */
     static _escapeString(s) {
-        return `'${String(s).replace(/'/g, "''")}'`;
+        const odataEscaped = String(s).replace(/'/g, "''");
+        return `'${this._encodeForUrl(odataEscaped)}'`;
+    }
+
+    /**
+     * Percent-encodes the characters that would otherwise break the query string.
+     *
+     * Deliberately narrower than encodeURIComponent, which would also encode spaces and commas
+     * and make the request preview hard to read. Percent is handled first so the encodings this
+     * introduces are not themselves re-encoded.
+     * @param {string} value - Value to encode
+     * @returns {string} Encoded value
+     * @private
+     */
+    static _encodeForUrl(value) {
+        return String(value)
+            .replace(/%/g, '%25')
+            .replace(/&/g, '%26')
+            .replace(/\+/g, '%2B')
+            .replace(/#/g, '%23')
+            .replace(/\?/g, '%3F');
     }
 
     /**
@@ -77,17 +111,63 @@ export class ODataQueryBuilder {
         const meta = attrMap?.get(attr);
         const isLookup = meta?.type === 'lookup';
 
+        // Query functions use a call syntax, so they are handled before the operator branches.
+        if (op.startsWith(QUERY_FUNCTION_PREFIX)) {
+            return this._buildQueryFunctionCondition(attr, op, raw);
+        }
+
         if (op.includes('null')) {
             return this._buildNullCondition(attr, op, isLookup);
         }
 
         const type = meta?.type || this._guess(raw);
 
+        // An empty box cannot produce a literal of the column's type. Emitting `col eq ''` makes
+        // Dataverse reject the whole query with a type mismatch, so the condition is dropped
+        // instead. Strings keep it, where comparing to an empty value is at least valid.
+        if (!raw && type !== 'string') {
+            return null;
+        }
+
         if (['contains', 'startswith', 'endswith', 'not contains'].includes(op)) {
             return this._buildStringFunctionCondition(attr, op, raw, type);
         }
 
         return this._formatValueByType(attr, op, raw, type);
+    }
+
+    /**
+     * Builds a Dataverse query function condition, e.g.
+     * `Microsoft.Dynamics.CRM.On(PropertyName='createdon',PropertyValue='2026-01-01')`.
+     *
+     * Whether a value is expected comes from the operator definition rather than from whether one
+     * happens to be present: a function that needs one but has none is dropped, so it cannot be
+     * emitted in a form the service rejects.
+     * @param {string} attr - Attribute name (lowercase)
+     * @param {string} op - Operator value carrying the `fn:` prefix
+     * @param {string} raw - Raw filter value
+     * @returns {string|null} The function call, or null when a required value is missing
+     * @private
+     */
+    static _buildQueryFunctionCondition(attr, op, raw) {
+        const fnName = op.slice(QUERY_FUNCTION_PREFIX.length);
+        if (!fnName) {
+            return null;
+        }
+
+        const definition = findFilterOperator(op);
+        const takesValue = definition?.arg !== 'none';
+
+        if (takesValue && !raw) {
+            return null;
+        }
+
+        const args = [`PropertyName='${attr}'`];
+        if (takesValue) {
+            args.push(`PropertyValue=${this._escapeString(raw)}`);
+        }
+
+        return `${QUERY_FUNCTION_NAMESPACE}.${fnName}(${args.join(',')})`;
     }
 
     /**
@@ -114,7 +194,10 @@ export class ODataQueryBuilder {
      * @private
      */
     static _buildStringFunctionCondition(attr, op, raw, type) {
-        if (type !== 'string') {
+        // GUID columns are let through even though the service will refuse the call: dropping the
+        // condition instead would silently widen whatever it guards, and a bulk update or delete
+        // built on a condition that vanished is far worse than one that errors.
+        if (type !== 'string' && type !== 'guid') {
             return null;
         }
         const fn = (op === 'not contains') ? 'contains' : op;
@@ -133,13 +216,59 @@ export class ODataQueryBuilder {
      */
     static _formatValueByType(attr, op, raw, type) {
         switch (type) {
-            case 'boolean':  return `${attr} ${op} ${raw.toLowerCase()}`;
-            case 'number':   return `${attr} ${op} ${Number(raw)}`;
-            case 'date':     return `${attr} ${op} ${this._escapeString(new Date(raw).toISOString())}`;
+            case 'boolean':  return `${attr} ${op} ${this._booleanLiteral(raw)}`;
+            case 'number':   return `${attr} ${op} ${this._numberLiteral(raw)}`;
+            case 'date':     return `${attr} ${op} ${this._dateLiteral(raw)}`;
             case 'optionset':return `${attr} ${op} ${isNaN(Number(raw)) ? this._escapeString(raw) : Number(raw)}`;
-            case 'lookup':   return `_${attr}_value ${op} ${raw}`;
+            case 'lookup':   return `_${attr}_value ${op} ${isValidGuid(raw) ? raw : this._escapeString(raw)}`;
+            // Edm.Guid takes a bare literal — quoting it makes the service reject the comparison as
+            // a type mismatch. A malformed value still gets quoted so the error names the type
+            // rather than a parse failure, as with the other literal helpers.
+            case 'guid':     return `${attr} ${op} ${isValidGuid(raw) ? raw : this._escapeString(raw)}`;
             default:         return `${attr} ${op} ${this._escapeString(raw)}`;
         }
+    }
+
+    /**
+     * Renders a boolean literal, falling back to a quoted string when the value is not one.
+     *
+     * Values that cannot be coerced are quoted rather than emitted bare, following the optionset
+     * case: the query stays syntactically valid, so the service reports a type mismatch instead
+     * of a parse error.
+     * @param {string} raw - Raw filter value
+     * @returns {string} An OData literal
+     * @private
+     */
+    static _booleanLiteral(raw) {
+        const lowered = String(raw).toLowerCase();
+        return (lowered === 'true' || lowered === 'false') ? lowered : this._escapeString(raw);
+    }
+
+    /**
+     * Renders a numeric literal, falling back to a quoted string rather than emitting NaN.
+     * @param {string} raw - Raw filter value
+     * @returns {string} An OData literal
+     * @private
+     */
+    static _numberLiteral(raw) {
+        const parsed = Number(raw);
+        return Number.isNaN(parsed) ? this._escapeString(raw) : String(parsed);
+    }
+
+    /**
+     * Renders a date literal, falling back to a quoted string for an unparseable value.
+     *
+     * Guards against `new Date(raw).toISOString()`, which throws a RangeError on an invalid date
+     * rather than returning anything.
+     * @param {string} raw - Raw filter value
+     * @returns {string} An OData literal
+     * @private
+     */
+    static _dateLiteral(raw) {
+        const parsed = new Date(raw);
+        return Number.isNaN(parsed.getTime())
+            ? this._escapeString(raw)
+            : this._escapeString(parsed.toISOString());
     }
 
     /**

@@ -213,18 +213,48 @@ const extractRawBody = (e) => {
 };
 
 /**
+ * Removes the server-side noise that surrounds the actual complaint.
+ *
+ * Dataverse messages often carry a full .NET stack trace and a generic help link. Both are
+ * hundreds of characters of text that say nothing about what went wrong, and they bury the one
+ * sentence naming the offending property. The exception chain itself is kept, since that is where
+ * the useful detail lives.
+ * @private
+ * @param {string} message - Raw message text
+ * @returns {string} Message without stack frames or boilerplate
+ */
+const stripServerNoise = (message) => {
+    return String(message)
+        // Everything from the first stack frame onwards. Matched in both real-newline form (a
+        // parsed message) and escaped form (the same text still inside a raw JSON body).
+        .replace(/\r?\n\s+at\s[\s\S]*$/, '')
+        .replace(/\\r?\\n\s+at\s[\s\S]*$/, '')
+        .replace(/-{2,}\s*End of inner exception stack trace\s*-{2,}/gi, '')
+        // "For more information on this error please follow this help link https://…"
+        .replace(/For more information on this error[^.]*?https?:\/\/\S+/gi, '')
+        .trim();
+};
+
+/** @private Whitespace-insensitive form, for comparing a message against a body. */
+const normalizeForCompare = (s) => String(s).replace(/\s+/g, ' ').trim();
+
+/**
  * Build final error message
  * @private
  */
 const buildFinalMessage = (message, status, rawBody, correlationId) => {
-    let result = message;
+    const cleanMessage = stripServerNoise(message);
+    let result = cleanMessage;
 
     if (status) {
         result = `(Status ${status}) ${result}`;
     }
 
-    if (isNonEmptyStr(rawBody) && !result.includes(rawBody)) {
-        result += ` — ${rawBody}`;
+    // The body is worth appending only when it says something the message does not. A body the
+    // message was extracted from would otherwise repeat the entire payload back to the reader.
+    const cleanBody = isNonEmptyStr(rawBody) ? stripServerNoise(rawBody) : '';
+    if (cleanBody && !normalizeForCompare(cleanBody).includes(normalizeForCompare(cleanMessage))) {
+        result += ` — ${cleanBody}`;
     }
 
     if (correlationId) {
@@ -263,7 +293,7 @@ export const ErrorParser = {
             message = 'Request failed.';
         }
 
-        // Extract raw body for additional context
+        // Extract raw body for additional context; buildFinalMessage drops it when redundant.
         const rawBody = extractRawBody(e);
 
         // Build and return final message

@@ -43,6 +43,46 @@ describe('StringHelpers', () => {
         });
     });
 
+    describe('escapeXml', () => {
+        it('should escape all five XML predefined entities', () => {
+            expect(StringHelpers.escapeXml('&<>"\''))
+                .toBe('&amp;&lt;&gt;&quot;&apos;');
+        });
+
+        it('should escape ampersands so the document stays parseable', () => {
+            expect(StringHelpers.escapeXml('Smith & Sons')).toBe('Smith &amp; Sons');
+        });
+
+        it('should escape quotes, unlike escapeHtml', () => {
+            expect(StringHelpers.escapeXml('say "hi"')).toBe('say &quot;hi&quot;');
+        });
+
+        it('should escape ampersands before the entities it introduces', () => {
+            expect(StringHelpers.escapeXml('a < b')).toBe('a &lt; b');
+        });
+
+        it('should handle null and undefined', () => {
+            expect(StringHelpers.escapeXml(null)).toBe('');
+            expect(StringHelpers.escapeXml(undefined)).toBe('');
+        });
+
+        it('should convert non-string values to strings', () => {
+            expect(StringHelpers.escapeXml(123)).toBe('123');
+        });
+
+        it('should leave plain text untouched', () => {
+            expect(StringHelpers.escapeXml('accountnumber')).toBe('accountnumber');
+        });
+
+        it('should produce output that parses as XML', () => {
+            const xml = `<condition value="${StringHelpers.escapeXml('Smith & Sons <Ltd>')}" />`;
+            const doc = new DOMParser().parseFromString(xml, 'application/xml');
+
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.documentElement.getAttribute('value')).toBe('Smith & Sons <Ltd>');
+        });
+    });
+
     describe('highlightCode', () => {
         describe('JSON highlighting', () => {
             it('should highlight JSON keys', () => {

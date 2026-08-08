@@ -41,12 +41,15 @@ export const Helpers = {
     // CONSTANTS (from ODataHelpers)
     // ═══════════════════════════════════════════════════════════════════════════════
     FILTER_OPERATORS: ODataHelpers.FILTER_OPERATORS,
+    findFilterOperator: ODataHelpers.findFilterOperator.bind(ODataHelpers),
+    filterOperatorsFor: ODataHelpers.filterOperatorsFor.bind(ODataHelpers),
     GUID_REGEX: StringHelpers.GUID_REGEX,
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // STRING & HTML UTILITIES (from StringHelpers)
     // ═══════════════════════════════════════════════════════════════════════════════
     escapeHtml: StringHelpers.escapeHtml.bind(StringHelpers),
+    escapeXml: StringHelpers.escapeXml.bind(StringHelpers),
     highlightCode: StringHelpers.highlightCode.bind(StringHelpers),
     formatXml: StringHelpers.formatXml.bind(StringHelpers),
     highlightTraceMessage: StringHelpers.highlightTraceMessage.bind(StringHelpers),
@@ -123,9 +126,11 @@ export const Helpers = {
     // ═══════════════════════════════════════════════════════════════════════════════
     copyToClipboard: FileHelpers.copyToClipboard.bind(FileHelpers),
     downloadJson: FileHelpers.downloadJson.bind(FileHelpers),
+    downloadText: FileHelpers.downloadText.bind(FileHelpers),
     createFileInputElement: FileHelpers.createFileInputElement.bind(FileHelpers),
     readJsonFile: FileHelpers.readJsonFile.bind(FileHelpers),
     readTextFile: FileHelpers.readTextFile.bind(FileHelpers),
+    readBase64File: FileHelpers.readBase64File.bind(FileHelpers),
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // DOM UTILITIES (from DOMHelpers)
@@ -152,16 +157,22 @@ export const Helpers = {
 
 // Constants
 export const FILTER_OPERATORS = ODataHelpers.FILTER_OPERATORS;
+export const findFilterOperator = ODataHelpers.findFilterOperator.bind(ODataHelpers);
+export const filterOperatorsFor = ODataHelpers.filterOperatorsFor.bind(ODataHelpers);
 export const GUID_REGEX = StringHelpers.GUID_REGEX;
 
 // String utilities
 export const escapeHtml = StringHelpers.escapeHtml.bind(StringHelpers);
+export const escapeXml = StringHelpers.escapeXml.bind(StringHelpers);
 export const highlightCode = StringHelpers.highlightCode.bind(StringHelpers);
 export const formatXml = StringHelpers.formatXml.bind(StringHelpers);
 export const highlightTraceMessage = StringHelpers.highlightTraceMessage.bind(StringHelpers);
 export const createCenteredHeader = StringHelpers.createCenteredHeader.bind(StringHelpers);
 export const createExternalLink = StringHelpers.createExternalLink.bind(StringHelpers);
 export const extractGuidFromString = StringHelpers.extractGuidFromString.bind(StringHelpers);
+
+// Color utilities
+export { isValidHexColor, normalizeHexColor } from './color.helpers.js';
 
 // Validation utilities
 export const isValidGuid = ValidationHelpers.isValidGuid.bind(ValidationHelpers);
@@ -214,9 +225,11 @@ export const generateSortableTableHeaders = UIHelpers.generateSortableTableHeade
 // File utilities
 export const copyToClipboard = FileHelpers.copyToClipboard.bind(FileHelpers);
 export const downloadJson = FileHelpers.downloadJson.bind(FileHelpers);
+export const downloadText = FileHelpers.downloadText.bind(FileHelpers);
 export const createFileInputElement = FileHelpers.createFileInputElement.bind(FileHelpers);
 export const readJsonFile = FileHelpers.readJsonFile.bind(FileHelpers);
 export const readTextFile = FileHelpers.readTextFile.bind(FileHelpers);
+export const readBase64File = FileHelpers.readBase64File.bind(FileHelpers);
 
 // Performance utilities
 export const debounce = PerformanceHelpers.debounce.bind(PerformanceHelpers);
